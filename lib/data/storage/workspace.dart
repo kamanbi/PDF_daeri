@@ -21,6 +21,17 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 abstract interface class Workspace {
+  /// 저장 전 여유 공간 확인(§7.3)에 쓰는 고정 안전 버퍼. SQLite WAL 저널·
+  /// `thumbs/` 썸네일·`cache/` 렌더 캐시·파일시스템 블록 오버헤드를 흡수한다.
+  /// 전부 이 클래스가 소유하는 디렉터리의 비용이므로 여기 둔다
+  /// (2026-08-18 · spec-guardian I3 권고 · 아키텍트 승인).
+  ///
+  /// 필요 공간 산출식(`baselineBytes * 2 + spaceSafetyBufferBytes`) 자체는
+  /// `SaveOp`/`GuardInput` 의미에 의존하므로 `DocumentRepository`에 남는다 —
+  /// 상수만 여기로 옮긴다. 3주차 `pdf_compressor.dart`·편집 재저장도 같은
+  /// 사전 점검을 할 때 이 상수를 참조한다(리터럴 복사 금지).
+  static const int spaceSafetyBufferBytes = 20 * 1024 * 1024; // 20MB
+
   Future<void> ensureLayout(); // docs/ thumbs/ recent/ cache/ 생성
 
   String docDir(String docId); // <root>/docs/<docId>
@@ -31,6 +42,15 @@ abstract interface class Workspace {
   String thumb(String docId); // thumbs/<docId>.jpg
   String recentFile(String id); // recent/<id>.pdf
   String cacheFile(String key); // cache/<key>.jpg
+
+  /// [2026-08-18 신설 · N2] 스테이징(`.tmp`) 스코프의 경로 3종. 경로 조립의
+  /// 단일 소유자는 이 파일이다 — `DocumentRepository`가 `p.join`으로 스테이징
+  /// 경로를 직접 조립하지 않는다. `sourcePdf`/`sourceImage`(최종 docDir 기준)와
+  /// 파일명 규약(`src_<n>.pdf`, `pages/<NNN>.jpg`)이 정확히 대응해야 한다 —
+  /// 한쪽만 바뀌면 커밋 후 DB 경로가 실제 파일과 어긋난다.
+  String stagingDocPdf(String docId); // <root>/docs/<docId>.tmp/document.pdf
+  String stagingSourcePdf(String docId, int n); // <docId>.tmp/sources/src_<n>.pdf
+  String stagingSourceImage(String docId, int n); // <docId>.tmp/sources/pages/<NNN>.jpg
 
   /// 스테이징 디렉터리 생성. 저장은 항상 여기에 먼저 쓴다.
   /// 반환값은 스테이징 디렉터리 경로(`<root>/docs/<docId>.tmp`)다.
@@ -128,6 +148,21 @@ class AppWorkspace implements Workspace {
 
   String _stagingDir(String docId) => p.join(_docsRoot, '$docId.tmp');
   String _oldDir(String docId) => p.join(_docsRoot, '$docId.old');
+  String _stagingSourcesDir(String docId) => p.join(_stagingDir(docId), 'sources');
+
+  @override
+  String stagingDocPdf(String docId) => p.join(_stagingDir(docId), 'document.pdf');
+
+  @override
+  String stagingSourcePdf(String docId, int n) =>
+      p.join(_stagingSourcesDir(docId), 'src_$n.pdf');
+
+  @override
+  String stagingSourceImage(String docId, int n) => p.join(
+    _stagingSourcesDir(docId),
+    'pages',
+    '${n.toString().padLeft(3, '0')}.jpg',
+  );
 
   @override
   Future<String> beginStaging(String docId) async {

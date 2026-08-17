@@ -146,6 +146,38 @@ void main() {
     );
   });
 
+  test('스테이징 경로 헬퍼(N2): 최종 경로와 동일 파일명 규약, .tmp 하위를 가리킨다', () {
+    const docId = 'a1b2c3d4-uuid';
+    expect(
+      workspace.stagingDocPdf(docId),
+      p.join(tempRoot.path, 'docs', '$docId.tmp', 'document.pdf'),
+    );
+    expect(
+      workspace.stagingSourcePdf(docId, 3),
+      p.join(tempRoot.path, 'docs', '$docId.tmp', 'sources', 'src_3.pdf'),
+    );
+    expect(
+      workspace.stagingSourceImage(docId, 12),
+      p.join(tempRoot.path, 'docs', '$docId.tmp', 'sources', 'pages', '012.jpg'),
+    );
+
+    // 최종 경로와 파일명 규약이 정확히 대응해야 한다(N2 목적) — 접두사만
+    // ".tmp"인지 아닌지로 갈리고 나머지 세그먼트는 동일해야 commitStaging의
+    // rename 이후 두 경로가 같은 물리적 위치를 가리킨다.
+    expect(
+      p.relative(workspace.stagingSourcePdf(docId, 3), from: p.join(tempRoot.path, 'docs', '$docId.tmp')),
+      p.relative(workspace.sourcePdf(docId, 3), from: p.join(tempRoot.path, 'docs', docId)),
+    );
+    expect(
+      p.relative(workspace.stagingSourceImage(docId, 12), from: p.join(tempRoot.path, 'docs', '$docId.tmp')),
+      p.relative(workspace.sourceImage(docId, 12), from: p.join(tempRoot.path, 'docs', docId)),
+    );
+  });
+
+  test('spaceSafetyBufferBytes(I3): 20MB 고정값이 Workspace에 공개되어 있다', () {
+    expect(Workspace.spaceSafetyBufferBytes, 20 * 1024 * 1024);
+  });
+
   test('clearCache: cache/ 디렉터리를 비우되 다시 생성한다', () async {
     final cacheFile = File(workspace.cacheFile('key1'));
     await cacheFile.create(recursive: true);

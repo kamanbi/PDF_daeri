@@ -72,7 +72,13 @@ enum ImageQuality { high, standard, min }
 
 /// `pdfrx_engine` 기반 구현체. M0 서베이(`_workspace/03_pdf-core_m0_survey.md`) 결과에 따라 채택.
 class PdfrxPdfEngine implements PdfEngine {
-  const PdfrxPdfEngine();
+  /// [appRoot]는 앱 작업공간 루트(정규화 전 절대경로, 슬래시/백슬래시 무관). 모든 `outputPath`와
+  /// `ImagePageRef.imagePath`는 이 루트 아래 `docs/**`로 고정된다(C4 -- 1라운드 실측:
+  /// `/sdcard/Download/docs/<id>.tmp/document.pdf`나 `<root>/docs/<id>.tmp/anything.exe`가
+  /// 루트 미바인딩 상태에서 통과했다).
+  const PdfrxPdfEngine({required this.appRoot});
+
+  final String appRoot;
 
   @override
   Future<PdfResult<SaveOutcome>> save({
@@ -83,7 +89,7 @@ class PdfrxPdfEngine implements PdfEngine {
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
-    final pathError = _validateStagingPath(outputPath);
+    final pathError = _validateStagingPath(outputPath, appRoot);
     if (pathError != null) return PdfErr(pathError);
 
     // §5 #2: ImagePageRef -> 화이트리스트+파일 존재, PdfPageRef -> 파일 존재+sourceIndex 범위.
@@ -92,7 +98,7 @@ class PdfrxPdfEngine implements PdfEngine {
     for (final page in pages) {
       switch (page) {
         case ImagePageRef():
-          final wl = _validateImageWhitelist(imagePath: page.imagePath, outputPath: outputPath);
+          final wl = _validateImageWhitelist(imagePath: page.imagePath, outputPath: outputPath, appRoot: appRoot);
           if (wl != null) return PdfErr(wl);
           if (!File(page.imagePath).existsSync()) {
             return PdfErr(SourceMissing(page.imagePath));
@@ -138,7 +144,7 @@ class PdfrxPdfEngine implements PdfEngine {
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
-    final pathError = _validateStagingPath(outputPath);
+    final pathError = _validateStagingPath(outputPath, appRoot);
     if (pathError != null) return PdfErr(pathError);
 
     var baselineBytes = 0;
@@ -182,7 +188,7 @@ class PdfrxPdfEngine implements PdfEngine {
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
-    final pathError = _validateStagingPath(outputPath);
+    final pathError = _validateStagingPath(outputPath, appRoot);
     if (pathError != null) return PdfErr(pathError);
 
     if (!File(sourcePdfPath).existsSync()) {
@@ -318,34 +324,45 @@ String _collapseDotSegments(String slashPath) {
 
 String _normalize(String path) => _collapseDotSegments(path.replaceAll('\\', '/'));
 
-/// outputPath에서 `<root>/docs/<docId>.tmp/...` 형태를 파싱해 (root, docId)를 뽑는다.
-/// 형태가 아니면 null.
-({String root, String docId})? _stagingScope(String outputPath) {
+/// outputPath가 정확히 `<appRoot>/docs/<docId>.tmp/document.pdf` 형태인지 검증하고 `docId`를
+/// 뽑는다. 형태가 아니면(루트 불일치·파일명 불일치 포함) null.
+///
+/// C4(2라운드 실측): 이전 구현은 `.*`(임의 접두사) + `[^/]+`(임의 파일명)를 허용해
+/// `/sdcard/Download/docs/<id>.tmp/document.pdf`나 `<root>/docs/<id>.tmp/anything.exe`가
+/// 통과했다. 이제 [appRoot]와 정확히 일치하는 접두사, 그리고 파일명 `document.pdf`만 허용한다.
+({String docId})? _stagingScope(String outputPath, String appRoot) {
   final normalized = _normalize(outputPath);
-  final match = RegExp(r'^(.*)/docs/([^/]+)\.tmp/[^/]+$').firstMatch(normalized);
+  final normalizedRoot = _normalize(appRoot);
+  final prefix = '$normalizedRoot/docs/';
+  if (!normalized.startsWith(prefix)) return null;
+  final rest = normalized.substring(prefix.length);
+  final match = RegExp(r'^([^/]+)\.tmp/document\.pdf$').firstMatch(rest);
   if (match == null) return null;
-  return (root: match.group(1)!, docId: match.group(2)!);
+  final docId = match.group(1)!;
+  if (docId.isEmpty) return null;
+  return (docId: docId);
 }
 
-/// outputPath가 `<root>/docs/<docId>.tmp/document.pdf` 형태인지 검증한다(§2.3 계약 불변식 1).
-PdfFailure? _validateStagingPath(String outputPath) {
-  if (_stagingScope(outputPath) == null) {
-    return const UnknownFailure('outputPath must be inside a .tmp staging directory');
+/// outputPath가 `<appRoot>/docs/<docId>.tmp/document.pdf` 형태인지 검증한다(§2.3 계약 불변식 1).
+PdfFailure? _validateStagingPath(String outputPath, String appRoot) {
+  if (_stagingScope(outputPath, appRoot) == null) {
+    return const UnknownFailure('outputPath must be <appRoot>/docs/<docId>.tmp/document.pdf');
   }
   return null;
 }
 
 /// `ImagePageRef.imagePath`가 §3.3 화이트리스트 안인지 검증한다.
-/// 허용: `<root>/docs/<docId>/sources/pages/` 또는 `<root>/docs/<docId>.tmp/sources/pages/` 하위뿐
-/// (같은 저장 요청의 outputPath에서 유도한 root+docId에 바인딩 -- V2).
-PdfFailure? _validateImageWhitelist({required String imagePath, required String outputPath}) {
-  final scope = _stagingScope(outputPath);
+/// 허용: `<appRoot>/docs/<docId>/sources/pages/` 또는 `<appRoot>/docs/<docId>.tmp/sources/pages/`
+/// 하위뿐(같은 저장 요청의 outputPath에서 유도한 docId + 주입된 appRoot에 바인딩 -- V2 + C4).
+PdfFailure? _validateImageWhitelist({required String imagePath, required String outputPath, required String appRoot}) {
+  final scope = _stagingScope(outputPath, appRoot);
   if (scope == null) {
     return const UnknownFailure('image path outside sources');
   }
   final normalizedImg = _normalize(imagePath);
-  final committedPrefix = '${scope.root}/docs/${scope.docId}/sources/pages/';
-  final stagingPrefix = '${scope.root}/docs/${scope.docId}.tmp/sources/pages/';
+  final normalizedRoot = _normalize(appRoot);
+  final committedPrefix = '$normalizedRoot/docs/${scope.docId}/sources/pages/';
+  final stagingPrefix = '$normalizedRoot/docs/${scope.docId}.tmp/sources/pages/';
 
   String? matchedPrefix;
   if (normalizedImg.startsWith(committedPrefix)) {

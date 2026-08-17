@@ -14,7 +14,6 @@ library;
 import 'dart:io';
 
 import 'package:drift/drift.dart' as drift;
-import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../../core/app_error.dart';
@@ -136,6 +135,15 @@ PageRef _pageRowToRef(Page row) {
   };
 }
 
+/// `_copySourcesToStaging`의 반환값. 같은 인덱스로 나란히 만들어진 두 목록 —
+/// [stagingPages]는 `PdfEngine.save` 입력(스테이징 경로, 지금 물리적으로 존재),
+/// [finalPages]는 `commitStaging` 이후 DB에 기록할 최종 docDir 경로.
+class _CopiedSources {
+  const _CopiedSources({required this.stagingPages, required this.finalPages});
+  final List<PageRef> stagingPages;
+  final List<PageRef> finalPages;
+}
+
 class DriftDocumentRepository implements DocumentRepository {
   DriftDocumentRepository({
     required this._db,
@@ -148,25 +156,6 @@ class DriftDocumentRepository implements DocumentRepository {
   final Workspace _workspace;
   final PdfEngine _engine;
   final Uuid _uuid;
-
-  /// 설계 §7.3 "저장 전 여유 공간 확인"의 안전 여유분. `baselineBytes * 2`에 더한다.
-  ///
-  /// 근거(2026-08-18, B6 소스 복사 도입에 따른 재추정): 이번 라운드부터
-  /// `createDocument`는 저장 직전 스테이징에 (1) 원본 소스 전체를
-  /// `.tmp/sources/`로 복사하고 (2) 그 위에 `.tmp/document.pdf` 최종 산출물을
-  /// 쓴다. 두 산출물이 동시에 디스크에 존재하는 시점이 실제 최대 사용량이며,
-  /// `SaveOp`별로 `guardInput.baselineBytes`는 다음을 뜻한다(§4.2):
-  /// - `deletePages`/`reorderOrRotate`/`split`: 원본 PDF 전체 바이트
-  ///   (split도 선택 페이지만이 아니라 원본 전체 — 소스 복사도 파일 단위로
-  ///   전체를 복사하므로 정확히 일치한다)
-  /// - `merge`: 원본들의 합계 바이트 (소스 복사도 원본 전부를 복사하므로 일치)
-  ///
-  /// 즉 "복사된 소스(약 baselineBytes) + 최종 산출물(SizeGuard 한계상 최대
-  /// baselineBytes의 1.20배)"의 실제 피크는 baselineBytes * 2 근처이거나 그보다
-  /// 낮다 — 2배 계수는 이미 보수적이다. 남는 20MB는 SQLite 저널(WAL)·썸네일
-  /// 렌더 캐시·파일시스템 블록 오버헤드를 흡수하는 고정 버퍼다(설계 §7.3에
-  /// 규정된 값, 실측 전까지 고정).
-  static const int _spaceSafetyBufferBytes = 20 * 1024 * 1024; // 20MB
 
   DocumentSummary _toSummary(Document row) => DocumentSummary(
     id: row.id,
@@ -215,40 +204,48 @@ class DriftDocumentRepository implements DocumentRepository {
   }) async {
     // §7.3 "저장 전 여유 공간 확인". freeSpaceBytes()가 -1(판단 불가)이면
     // 막지 않는다 — 채널 실패를 저장 실패로 오인시키지 않기 위함(workspace.dart 참조).
-    final requiredBytes = guardInput.baselineBytes * 2 + _spaceSafetyBufferBytes;
+    //
+    // 산출식 근거(2026-08-18, B6 소스 복사 도입에 따른 재추정, I3 — 상수는
+    // Workspace 소유, 식은 SaveOp 의미에 의존하므로 여기 둔다): B6 이후
+    // `createDocument`는 스테이징에 (1) 원본 소스 전체 복사본과 (2) 최종
+    // 산출물을 동시에 담는다. `SaveOp`별 `guardInput.baselineBytes`는
+    // `deletePages`/`reorderOrRotate`/`split` = 원본 PDF 전체 바이트(split도
+    // 파일 단위로 전체를 복사하므로 일치), `merge` = 원본들의 합계 바이트다
+    // (§4.2). "복사된 소스(약 baselineBytes) + 최종 산출물(SizeGuard 한계상
+    // 최대 baselineBytes × 1.20)"의 실측 피크는 baselineBytes × 2 근처이거나
+    // 근소하게 초과할 수 있다 — 설계 §7.3에 확정된 계수를 그대로 쓰되, M1~M6
+    // 실측 후 재검토 대상으로 노트에 남겨둔다.
+    final requiredBytes = guardInput.baselineBytes * 2 + Workspace.spaceSafetyBufferBytes;
     final freeBytes = await _workspace.freeSpaceBytes();
     if (freeBytes >= 0 && freeBytes < requiredBytes) {
       return PdfErr(OutOfSpace(requiredBytes));
     }
 
     final docId = _uuid.v4();
-    String stagingDir;
     try {
-      stagingDir = await _workspace.beginStaging(docId);
+      await _workspace.beginStaging(docId);
     } catch (e) {
       return PdfErr(UnknownFailure('스테이징 생성 실패: $e'));
     }
 
     try {
-      // §7.3 2단계: 원본 소스를 .tmp/sources/ 로 복사하고, 복사된 경로를
-      // 가리키는 PageRef 목록으로 재작성한다. save()와 DB 기록 양쪽에
-      // 재작성된 목록을 쓴다 — 그래야 원본이 사라져도(recent/ 정리, ML Kit
-      // 임시파일 소멸 등) 이 문서를 나중에 재편집할 수 있다(§7.1, B6).
-      final copyResult = await _copySourcesToStaging(
-        stagingDir: stagingDir,
-        pages: pages,
-      );
-      if (copyResult is PdfErr<List<PageRef>>) {
+      // §7.3 2단계: 원본 소스를 .tmp/sources/ 로 복사한다. 경로 조립은 전부
+      // Workspace가 소유한다(N2, 2026-08-18) — 이 파일은 p.join으로 경로를
+      // 만들지 않는다. _copySourcesToStaging은 스테이징 경로(엔진 입력용)와
+      // 최종 docDir 경로(DB 기록용)를 같은 인덱스로 나란히 반환한다. 두 경로가
+      // 같은 `Workspace.stagingSourcePdf`/`sourcePdf` 쌍에서 나오므로
+      // commitStaging의 rename 이후에도 정확히 대응한다 — 별도의 문자열
+      // 치환("rebase") 단계가 필요 없다.
+      final copyResult = await _copySourcesToStaging(docId: docId, pages: pages);
+      if (copyResult is PdfErr<_CopiedSources>) {
         await _workspace.rollbackStaging(docId);
         return PdfErr(copyResult.failure);
       }
-      final stagedPages = (copyResult as PdfOk<List<PageRef>>).value;
-
-      final stagingPdfPath = p.join(stagingDir, 'document.pdf');
+      final copied = (copyResult as PdfOk<_CopiedSources>).value;
 
       final saveResult = await _engine.save(
-        pages: stagedPages,
-        outputPath: stagingPdfPath,
+        pages: copied.stagingPages,
+        outputPath: _workspace.stagingDocPdf(docId),
         quality: quality,
         guardInput: guardInput,
         onProgress: onProgress,
@@ -270,12 +267,10 @@ class DriftDocumentRepository implements DocumentRepository {
         return PdfErr(UnknownFailure('스테이징 반영 실패: $e'));
       }
 
-      // commitStaging은 .tmp 디렉터리를 최종 docDir로 원자적 rename한다.
-      // stagedPages의 경로 문자열은 여전히 커밋 전 스테이징 경로(".tmp/...")를
-      // 가리키므로, 물리적으로 옮겨간 최종 경로로 다시 써서 DB에 넣는다 —
-      // 그렇지 않으면 DB의 source_path가 더 이상 존재하지 않는 ".tmp" 경로를
-      // 가리키게 되어 재편집이 불가능해진다(B6 목표와 정면 배치).
-      final finalPages = _rebaseToFinalDocDir(stagedPages, stagingDir, _workspace.docDir(docId));
+      // commitStaging이 .tmp를 최종 docDir로 rename한 시점부터 copied.finalPages
+      // (처음부터 Workspace.sourcePdf/sourceImage로 만들어진 최종 경로)가
+      // 실제 파일 위치와 일치한다.
+      final finalPages = copied.finalPages;
 
       final now = DateTime.now().millisecondsSinceEpoch;
       try {
@@ -325,91 +320,85 @@ class DriftDocumentRepository implements DocumentRepository {
     }
   }
 
-  /// §7.3 2단계. 각 페이지의 원본 소스 파일을 `<stagingDir>/sources/`로 복사하고,
-  /// 복사된 경로를 가리키는 새 `PageRef` 목록을 반환한다.
+  /// §7.3 2단계. 각 페이지의 원본 소스 파일을 스테이징(`docId.tmp`)의
+  /// `sources/`로 복사한다. 경로는 전부 `Workspace`가 조립한다(N2,
+  /// 2026-08-18) — 이 메서드는 `p.join`을 쓰지 않는다.
+  ///
+  /// 스테이징 경로(`Workspace.stagingSourcePdf`/`stagingSourceImage`, 물리
+  /// 복사 대상이자 `PdfEngine.save` 입력)와 최종 경로(`Workspace.sourcePdf`/
+  /// `sourceImage`, DB 기록용)를 **같은 인덱스**로 나란히 만든다. 두 경로가
+  /// 같은 파일명 규약에서 나오므로 `commitStaging`의 rename 이후에도 정확히
+  /// 대응하며, 문자열 치환("rebase") 없이 최종 경로를 그대로 DB에 쓸 수 있다.
   ///
   /// 동일 원본 경로가 여러 페이지에서 참조되면(같은 PDF에서 여러 페이지를 뽑아
   /// 합치는 경우, 동일 스캔 이미지를 두 번 넣는 경우) 한 번만 복사한다.
-  Future<PdfResult<List<PageRef>>> _copySourcesToStaging({
-    required String stagingDir,
+  Future<PdfResult<_CopiedSources>> _copySourcesToStaging({
+    required String docId,
     required List<PageRef> pages,
   }) async {
-    final copiedPdfPaths = <String, String>{}; // 원본 경로 -> 스테이징 경로
-    final copiedImagePaths = <String, String>{};
+    final copiedPdfIndex = <String, int>{}; // 원본 경로 -> 배정된 소스 번호
+    final copiedImageIndex = <String, int>{};
     var nextPdfIndex = 1;
     var nextImageIndex = 1;
-    final rewritten = <PageRef>[];
+    final stagingPages = <PageRef>[];
+    final finalPages = <PageRef>[];
 
     for (final page in pages) {
       switch (page) {
         case PdfPageRef(:final sourcePath, :final sourceIndex, :final rotation):
-          var newPath = copiedPdfPaths[sourcePath];
-          if (newPath == null) {
+          var n = copiedPdfIndex[sourcePath];
+          if (n == null) {
             final srcFile = File(sourcePath);
             if (!await srcFile.exists()) {
               return PdfErr(SourceMissing(sourcePath));
             }
-            newPath = p.join(stagingDir, 'sources', 'src_${nextPdfIndex++}.pdf');
+            n = nextPdfIndex++;
             try {
-              await srcFile.copy(newPath);
+              await srcFile.copy(_workspace.stagingSourcePdf(docId, n));
             } catch (e) {
               return PdfErr(UnknownFailure('소스 PDF 복사 실패: $sourcePath ($e)'));
             }
-            copiedPdfPaths[sourcePath] = newPath;
+            copiedPdfIndex[sourcePath] = n;
           }
-          rewritten.add(PdfPageRef(sourcePath: newPath, sourceIndex: sourceIndex, rotation: rotation));
+          stagingPages.add(
+            PdfPageRef(
+              sourcePath: _workspace.stagingSourcePdf(docId, n),
+              sourceIndex: sourceIndex,
+              rotation: rotation,
+            ),
+          );
+          finalPages.add(
+            PdfPageRef(
+              sourcePath: _workspace.sourcePdf(docId, n),
+              sourceIndex: sourceIndex,
+              rotation: rotation,
+            ),
+          );
         case ImagePageRef(:final imagePath, :final rotation):
-          var newPath = copiedImagePaths[imagePath];
-          if (newPath == null) {
+          var n = copiedImageIndex[imagePath];
+          if (n == null) {
             final srcFile = File(imagePath);
             if (!await srcFile.exists()) {
               return PdfErr(SourceMissing(imagePath));
             }
-            final n = nextImageIndex++;
-            newPath = p.join(stagingDir, 'sources', 'pages', '${n.toString().padLeft(3, '0')}.jpg');
+            n = nextImageIndex++;
             try {
-              await srcFile.copy(newPath);
+              await srcFile.copy(_workspace.stagingSourceImage(docId, n));
             } catch (e) {
               return PdfErr(UnknownFailure('소스 이미지 복사 실패: $imagePath ($e)'));
             }
-            copiedImagePaths[imagePath] = newPath;
+            copiedImageIndex[imagePath] = n;
           }
-          rewritten.add(ImagePageRef(imagePath: newPath, rotation: rotation));
+          stagingPages.add(
+            ImagePageRef(imagePath: _workspace.stagingSourceImage(docId, n), rotation: rotation),
+          );
+          finalPages.add(
+            ImagePageRef(imagePath: _workspace.sourceImage(docId, n), rotation: rotation),
+          );
       }
     }
 
-    return PdfOk(rewritten);
-  }
-
-  /// `commitStaging` 이후 호출한다. [pages]의 각 소스 경로가 여전히 스테이징
-  /// 경로([stagingDir], `.tmp` 하위)를 가리키므로, rename으로 실제 옮겨간
-  /// 최종 위치([finalDocDir])를 가리키도록 접두사만 치환한다. 파일을 다시
-  /// 복사하지 않는다 — commitStaging의 rename이 이미 물리적으로 옮겨 놓았다.
-  List<PageRef> _rebaseToFinalDocDir(
-    List<PageRef> pages,
-    String stagingDir,
-    String finalDocDir,
-  ) {
-    String rebase(String path) {
-      if (!path.startsWith(stagingDir)) return path;
-      return finalDocDir + path.substring(stagingDir.length);
-    }
-
-    return pages
-        .map(
-          (page) => switch (page) {
-            PdfPageRef(:final sourcePath, :final sourceIndex, :final rotation) => PdfPageRef(
-              sourcePath: rebase(sourcePath),
-              sourceIndex: sourceIndex,
-              rotation: rotation,
-            ),
-            ImagePageRef(:final imagePath, :final rotation) => ImagePageRef(
-              imagePath: rebase(imagePath),
-              rotation: rotation,
-            ),
-          },
-        )
-        .toList();
+    return PdfOk(_CopiedSources(stagingPages: stagingPages, finalPages: finalPages));
   }
 
   Future<void> _deleteDocDirIfExists(String docId) async {

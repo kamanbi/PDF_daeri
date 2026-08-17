@@ -63,6 +63,53 @@ class _StubPdfEngine implements PdfEngine {
       throw UnimplementedError();
 }
 
+/// [B2 2026-08-18] `freeSpaceBytes()`만 고정값으로 바꾸는 얇은 위임 데코레이터.
+/// 나머지 전부(파일 시스템 동작)는 실제 `AppWorkspace`(실제 임시 디렉터리)에
+/// 위임한다 — `MethodChannel`을 모킹하지 않고도 `OutOfSpace` 분기를
+/// 결정적으로 재현할 수 있다(spec-guardian N1 권고: "Workspace를 스텁으로").
+class _FixedFreeSpaceWorkspace implements Workspace {
+  _FixedFreeSpaceWorkspace(this._inner, this._freeBytes);
+
+  final Workspace _inner;
+  final int _freeBytes;
+
+  @override
+  Future<int> freeSpaceBytes() async => _freeBytes;
+
+  @override
+  Future<void> ensureLayout() => _inner.ensureLayout();
+  @override
+  String docDir(String docId) => _inner.docDir(docId);
+  @override
+  String docPdf(String docId) => _inner.docPdf(docId);
+  @override
+  String sourcesDir(String docId) => _inner.sourcesDir(docId);
+  @override
+  String sourcePdf(String docId, int n) => _inner.sourcePdf(docId, n);
+  @override
+  String sourceImage(String docId, int n) => _inner.sourceImage(docId, n);
+  @override
+  String stagingDocPdf(String docId) => _inner.stagingDocPdf(docId);
+  @override
+  String stagingSourcePdf(String docId, int n) => _inner.stagingSourcePdf(docId, n);
+  @override
+  String stagingSourceImage(String docId, int n) => _inner.stagingSourceImage(docId, n);
+  @override
+  String thumb(String docId) => _inner.thumb(docId);
+  @override
+  String recentFile(String id) => _inner.recentFile(id);
+  @override
+  String cacheFile(String key) => _inner.cacheFile(key);
+  @override
+  Future<String> beginStaging(String docId) => _inner.beginStaging(docId);
+  @override
+  Future<void> commitStaging(String docId) => _inner.commitStaging(docId);
+  @override
+  Future<void> rollbackStaging(String docId) => _inner.rollbackStaging(docId);
+  @override
+  Future<void> clearCache() => _inner.clearCache();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -268,6 +315,108 @@ void main() {
       expect(result, isA<PdfOk<DocumentSummary>>());
       final docId = (result as PdfOk<DocumentSummary>).value.id;
       expect(await File(workspace.sourceImage(docId, 1)).exists(), isTrue);
+    });
+  });
+
+  group('B2 회귀: 공간 부족 시 OutOfSpace로 실패하고 스테이징이 시작되지 않는다', () {
+    test('freeSpaceBytes()가 필요량보다 작으면 OutOfSpace 반환, docs/ 는 그대로 비어 있다', () async {
+      const baseline = 1000;
+      // 필요량 = baseline*2 + 20MB. 20MB보다 훨씬 작은 값을 줘서 확실히 미달시킨다.
+      final tinyFreeSpace = _FixedFreeSpaceWorkspace(workspace, 1024);
+
+      final repo = DriftDocumentRepository(
+        db: db,
+        workspace: tinyFreeSpace,
+        // save()가 호출되면 안 된다 — 여유 공간 확인은 beginStaging보다도 앞선다.
+        engine: _StubPdfEngine(() => throw StateError('엔진이 호출되면 안 된다')),
+      );
+
+      final result = await repo.createDocument(
+        title: '테스트 문서',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: baseline),
+      );
+
+      expect(result, isA<PdfErr<DocumentSummary>>());
+      final failure = (result as PdfErr<DocumentSummary>).failure;
+      expect(failure, isA<OutOfSpace>(), reason: '무음 실패가 아니라 사용자에게 도달하는 PdfErr(OutOfSpace)여야 한다');
+      expect(
+        (failure as OutOfSpace).requiredBytes,
+        baseline * 2 + Workspace.spaceSafetyBufferBytes,
+        reason: '필요 바이트 산출식(baseline*2 + 20MB)이 에러에 그대로 실려야 한다',
+      );
+
+      // beginStaging 자체가 호출되지 않아야 한다 — docs/ 에 아무 흔적도 없다.
+      final docsDir = Directory(p.join(tempRoot.path, 'docs'));
+      expect(await docsDir.list().toList(), isEmpty);
+
+      final rows = await db.select(db.documents).get();
+      expect(rows, isEmpty);
+    });
+
+    test('freeSpaceBytes()가 충분하면 막지 않는다(양성 대조)', () async {
+      const baseline = 1000;
+      final plentySpace = _FixedFreeSpaceWorkspace(
+        workspace,
+        baseline * 2 + Workspace.spaceSafetyBufferBytes + 1, // 정확히 1바이트 여유
+      );
+
+      final repo = DriftDocumentRepository(
+        db: db,
+        workspace: plentySpace,
+        engine: _StubPdfEngine(
+          () => const PdfOk(
+            SaveOutcome(
+              outputPath: '',
+              bytes: 10,
+              pageCount: 1,
+              guard: GuardPass(resultBytes: 10, limitBytes: 999),
+            ),
+          ),
+        ),
+      );
+
+      final result = await repo.createDocument(
+        title: '테스트 문서',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: baseline),
+      );
+
+      expect(result, isA<PdfOk<DocumentSummary>>());
+    });
+
+    test('freeSpaceBytes()가 -1(판단 불가)이면 막지 않는다', () async {
+      const baseline = 1000;
+      final unknownSpace = _FixedFreeSpaceWorkspace(workspace, -1);
+
+      final repo = DriftDocumentRepository(
+        db: db,
+        workspace: unknownSpace,
+        engine: _StubPdfEngine(
+          () => const PdfOk(
+            SaveOutcome(
+              outputPath: '',
+              bytes: 10,
+              pageCount: 1,
+              guard: GuardPass(resultBytes: 10, limitBytes: 999),
+            ),
+          ),
+        ),
+      );
+
+      final result = await repo.createDocument(
+        title: '테스트 문서',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: baseline),
+      );
+
+      expect(result, isA<PdfOk<DocumentSummary>>());
     });
   });
 }

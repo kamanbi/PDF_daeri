@@ -204,4 +204,26 @@ void main() {
       });
     }
   });
+
+  // I2 (07_spec-guardian_report_r2.md): ImagePdfBuilder.build()는 SizeGuard를 거치지 않는 두 번째
+  // PDF 바이트 생산자다. 호출부가 lib/pdf/**(엔진 내부) 밖으로 새면, 화면·Repository가
+  // 엔진을 우회해 직접 PDF 바이트를 만들어 저장하는 경로가 생긴다 -- 그 경로는 게이트를
+  // 거치지 않는다. lib/pdf/** 안에서만 참조를 허용해 우회로를 원천 차단한다.
+  group('§3.4-11 : ImagePdfBuilder.build( 참조는 lib/pdf/** 안에서만 허용한다', () {
+    test('lib/pdf/** 밖에서 ImagePdfBuilder.build( 를 호출하지 않는다', () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        final normalized = file.path.replaceAll('\\', '/');
+        if (normalized.contains('/lib/pdf/')) continue;
+        if (file.readAsStringSync().contains('ImagePdfBuilder.build(')) {
+          violations.add(file.path);
+        }
+      }
+      expect(
+        violations,
+        isEmpty,
+        reason: 'lib/pdf/** 밖에서 ImagePdfBuilder.build( 호출: $violations -- SizeGuard를 우회하는 두 번째 저장 경로다',
+      );
+    });
+  });
 }

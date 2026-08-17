@@ -260,7 +260,7 @@ class PdfrxPdfEngine implements PdfEngine {
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
-    final resultMap = await runSaveInIsolate(
+    final resultMap = await runSave(
       pages: pages.map((p) => p.toMap()).toList(growable: false),
       outputPath: outputPath,
       longEdgeMaxPx: longEdgeMaxPx,

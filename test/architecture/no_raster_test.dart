@@ -226,4 +226,49 @@ void main() {
       );
     });
   });
+
+  group('§3.4-12 : dart:isolate를 import하는 파일과 pdfrx를 import하는 파일의 교집은 공집이다', () {
+    test('같은 파일이 dart:isolate와 pdfrx를 동시에 import하지 않는다', () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        final source = file.readAsStringSync();
+        final importsIsolate = source.contains("import 'dart:isolate'");
+        final importsPdfrx = source.contains("import 'package:pdfrx");
+        if (importsIsolate && importsPdfrx) {
+          violations.add(file.path);
+        }
+      }
+      expect(violations, isEmpty, reason: 'dart:isolate와 pdfrx를 함께 import한 파일: $violations -- 같은 프로세스에서 pdfrx를 건드는 isolate가 둘이 되면 VM이 죽는다');
+    });
+  });
+
+  group('§3.4-13 : Isolate.spawn( 호출부는 이미지 인코딩 워커 파일 하나에만 있다', () {
+    test('lib/pdf/**에서 Isolate.spawn(이 image_encode_isolate.dart에만 있다', () {
+      final callers = <String>[];
+      for (final file in _dartFilesUnder('lib/pdf')) {
+        if (file.readAsStringSync().contains('Isolate.spawn(')) {
+          callers.add(file.path.replaceAll('\\', '/'));
+        }
+      }
+      expect(callers.length, 1, reason: 'Isolate.spawn( 호출부가 정확히 1개여야 한다(실측: $callers)');
+      expect(
+        callers.single.endsWith('image_encode_isolate.dart'),
+        isTrue,
+        reason: 'Isolate.spawn(이 image_encode_isolate.dart 밖에서 호출됨: $callers -- PDF를 만지는 파일이 새 isolate를 스폰하면 안 된다',
+      );
+    });
+  });
+
+  group('§3.4-14 : stopBackgroundWorker를 호출하지 않는다', () {
+    test("lib/ 전체에 'stopBackgroundWorker' 문자열이 0회다", () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        if (file.readAsStringSync().contains('stopBackgroundWorker')) {
+          violations.add(file.path);
+        }
+      }
+      expect(violations, isEmpty, reason: 'stopBackgroundWorker 호출 발견: $violations -- 살아있는 문서 핸들이 있으면 UB다(FPDF_DestroyLibrary)');
+    });
+  });
+
 }

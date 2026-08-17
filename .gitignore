@@ -85,3 +85,6 @@ _workspace_*/
 
 # 테스트 픽스처 중 대용량 PDF (필요한 것만 -f 로 추가)
 test/fixtures/large/
+
+# 테스트 픽스처 대용량 파일
+test/fixtures/

@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────
+# 비밀값 — 절대 커밋 금지
+# 실제 키는 F:\keys\PDF_대리 에 보관한다 (리포지토리 밖)
+# ─────────────────────────────────────────────
+*.jks
+*.keystore
+key.properties
+android/key.properties
+.env
+.env.*
+!.env.example
+google-services.json
+android/app/google-services.json
+service-account*.json
+
+# ─────────────────────────────────────────────
+# Flutter / Dart
+# ─────────────────────────────────────────────
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+doc/api/
+*.dart.js
+*.info.json
+*.js_
+*.js.deps
+*.js.map
+coverage/
+
+# pubspec.lock 은 앱이므로 커밋한다 (의존성 버전 고정)
+
+# ─────────────────────────────────────────────
+# Android
+# ─────────────────────────────────────────────
+android/.gradle/
+android/gradle/
+android/gradlew
+android/gradlew.bat
+android/captures/
+android/local.properties
+android/.idea/
+android/app/debug/
+android/app/profile/
+android/app/release/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+.cxx/
+
+# ─────────────────────────────────────────────
+# IDE / 에디터
+# ─────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+*.swp
+*~
+
+# ─────────────────────────────────────────────
+# OS
+# ─────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ─────────────────────────────────────────────
+# 작업 산출물 (로컬 보존, 커밋 제외)
+# ─────────────────────────────────────────────
+_workspace/
+_workspace_*/
+.omc/
+
+# 테스트 픽스처 중 대용량 PDF (필요한 것만 -f 로 추가)
+test/fixtures/large/

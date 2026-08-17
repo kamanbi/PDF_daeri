@@ -111,7 +111,7 @@ description: "PDF 앱(뷰어·스캐너·정리 도구) 개발 에이전트 팀�
 
 ## 비밀값 취급
 
-키·서명 자료는 `F:\keys\PDF_대리`에 있다 (`.env`, `release.jks`).
+키·서명 자료는 `F:\keys\PDF_daeri`에 있다 (`.env`, `release.jks`).
 리포지토리에 복사하지 않는다. 값을 로그·리포트에 출력하지 않는다(`설정됨`/`미설정`만). 서명 빌드 시 `key.properties`가 외부 경로를 참조하게 하고 `.gitignore`를 먼저 확인한다. 개발 중에는 AdMob 테스트 광고 단위 ID를 쓴다.
 
 ## 데이터 흐름

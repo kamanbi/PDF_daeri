@@ -18,9 +18,9 @@ description: "빌드·테스트 실행과 1주차 기술 검증 실측 절차. f
 
 의심스러우면 실행하지 말고 묻는다. 실행하지 않은 것은 되돌릴 수 있지만, 설치·배포된 것은 되돌릴 수 없다.
 
-## 1. 비밀값 취급 (`F:\keys\PDF_대리`)
+## 1. 비밀값 취급 (`F:\keys\PDF_daeri`)
 
-키·서명 자료·광고 및 결제 ID는 **리포지토리 밖의 `F:\keys\PDF_대리`에 보관**한다.
+키·서명 자료·광고 및 결제 ID는 **리포지토리 밖의 `F:\keys\PDF_daeri`에 보관**한다.
 
 | 파일 | 용도 |
 |---|---|
@@ -32,7 +32,7 @@ description: "빌드·테스트 실행과 1주차 기술 검증 실측 절차. f
 1. **비밀값을 절대 리포지토리에 복사하지 않는다.** `.jks`, `.env`, `key.properties`, `google-services.json`은 프로젝트 안에 두지 않는다.
 2. **비밀값을 화면·로그·리포트에 출력하지 않는다.** 필요한 것은 "키가 존재하는가"이지 "키가 무엇인가"가 아니다. 값 대신 `설정됨 / 미설정`으로 보고한다.
 3. **읽어야 할 때만 읽는다.** 서명 빌드나 ID 주입이 실제로 필요한 시점에만 접근하고, 확인 목적의 전체 출력(`cat .env`)은 하지 않는다.
-4. **주입은 참조로 한다.** `android/key.properties`는 `.gitignore`에 넣고 `storeFile`이 `F:\keys\PDF_대리\release.jks`를 가리키게 한다. 광고·결제 ID는 `--dart-define` 또는 빌드 시 주입을 쓴다.
+4. **주입은 참조로 한다.** `android/key.properties`는 `.gitignore`에 넣고 `storeFile`이 `F:\keys\PDF_daeri\release.jks`를 가리키게 한다. 광고·결제 ID는 `--dart-define` 또는 빌드 시 주입을 쓴다.
 5. **`.gitignore` 확인이 서명 빌드의 선행 조건이다.** `*.jks`, `key.properties`, `.env`, `local.properties`가 무시 목록에 없으면 빌드 전에 추가한다.
 6. 테스트·개발 중에는 **AdMob 테스트 광고 단위 ID**를 사용한다. 실 단위 ID로 자기 광고를 클릭하면 계정이 정지된다.
 7. 키를 분실하면 Play 스토어 업데이트가 불가능하다. `release.jks`를 이동·덮어쓰기·삭제하지 않는다.

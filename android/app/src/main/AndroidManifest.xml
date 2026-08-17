@@ -24,6 +24,15 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- CLAUDE.md "인텐트 필터" — 카카오톡·메일·드라이브에서 PDF를 탭했을 때
+                 이 앱이 후보로 뜨게 한다. 유일한 무료 유입 채널(v1 필수).
+                 전달받은 content:// URI는 앱 작업공간 복사본으로만 처리한다(saf_import.dart, W6 예정). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:mimeType="application/pdf"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

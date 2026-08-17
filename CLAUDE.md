@@ -114,7 +114,7 @@ lib/
 
 ## 키·비밀값
 
-주요 키와 보안 관련 ID는 **`F:\keys\PDF_대리`** 에 보관한다 (`.env` = 광고·결제 ID, `release.jks` = 릴리스 서명 키).
+주요 키와 보안 관련 ID는 **`F:\keys\PDF_daeri`** 에 보관한다 (`.env` = 광고·결제 ID, `release.jks` = 릴리스 서명 키).
 
 - 리포지토리에 복사하지 않는다. `*.jks`, `key.properties`, `.env`, `local.properties`는 `.gitignore`에 유지
 - 값을 화면·로그·리포트에 출력하지 않는다. `설정됨 / 미설정`으로만 보고
@@ -142,5 +142,5 @@ lib/
 | 2026-08-17 | 설계/코딩/빌드 모델 분리, `pdf-architect` 신설 | agents/*, orchestrator | 설계 opus·코딩 sonnet·빌드 haiku 방침 |
 | 2026-08-17 | 모델 배정 사용자 승인 규칙 추가 | orchestrator, CLAUDE.md | 모델 임의 고정 금지 요청 |
 | 2026-08-17 | QC 검사 계획 승인 프로토콜 추가 | agents/spec-guardian, skills/spec-invariant-audit | 검사 방법 사전 확인 요청 |
-| 2026-08-17 | 비밀값 취급 규칙 추가 (`F:\keys\PDF_대리`) | CLAUDE.md, agents/build-runner, platform-integration | 키·서명 자료 외부 보관 |
+| 2026-08-17 | 비밀값 취급 규칙 추가 (`F:\keys\PDF_daeri`) | CLAUDE.md, agents/build-runner, platform-integration | 키·서명 자료 외부 보관 |
 | 2026-08-17 | 검증=opus 확정, QC=모듈별 점진 검증 확정, QC 1라운드=설계 산출물 | orchestrator, spec-invariant-audit, CLAUDE.md | 사용자 승인 |

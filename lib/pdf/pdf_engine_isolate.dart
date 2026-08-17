@@ -6,18 +6,26 @@
 ///
 /// PDFium의 화면 표시용 비트맵 생성 API는 이 파일에서 호출하지 않는다.
 /// 페이지는 오직 `FPDF_ImportPagesByIndex`(→ `PdfDocument.pages` setter)로 객체째 복사되거나,
-/// JPEG 원본 바이트 그대로 `PdfDocument.createFromJpegData`로 임베드된다.
+/// JPEG 바이트 그대로 `PdfDocument.createFromJpegData`로 임베드된다.
+///
+/// 2-키 분리(아키텍트 판정 Q-A): 이 파일은 PDF 문서·페이지 객체만 쥔다. 이미지 디코드/인코드
+/// API(`package:image`, `package:pdf/`)는 이 파일에 절대 들이지 않는다 — 그 일은
+/// `image_pdf_builder.dart`(`Uint8List` 경계)에 전담시킨다. 두 파일 중 어느 쪽도 단독으로
+/// "PDF 페이지 → 비트맵 → 이미지 페이지"를 완성할 수 없다.
+///
+/// `Directory` API는 이 파일에서 쓰지 않는다(§2.3 불변식 5) — 실패 시 자신이 쓴 출력 파일 하나만
+/// 지운다. 스테이징 디렉터리 삭제는 `Workspace.rollbackStaging`의 단독 책임이다(Q-D).
 library;
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:pdfrx_engine/pdfrx_engine.dart' as pdfrx;
 
 import '../core/cancel_token.dart';
 import '../core/progress.dart';
+import 'image_pdf_builder.dart';
 import 'page_ref.dart';
 
 /// 워커 스폰 시 전달하는 인자. 전부 원시 타입/Map — isolate 경계를 넘긴다(§8.2).
@@ -26,6 +34,8 @@ class SaveIsolateArgs {
   const SaveIsolateArgs({
     required this.pages,
     required this.outputPath,
+    required this.longEdgeMaxPx,
+    required this.jpegQuality,
     required this.resultSendPort,
     required this.progressSendPort,
     required this.readySendPort,
@@ -36,6 +46,11 @@ class SaveIsolateArgs {
 
   /// 반드시 `.tmp` 스테이징 경로. 검증은 `pdf_engine.dart`가 스폰 전에 수행한다.
   final String outputPath;
+
+  /// `ImagePageRef` 임베드 시 적용할 프리셋(§8.2 `SaveRequest` 필드 배선). `PdfPageRef`에는
+  /// 영향 없다(A-2).
+  final int longEdgeMaxPx;
+  final int jpegQuality;
 
   final SendPort resultSendPort;
   final SendPort progressSendPort;
@@ -78,7 +93,7 @@ Future<void> pdfEngineIsolateEntryPoint(SaveIsolateArgs args) async {
     for (var i = 0; i < args.pages.length; i++) {
       if (cancelled) {
         args.resultSendPort.send({'error': 'cancelled'});
-        await _deleteStagingDir(args.outputPath);
+        await _deleteOutputFileIfExists(args.outputPath);
         return;
       }
 
@@ -118,20 +133,27 @@ Future<void> pdfEngineIsolateEntryPoint(SaveIsolateArgs args) async {
             args.resultSendPort.send({'error': 'missing', 'detail': pageRef.imagePath});
             return;
           }
-          // 원본 JPEG 바이트를 그대로 임베드한다. 재인코딩·품질 프리셋은 이 지점에서 하지 않는다
-          // — 설계 질의 참조(pdf-core 노트). 무손실 방향의 안전한 기본값이다.
-          final bytes = await File(pageRef.imagePath).readAsBytes();
-          final dims = _jpegPixelSize(bytes);
-          if (dims == null) {
-            args.resultSendPort.send({'error': 'corrupted', 'detail': '${pageRef.imagePath}: not a valid JPEG'});
+          // A-3: 마스터 바이트(sources/pages/NNN.jpg)를 그대로 읽는다. 인코딩 결과는
+          // 어디에도 쓰지 않고 곧바로 임베드한 뒤 폐기한다 -- 세대 손실이 누적되지 않는다.
+          final masterBytes = await File(pageRef.imagePath).readAsBytes();
+          final box = ImagePdfBuilder.pageBoxFor(masterBytes);
+          final embedBytes = ImagePdfBuilder.encodeForEmbed(
+            masterBytes,
+            longEdgeMaxPx: args.longEdgeMaxPx,
+            jpegQuality: args.jpegQuality,
+          );
+          final pdfrx.PdfDocument imgDoc;
+          try {
+            imgDoc = await pdfrx.PdfDocument.createFromJpegData(
+              embedBytes,
+              width: box.$1,
+              height: box.$2,
+              sourceName: 'memory:img$i',
+            );
+          } catch (e) {
+            args.resultSendPort.send({'error': 'corrupted', 'detail': '${pageRef.imagePath}: $e'});
             return;
           }
-          final imgDoc = await pdfrx.PdfDocument.createFromJpegData(
-            bytes,
-            width: dims.$1.toDouble(),
-            height: dims.$2.toDouble(),
-            sourceName: 'memory:img$i',
-          );
           openedImageDocs.add(imgDoc);
           sourcePage = imgDoc.pages.first;
       }
@@ -148,7 +170,7 @@ Future<void> pdfEngineIsolateEntryPoint(SaveIsolateArgs args) async {
 
     if (cancelled) {
       args.resultSendPort.send({'error': 'cancelled'});
-      await _deleteStagingDir(args.outputPath);
+      await _deleteOutputFileIfExists(args.outputPath);
       return;
     }
 
@@ -177,41 +199,17 @@ Future<void> pdfEngineIsolateEntryPoint(SaveIsolateArgs args) async {
   }
 }
 
-Future<void> _deleteStagingDir(String outputPath) async {
+/// 실패 시 정리 범위는 **자신이 쓴 출력 파일 하나뿐**이다(§2.3 불변식 3 개정, Q-D).
+/// 디렉터리는 어떤 경우에도 건드리지 않는다 — `Workspace.rollbackStaging`의 단독 책임이다.
+Future<void> _deleteOutputFileIfExists(String outputPath) async {
   try {
-    final dir = File(outputPath).parent;
-    if (dir.existsSync()) {
-      await dir.delete(recursive: true);
+    final file = File(outputPath);
+    if (file.existsSync()) {
+      await file.delete();
     }
   } catch (_) {
     // 최선 노력. 상위(Repository)가 Workspace.rollbackStaging으로 다시 정리한다.
   }
-}
-
-/// JPEG SOF 마커에서 픽셀 폭·높이를 읽는다. `package:image` 의존 없이 순수 바이너리 파싱.
-///
-/// [실측 필요]: 반환된 픽셀 값을 PDF 포인트(1/72inch)로 그대로 사용한다(1px = 1pt 가정).
-/// 실제 스캔 DPI 기준 물리 크기 변환은 이 라운드에서 확정되지 않았다 — 설계 질의 참조.
-(int, int)? _jpegPixelSize(Uint8List bytes) {
-  if (bytes.length < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) return null;
-  var i = 2;
-  while (i + 9 < bytes.length) {
-    if (bytes[i] != 0xFF) {
-      i++;
-      continue;
-    }
-    final marker = bytes[i + 1];
-    // SOF0..SOF15 except DHT(0xC4)/JPG(0xC8)/DAC(0xCC) carry width/height.
-    final isSof = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
-    if (isSof) {
-      final height = (bytes[i + 5] << 8) | bytes[i + 6];
-      final width = (bytes[i + 7] << 8) | bytes[i + 8];
-      return (width, height);
-    }
-    final segmentLength = (bytes[i + 2] << 8) | bytes[i + 3];
-    i += 2 + segmentLength;
-  }
-  return null;
 }
 
 /// `pdf_engine.dart`에서 호출하는 메인 진입점. isolate 스폰·3포트 배선(§8.3)을 전부 이 함수 안에
@@ -222,6 +220,8 @@ Future<void> _deleteStagingDir(String outputPath) async {
 Future<Map<String, Object?>> runSaveInIsolate({
   required List<Map<String, Object?>> pages,
   required String outputPath,
+  required int longEdgeMaxPx,
+  required int jpegQuality,
   void Function(PdfProgress progress)? onProgress,
   CancelToken? cancelToken,
 }) async {
@@ -240,6 +240,8 @@ Future<Map<String, Object?>> runSaveInIsolate({
       SaveIsolateArgs(
         pages: pages,
         outputPath: outputPath,
+        longEdgeMaxPx: longEdgeMaxPx,
+        jpegQuality: jpegQuality,
         resultSendPort: resultPort.sendPort,
         progressSendPort: progressPort.sendPort,
         readySendPort: readyPort.sendPort,

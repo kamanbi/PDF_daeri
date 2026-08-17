@@ -11,6 +11,7 @@ import '../core/app_error.dart';
 import '../core/cancel_token.dart';
 import '../core/progress.dart';
 import '../core/size_guard.dart';
+import 'image_pdf_builder.dart';
 import 'page_ref.dart';
 import 'pdf_engine_isolate.dart';
 
@@ -85,17 +86,46 @@ class PdfrxPdfEngine implements PdfEngine {
     final pathError = _validateStagingPath(outputPath);
     if (pathError != null) return PdfErr(pathError);
 
+    // §5 #2: ImagePageRef -> 화이트리스트+파일 존재, PdfPageRef -> 파일 존재+sourceIndex 범위.
+    // sealed switch로 두 케이스를 전부 명시한다(B1 -- is 분기로 우회하지 않는다, default/_ 금지).
+    final inspectedCounts = <String, int>{};
     for (final page in pages) {
-      if (page is ImagePageRef) {
-        final wl = _validateImageWhitelist(page.imagePath);
-        if (wl != null) return PdfErr(wl);
+      switch (page) {
+        case ImagePageRef():
+          final wl = _validateImageWhitelist(imagePath: page.imagePath, outputPath: outputPath);
+          if (wl != null) return PdfErr(wl);
+          if (!File(page.imagePath).existsSync()) {
+            return PdfErr(SourceMissing(page.imagePath));
+          }
+        case PdfPageRef():
+          if (!File(page.sourcePath).existsSync()) {
+            return PdfErr(SourceMissing(page.sourcePath));
+          }
+          var count = inspectedCounts[page.sourcePath];
+          if (count == null) {
+            final infoResult = await inspect(page.sourcePath);
+            switch (infoResult) {
+              case PdfErr<PdfDocInfo>():
+                return PdfErr(infoResult.failure);
+              case PdfOk<PdfDocInfo>():
+                if (infoResult.value.isEncrypted) return PdfErr(SourceEncrypted(page.sourcePath));
+                count = infoResult.value.pageCount;
+                inspectedCounts[page.sourcePath] = count;
+            }
+          }
+          if (page.sourceIndex < 0 || page.sourceIndex >= count) {
+            return PdfErr(UnknownFailure('sourceIndex out of range: ${page.sourcePath}[${page.sourceIndex}]'));
+          }
       }
     }
 
+    final preset = _presetFor(quality);
     return _composeAndSave(
       pages: pages,
       outputPath: outputPath,
       guardInput: guardInput,
+      longEdgeMaxPx: preset.$1,
+      jpegQuality: preset.$2,
       onProgress: onProgress,
       cancelToken: cancelToken,
     );
@@ -131,11 +161,14 @@ class PdfrxPdfEngine implements PdfEngine {
       }
     }
 
+    // merge/split은 PdfPageRef만 생성한다(A-6) -- quality는 쓰이지 않으므로 상수 참조만 넘긴다.
     final guardInput = GuardInput(op: SaveOp.merge, baselineBytes: baselineBytes);
     return _composeAndSave(
       pages: pages,
       outputPath: outputPath,
       guardInput: guardInput,
+      longEdgeMaxPx: ImagePdfBuilder.standardLongEdgeMaxPx,
+      jpegQuality: ImagePdfBuilder.standardJpegQuality,
       onProgress: onProgress,
       cancelToken: cancelToken,
     );
@@ -182,6 +215,8 @@ class PdfrxPdfEngine implements PdfEngine {
       pages: pages,
       outputPath: outputPath,
       guardInput: guardInput,
+      longEdgeMaxPx: ImagePdfBuilder.standardLongEdgeMaxPx,
+      jpegQuality: ImagePdfBuilder.standardJpegQuality,
       onProgress: onProgress,
       cancelToken: cancelToken,
     );
@@ -202,16 +237,28 @@ class PdfrxPdfEngine implements PdfEngine {
     return PdfErr(_failureFromErrorMap(map));
   }
 
+  /// [quality] -> (longEdgeMaxPx, jpegQuality). 리터럴 숫자는 여기 없다 -- `image_pdf_builder.dart`의
+  /// 프리셋 상수를 참조만 한다(A-1, §3.4 검사 9).
+  (int, int) _presetFor(ImageQuality quality) => switch (quality) {
+    ImageQuality.high => (ImagePdfBuilder.highLongEdgeMaxPx, ImagePdfBuilder.highJpegQuality),
+    ImageQuality.standard => (ImagePdfBuilder.standardLongEdgeMaxPx, ImagePdfBuilder.standardJpegQuality),
+    ImageQuality.min => (ImagePdfBuilder.minLongEdgeMaxPx, ImagePdfBuilder.minJpegQuality),
+  };
+
   Future<PdfResult<SaveOutcome>> _composeAndSave({
     required List<PageRef> pages,
     required String outputPath,
     required GuardInput guardInput,
+    required int longEdgeMaxPx,
+    required int jpegQuality,
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
     final resultMap = await runSaveInIsolate(
       pages: pages.map((p) => p.toMap()).toList(growable: false),
       outputPath: outputPath,
+      longEdgeMaxPx: longEdgeMaxPx,
+      jpegQuality: jpegQuality,
       onProgress: onProgress,
       cancelToken: cancelToken,
     );
@@ -226,6 +273,7 @@ class PdfrxPdfEngine implements PdfEngine {
     final guardResult = SizeGuard.check(input: guardInput, resultBytes: resultBytes);
     switch (guardResult) {
       case GuardBlocked():
+        // 엔진은 자기가 쓴 출력 파일만 지운다. 디렉터리 삭제는 Workspace.rollbackStaging 단독 책임이다(Q-D).
         try {
           await File(outputPath).delete();
         } catch (_) {
@@ -252,22 +300,65 @@ class PdfrxPdfEngine implements PdfEngine {
   }
 }
 
-/// outputPath가 `.tmp` 스테이징 디렉터리 하위인지 검증한다(§2.3 계약 불변식 1).
-/// `Workspace`가 아직 없어(platform-integration 작업 중) 문자열 패턴으로만 검사한다.
+/// `/` 로 정규화된 경로에서 `.`/`..` 세그먼트를 접어 정규 형태로 만든다.
+/// `package:path`를 쓰지 않는다(§3.1 -- 이 파일의 허용 import 목록 밖).
+String _collapseDotSegments(String slashPath) {
+  final isAbsolute = slashPath.startsWith('/');
+  final out = <String>[];
+  for (final part in slashPath.split('/')) {
+    if (part.isEmpty || part == '.') continue;
+    if (part == '..') {
+      if (out.isNotEmpty) out.removeLast();
+      continue;
+    }
+    out.add(part);
+  }
+  return (isAbsolute ? '/' : '') + out.join('/');
+}
+
+String _normalize(String path) => _collapseDotSegments(path.replaceAll('\\', '/'));
+
+/// outputPath에서 `<root>/docs/<docId>.tmp/...` 형태를 파싱해 (root, docId)를 뽑는다.
+/// 형태가 아니면 null.
+({String root, String docId})? _stagingScope(String outputPath) {
+  final normalized = _normalize(outputPath);
+  final match = RegExp(r'^(.*)/docs/([^/]+)\.tmp/[^/]+$').firstMatch(normalized);
+  if (match == null) return null;
+  return (root: match.group(1)!, docId: match.group(2)!);
+}
+
+/// outputPath가 `<root>/docs/<docId>.tmp/document.pdf` 형태인지 검증한다(§2.3 계약 불변식 1).
 PdfFailure? _validateStagingPath(String outputPath) {
-  final normalized = outputPath.replaceAll('\\', '/');
-  final hasStagingSegment = RegExp(r'(^|/)[^/]+\.tmp(/|$)').hasMatch(normalized);
-  if (!hasStagingSegment) {
+  if (_stagingScope(outputPath) == null) {
     return const UnknownFailure('outputPath must be inside a .tmp staging directory');
   }
   return null;
 }
 
-/// `ImagePageRef.imagePath`가 §3.3 화이트리스트(`sources/pages/` 하위) 안인지 검증한다.
-PdfFailure? _validateImageWhitelist(String imagePath) {
-  final normalized = imagePath.replaceAll('\\', '/');
-  final allowed = RegExp(r'(^|/)sources/pages/[^/]+$').hasMatch(normalized);
-  if (!allowed) {
+/// `ImagePageRef.imagePath`가 §3.3 화이트리스트 안인지 검증한다.
+/// 허용: `<root>/docs/<docId>/sources/pages/` 또는 `<root>/docs/<docId>.tmp/sources/pages/` 하위뿐
+/// (같은 저장 요청의 outputPath에서 유도한 root+docId에 바인딩 -- V2).
+PdfFailure? _validateImageWhitelist({required String imagePath, required String outputPath}) {
+  final scope = _stagingScope(outputPath);
+  if (scope == null) {
+    return const UnknownFailure('image path outside sources');
+  }
+  final normalizedImg = _normalize(imagePath);
+  final committedPrefix = '${scope.root}/docs/${scope.docId}/sources/pages/';
+  final stagingPrefix = '${scope.root}/docs/${scope.docId}.tmp/sources/pages/';
+
+  String? matchedPrefix;
+  if (normalizedImg.startsWith(committedPrefix)) {
+    matchedPrefix = committedPrefix;
+  } else if (normalizedImg.startsWith(stagingPrefix)) {
+    matchedPrefix = stagingPrefix;
+  }
+  if (matchedPrefix == null) {
+    return const UnknownFailure('image path outside sources');
+  }
+  // 화이트리스트 디렉터리 바로 아래 파일이어야 한다(추가 하위 디렉터리 금지).
+  final remainder = normalizedImg.substring(matchedPrefix.length);
+  if (remainder.isEmpty || remainder.contains('/')) {
     return const UnknownFailure('image path outside sources');
   }
   return null;

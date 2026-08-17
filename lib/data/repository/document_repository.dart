@@ -1,17 +1,21 @@
 /// 문서 저장소. (설계 §2.8, 확정)
 ///
-/// `createDocument`는 스테이징 → `PdfEngine.save` → 원자적 반영 → DB 기록 순으로
-/// 진행하며, 실패·취소 시 스테이징을 폐기하고 DB에 아무것도 남기지 않는다(§7.3).
+/// `createDocument`는 여유 공간 확인 → 스테이징 → 소스 복사(§7.3 2단계) →
+/// `PdfEngine.save` → 원자적 반영 → DB 기록 순으로 진행하며, 실패·취소 시
+/// 스테이징을 폐기하고 DB에 아무것도 남기지 않는다(§7.3).
 ///
-/// **미해결 의존(산출물 노트 참조)**: `pdf/pdf_engine.dart`(PdfEngine, SaveOutcome,
-/// ImageQuality)는 아직 pdf-core가 만들지 않았다. 이 파일은 설계 §2.3 시그니처를
-/// 전제로 import만 작성했으며, 해당 파일이 생기기 전까지 이 파일은 analyze 에러가
-/// 난다(의도된 상태).
+/// **[2026-08-18] Q-D 정리 책임 경계**: `PdfEngine`이 반환하는 모든 `PdfErr`
+/// (취소·GuardBlocked·손상·암호·공간부족 포함) 분기에서 예외 없이
+/// `Workspace.rollbackStaging(docId)`를 호출한다. 디렉터리 삭제는 `Workspace`의
+/// 단독 책임이며 이 파일은 `.tmp` 디렉터리를 직접 지우지 않는다
+/// (`_deleteDocDirIfExists`는 커밋 **이후** DB 실패 시에만 쓰는 별개 경로다 — 04-A 참조).
 library;
 
 import 'dart:io';
 
 import 'package:drift/drift.dart' as drift;
+import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 
 import '../../core/app_error.dart';
 import '../../core/cancel_token.dart';
@@ -21,8 +25,6 @@ import '../../pdf/page_ref.dart';
 import '../../pdf/pdf_engine.dart';
 import '../db/app_database.dart';
 import '../storage/workspace.dart';
-import 'package:path/path.dart' as p;
-import 'package:uuid/uuid.dart';
 
 abstract interface class DocumentRepository {
   /// 목록(최신순 고정). 정렬 옵션 없음.
@@ -30,8 +32,8 @@ abstract interface class DocumentRepository {
 
   Future<PdfResult<DocumentDetail>> load(String docId);
 
-  /// 신규 문서 생성: 스테이징 → PdfEngine.save → 원자적 반영 → DB 기록.
-  /// 실패·취소 시 스테이징 폐기, DB 미기록(§7.3).
+  /// 신규 문서 생성: 여유 공간 확인 → 스테이징 → 소스 복사 → PdfEngine.save →
+  /// 원자적 반영 → DB 기록. 실패·취소 시 스테이징 폐기, DB 미기록(§7.3).
   Future<PdfResult<DocumentSummary>> createDocument({
     required String title,
     required DocOrigin origin,
@@ -136,19 +138,35 @@ PageRef _pageRowToRef(Page row) {
 
 class DriftDocumentRepository implements DocumentRepository {
   DriftDocumentRepository({
-    required AppDatabase db,
-    required Workspace workspace,
-    required PdfEngine engine,
+    required this._db,
+    required this._workspace,
+    required this._engine,
     Uuid? uuid,
-  }) : _db = db,
-       _workspace = workspace,
-       _engine = engine,
-       _uuid = uuid ?? const Uuid();
+  }) : _uuid = uuid ?? const Uuid();
 
   final AppDatabase _db;
   final Workspace _workspace;
   final PdfEngine _engine;
   final Uuid _uuid;
+
+  /// 설계 §7.3 "저장 전 여유 공간 확인"의 안전 여유분. `baselineBytes * 2`에 더한다.
+  ///
+  /// 근거(2026-08-18, B6 소스 복사 도입에 따른 재추정): 이번 라운드부터
+  /// `createDocument`는 저장 직전 스테이징에 (1) 원본 소스 전체를
+  /// `.tmp/sources/`로 복사하고 (2) 그 위에 `.tmp/document.pdf` 최종 산출물을
+  /// 쓴다. 두 산출물이 동시에 디스크에 존재하는 시점이 실제 최대 사용량이며,
+  /// `SaveOp`별로 `guardInput.baselineBytes`는 다음을 뜻한다(§4.2):
+  /// - `deletePages`/`reorderOrRotate`/`split`: 원본 PDF 전체 바이트
+  ///   (split도 선택 페이지만이 아니라 원본 전체 — 소스 복사도 파일 단위로
+  ///   전체를 복사하므로 정확히 일치한다)
+  /// - `merge`: 원본들의 합계 바이트 (소스 복사도 원본 전부를 복사하므로 일치)
+  ///
+  /// 즉 "복사된 소스(약 baselineBytes) + 최종 산출물(SizeGuard 한계상 최대
+  /// baselineBytes의 1.20배)"의 실제 피크는 baselineBytes * 2 근처이거나 그보다
+  /// 낮다 — 2배 계수는 이미 보수적이다. 남는 20MB는 SQLite 저널(WAL)·썸네일
+  /// 렌더 캐시·파일시스템 블록 오버헤드를 흡수하는 고정 버퍼다(설계 §7.3에
+  /// 규정된 값, 실측 전까지 고정).
+  static const int _spaceSafetyBufferBytes = 20 * 1024 * 1024; // 20MB
 
   DocumentSummary _toSummary(Document row) => DocumentSummary(
     id: row.id,
@@ -195,6 +213,14 @@ class DriftDocumentRepository implements DocumentRepository {
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
+    // §7.3 "저장 전 여유 공간 확인". freeSpaceBytes()가 -1(판단 불가)이면
+    // 막지 않는다 — 채널 실패를 저장 실패로 오인시키지 않기 위함(workspace.dart 참조).
+    final requiredBytes = guardInput.baselineBytes * 2 + _spaceSafetyBufferBytes;
+    final freeBytes = await _workspace.freeSpaceBytes();
+    if (freeBytes >= 0 && freeBytes < requiredBytes) {
+      return PdfErr(OutOfSpace(requiredBytes));
+    }
+
     final docId = _uuid.v4();
     String stagingDir;
     try {
@@ -204,10 +230,24 @@ class DriftDocumentRepository implements DocumentRepository {
     }
 
     try {
+      // §7.3 2단계: 원본 소스를 .tmp/sources/ 로 복사하고, 복사된 경로를
+      // 가리키는 PageRef 목록으로 재작성한다. save()와 DB 기록 양쪽에
+      // 재작성된 목록을 쓴다 — 그래야 원본이 사라져도(recent/ 정리, ML Kit
+      // 임시파일 소멸 등) 이 문서를 나중에 재편집할 수 있다(§7.1, B6).
+      final copyResult = await _copySourcesToStaging(
+        stagingDir: stagingDir,
+        pages: pages,
+      );
+      if (copyResult is PdfErr<List<PageRef>>) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(copyResult.failure);
+      }
+      final stagedPages = (copyResult as PdfOk<List<PageRef>>).value;
+
       final stagingPdfPath = p.join(stagingDir, 'document.pdf');
 
       final saveResult = await _engine.save(
-        pages: pages,
+        pages: stagedPages,
         outputPath: stagingPdfPath,
         quality: quality,
         guardInput: guardInput,
@@ -216,8 +256,10 @@ class DriftDocumentRepository implements DocumentRepository {
       );
 
       if (saveResult is PdfErr<SaveOutcome>) {
+        // Q-D(2026-08-18): 엔진은 자기 출력 파일만 지운다. 디렉터리 정리는
+        // 예외 없이 여기(Repository)가 Workspace에 위임한다.
         await _workspace.rollbackStaging(docId);
-        return PdfErr((saveResult as PdfErr<SaveOutcome>).failure);
+        return PdfErr(saveResult.failure);
       }
       final outcome = (saveResult as PdfOk<SaveOutcome>).value;
 
@@ -227,6 +269,13 @@ class DriftDocumentRepository implements DocumentRepository {
         await _workspace.rollbackStaging(docId);
         return PdfErr(UnknownFailure('스테이징 반영 실패: $e'));
       }
+
+      // commitStaging은 .tmp 디렉터리를 최종 docDir로 원자적 rename한다.
+      // stagedPages의 경로 문자열은 여전히 커밋 전 스테이징 경로(".tmp/...")를
+      // 가리키므로, 물리적으로 옮겨간 최종 경로로 다시 써서 DB에 넣는다 —
+      // 그렇지 않으면 DB의 source_path가 더 이상 존재하지 않는 ".tmp" 경로를
+      // 가리키게 되어 재편집이 불가능해진다(B6 목표와 정면 배치).
+      final finalPages = _rebaseToFinalDocDir(stagedPages, stagingDir, _workspace.docDir(docId));
 
       final now = DateTime.now().millisecondsSinceEpoch;
       try {
@@ -244,15 +293,15 @@ class DriftDocumentRepository implements DocumentRepository {
                   updatedAt: now,
                 ),
               );
-          for (var i = 0; i < pages.length; i++) {
+          for (var i = 0; i < finalPages.length; i++) {
             await _db
                 .into(_db.pages)
-                .insert(_pageToCompanion(_uuid.v4(), docId, i, pages[i]));
+                .insert(_pageToCompanion(_uuid.v4(), docId, i, finalPages[i]));
           }
         });
       } catch (e) {
         // DB 기록 실패: docId가 이번에 새로 발급되었으므로 기존 docDir이 없었다.
-        // 복원할 ".old"가 없으므로(§7.3 설계 질의, workspace.dart 참조) 방금 커밋한
+        // 복원할 ".old"가 없으므로(04-A, 3주차까지 확정 보류) 방금 커밋한
         // docs/<docId>를 통째로 지워 반쪽 문서를 남기지 않는다.
         await _deleteDocDirIfExists(docId);
         return PdfErr(UnknownFailure('DB 기록 실패: $e'));
@@ -274,6 +323,93 @@ class DriftDocumentRepository implements DocumentRepository {
       await _workspace.rollbackStaging(docId);
       return PdfErr(UnknownFailure('createDocument 실패: $e'));
     }
+  }
+
+  /// §7.3 2단계. 각 페이지의 원본 소스 파일을 `<stagingDir>/sources/`로 복사하고,
+  /// 복사된 경로를 가리키는 새 `PageRef` 목록을 반환한다.
+  ///
+  /// 동일 원본 경로가 여러 페이지에서 참조되면(같은 PDF에서 여러 페이지를 뽑아
+  /// 합치는 경우, 동일 스캔 이미지를 두 번 넣는 경우) 한 번만 복사한다.
+  Future<PdfResult<List<PageRef>>> _copySourcesToStaging({
+    required String stagingDir,
+    required List<PageRef> pages,
+  }) async {
+    final copiedPdfPaths = <String, String>{}; // 원본 경로 -> 스테이징 경로
+    final copiedImagePaths = <String, String>{};
+    var nextPdfIndex = 1;
+    var nextImageIndex = 1;
+    final rewritten = <PageRef>[];
+
+    for (final page in pages) {
+      switch (page) {
+        case PdfPageRef(:final sourcePath, :final sourceIndex, :final rotation):
+          var newPath = copiedPdfPaths[sourcePath];
+          if (newPath == null) {
+            final srcFile = File(sourcePath);
+            if (!await srcFile.exists()) {
+              return PdfErr(SourceMissing(sourcePath));
+            }
+            newPath = p.join(stagingDir, 'sources', 'src_${nextPdfIndex++}.pdf');
+            try {
+              await srcFile.copy(newPath);
+            } catch (e) {
+              return PdfErr(UnknownFailure('소스 PDF 복사 실패: $sourcePath ($e)'));
+            }
+            copiedPdfPaths[sourcePath] = newPath;
+          }
+          rewritten.add(PdfPageRef(sourcePath: newPath, sourceIndex: sourceIndex, rotation: rotation));
+        case ImagePageRef(:final imagePath, :final rotation):
+          var newPath = copiedImagePaths[imagePath];
+          if (newPath == null) {
+            final srcFile = File(imagePath);
+            if (!await srcFile.exists()) {
+              return PdfErr(SourceMissing(imagePath));
+            }
+            final n = nextImageIndex++;
+            newPath = p.join(stagingDir, 'sources', 'pages', '${n.toString().padLeft(3, '0')}.jpg');
+            try {
+              await srcFile.copy(newPath);
+            } catch (e) {
+              return PdfErr(UnknownFailure('소스 이미지 복사 실패: $imagePath ($e)'));
+            }
+            copiedImagePaths[imagePath] = newPath;
+          }
+          rewritten.add(ImagePageRef(imagePath: newPath, rotation: rotation));
+      }
+    }
+
+    return PdfOk(rewritten);
+  }
+
+  /// `commitStaging` 이후 호출한다. [pages]의 각 소스 경로가 여전히 스테이징
+  /// 경로([stagingDir], `.tmp` 하위)를 가리키므로, rename으로 실제 옮겨간
+  /// 최종 위치([finalDocDir])를 가리키도록 접두사만 치환한다. 파일을 다시
+  /// 복사하지 않는다 — commitStaging의 rename이 이미 물리적으로 옮겨 놓았다.
+  List<PageRef> _rebaseToFinalDocDir(
+    List<PageRef> pages,
+    String stagingDir,
+    String finalDocDir,
+  ) {
+    String rebase(String path) {
+      if (!path.startsWith(stagingDir)) return path;
+      return finalDocDir + path.substring(stagingDir.length);
+    }
+
+    return pages
+        .map(
+          (page) => switch (page) {
+            PdfPageRef(:final sourcePath, :final sourceIndex, :final rotation) => PdfPageRef(
+              sourcePath: rebase(sourcePath),
+              sourceIndex: sourceIndex,
+              rotation: rotation,
+            ),
+            ImagePageRef(:final imagePath, :final rotation) => ImagePageRef(
+              imagePath: rebase(imagePath),
+              rotation: rotation,
+            ),
+          },
+        )
+        .toList();
   }
 
   Future<void> _deleteDocDirIfExists(String docId) async {

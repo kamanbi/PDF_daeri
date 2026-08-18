@@ -144,11 +144,14 @@ void main() {
   // 6·7은 코드 라인만 검사한다(주석 제외) — 이 규칙을 설명하는 doc comment 자체가 금지 토큰을
   // 언급해야 하므로(예: "package:image를 쥐지 않는다"), 주석까지 포함하면 검사기가 자기 문서화에
   // 걸려 오탐한다. §3.4-5와 같은 방식(_codeOnly)을 재사용한다.
-  group('§3.4-6 : pdf_engine_isolate.dart는 이미지 인코딩 API를 쥐지 않는다(2-키 분리)', () {
+  // qpdf 마이그레이션(M-Q3)으로 `pdf_engine_isolate.dart`(PDF 문서 핸들을 쥐던 파일)는 삭제되고
+  // `pdf_engine.dart`가 오케스트레이터로서 그 역할(2-키 분리 준수 의무)을 물려받았다 -- 이미지
+  // 코덱 API는 여전히 `image_pdf_builder.dart`/`image_encode_isolate.dart`에만 있어야 한다.
+  group('§3.4-6 : pdf_engine.dart는 이미지 인코딩 API를 직접 쥐지 않는다(2-키 분리)', () {
     test("코드(주석 제외)에 'package:image', 'package:pdf/' 문자열이 0회다", () {
-      final codeOnly = _codeOnly(_read('lib/pdf/pdf_engine_isolate.dart'));
-      expect(codeOnly.contains('package:image'), isFalse, reason: 'pdf_engine_isolate.dart가 package:image를 참조함');
-      expect(codeOnly.contains('package:pdf/'), isFalse, reason: 'pdf_engine_isolate.dart가 package:pdf/를 참조함');
+      final codeOnly = _codeOnly(_read('lib/pdf/pdf_engine.dart'));
+      expect(codeOnly.contains('package:image'), isFalse, reason: 'pdf_engine.dart가 package:image를 참조함');
+      expect(codeOnly.contains('package:pdf/'), isFalse, reason: 'pdf_engine.dart가 package:pdf/를 참조함');
     });
   });
 
@@ -194,7 +197,7 @@ void main() {
   });
 
   group('§3.4-10 : 엔진 파일은 Directory API를 쓰지 않는다(Q-D)', () {
-    const engineFiles = ['lib/pdf/pdf_engine.dart', 'lib/pdf/pdf_engine_isolate.dart'];
+    const engineFiles = ['lib/pdf/pdf_engine.dart'];
     for (final path in engineFiles) {
       test("$path에 'Directory(', 'delete(recursive', 'deleteSync(recursive'가 없다", () {
         final source = _read(path);
@@ -214,7 +217,11 @@ void main() {
       final violations = <String>[];
       for (final file in _dartFilesUnder('lib')) {
         final normalized = file.path.replaceAll('\\', '/');
-        if (normalized.contains('/lib/pdf/')) continue;
+        // `_dartFilesUnder('lib')`가 돌려주는 경로는 상대 경로('lib/pdf/x.dart')일 수 있어
+        // 선행 슬래시가 없다 -- '/lib/pdf/'로만 검사하면 정당한 lib/pdf/** 내부 호출까지
+        // 전부 위반으로 오탐한다(M-Q3 감사에서 실측: pdf_engine.dart 자신이 걸렸다). 선행
+        // 슬래시 유무와 무관하게 매치되도록 좁힌다.
+        if (normalized.contains('lib/pdf/')) continue;
         if (file.readAsStringSync().contains('ImagePdfBuilder.build(')) {
           violations.add(file.path);
         }
@@ -341,10 +348,28 @@ void main() {
       for (final match in publicFnPattern.allMatches(codeOnly)) {
         final name = match.group(2)!;
         if (name.startsWith('_')) continue;
-        // 함수 시그니처 전체(다음 '{' 또는 '=>' 까지)를 대략 스캔한다.
+        // 함수 시그니처(파라미터 목록) 전체를 스캔한다. 이 코드베이스는 named parameter
+        // (`{required ...}`)가 표준 스타일이다 -- 예전 구현은 "다음 '{' 또는 '=>' 까지"를
+        // 시그니처로 잘랐는데, named parameter 블록 자체가 '{'로 시작하므로 파라미터 목록을
+        // 전혀 못 보고 항상 빈 문자열만 검사하는 사각지대가 있었다(M-Q3 감사에서 실측: 위반을
+        // 주입해도 이 검사가 통과했다). `(`부터 괄호 짝이 맞는 `)`까지 깊이 추적으로 정확히
+        // 파라미터 목록 구간만 뽑는다.
         final start = match.start;
-        final end = codeOnly.indexOf(RegExp(r'[{]|=>'), start);
-        final signature = end == -1 ? codeOnly.substring(start) : codeOnly.substring(start, end);
+        final openParenIndex = match.end - 1; // publicFnPattern 자체가 '\(' 로 끝나므로 그 위치.
+        var depth = 0;
+        var closeParenIndex = -1;
+        for (var i = openParenIndex; i < codeOnly.length; i++) {
+          final ch = codeOnly[i];
+          if (ch == '(') depth++;
+          if (ch == ')') {
+            depth--;
+            if (depth == 0) {
+              closeParenIndex = i;
+              break;
+            }
+          }
+        }
+        final signature = closeParenIndex == -1 ? codeOnly.substring(start) : codeOnly.substring(start, closeParenIndex + 1);
         expect(
           suspiciousParamPattern.hasMatch(signature),
           isFalse,

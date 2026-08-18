@@ -74,7 +74,7 @@ Future<void> main() async {
   if (appWorkspace != null) {
     try {
       final db = AppDatabase.open(appWorkspace.root);
-      engine = PdfrxPdfEngine(appRoot: appWorkspace.root);
+      engine = QpdfPdfEngine(appRoot: appWorkspace.root);
       final repo = DriftDocumentRepository(db: db, workspace: appWorkspace, engine: engine);
       await repo.reconcileWithFilesystem();
       repository = repo;

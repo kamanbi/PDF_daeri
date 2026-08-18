@@ -10,10 +10,12 @@
 ///    `Map<String,Object?>`(원시 타입)뿐이다.
 /// 4. `package:image`, `package:pdf/`는 이 파일에 들이지 않는다(§5.6 2-키 분리).
 ///
-/// **잡 스펙 화이트리스트(§5.3)**: 공개된 5개 빌더(`buildSaveJob`/`buildRotateJob`/`buildMergeJob`/
-/// `buildSplitJob`/`buildCompressJob`)만 잡 스펙을 만든다. 이 함수들은 순수 함수이며 파일 경로·
-/// 페이지 인덱스 같은 구조화된 값만 받는다 -- 외부에서 임의 JSON 문자열이나 argv를 주입하는 공개
-/// 진입점은 없다. 아래 금지 키는 이 파일 어디에도 리터럴로 등장하지 않는다(자동 검사 16 대응):
+/// **잡 스펙 화이트리스트(§5.3)**: 공개된 6개 빌더(`buildSaveJob`/`buildRotateJob`/`buildMergeJob`/
+/// `buildSplitJob`/`buildCompressJob`/`buildComposeJob`)만 잡 스펙을 만든다. `buildComposeJob`은
+/// M-Q3(§5.6)에서 혼합(이미지+PDF, 또는 다중 PDF 소스 인터리브) 저장 조립을 위해 추가됐다. 이
+/// 함수들은 순수 함수이며 파일 경로·페이지 인덱스 같은 구조화된 값만 받는다 -- 외부에서 임의
+/// JSON 문자열이나 argv를 주입하는 공개 진입점은 없다. 아래 금지 키는 이 파일 어디에도 리터럴로
+/// 등장하지 않는다(자동 검사 16 대응):
 /// `replaceInput`, `streamData: uncompress`, `splitPages`, `qdf`, `encrypt`, `linearize`.
 library;
 
@@ -128,6 +130,45 @@ Map<String, Object?> buildCompressJob({required String sourcePath, required Stri
   return {'inputFile': sourcePath, 'outputFile': outputPath, ..._commonWriteOptions};
 }
 
+/// M-Q3(§5.6) 신설: 서로 다른 소스(원본 PDF 여럿, 또는 원본 + `_images.pdf`)에서 뽑은 페이지를
+/// 최종 순서대로 인터리브한다. [pages] 순서가 결과 페이지 순서다 -- 연속으로 같은 [sourcePath]를
+/// 가진 항목은 자동으로 하나의 `{file, range}` 세그먼트로 묶인다(qpdf가 파일을 여러 번 열지
+/// 않도록). `--empty`를 써서 여러 소스 중 임의의 하나가 결과 메타데이터를 상속하는 것을 피한다
+/// (`buildMergeJob`과 같은 이유). 단일 소스·회전 없음 케이스는 이 함수 없이도 [buildRotateJob]
+/// (더 저렴한 `inputFile` 경로)로 처리하므로, 이 함수는 진짜 혼합/다중 소스 조합에만 쓴다.
+class QpdfPageSource {
+  const QpdfPageSource({required this.sourcePath, required this.sourceIndex, this.rotation = 0})
+    : assert(rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270);
+  final String sourcePath;
+  final int sourceIndex;
+  final int rotation;
+}
+
+Map<String, Object?> buildComposeJob({required List<QpdfPageSource> pages, required String outputPath}) {
+  if (pages.isEmpty) {
+    throw ArgumentError('pages must not be empty');
+  }
+  final pagesEntries = <Map<String, Object?>>[];
+  var i = 0;
+  while (i < pages.length) {
+    final path = pages[i].sourcePath;
+    final indices = <int>[];
+    while (i < pages.length && pages[i].sourcePath == path) {
+      indices.add(pages[i].sourceIndex);
+      i++;
+    }
+    pagesEntries.add({'file': path, 'range': _rangeFromIndices(indices)});
+  }
+  final job = <String, Object?>{'empty': '', 'pages': pagesEntries, 'outputFile': outputPath, ..._commonWriteOptions};
+  final rotateSpecs = _rotateSpecs([
+    for (final p in pages) QpdfPageEntry(sourceIndex: p.sourceIndex, rotation: p.rotation),
+  ]);
+  if (rotateSpecs.isNotEmpty) {
+    job['rotate'] = rotateSpecs;
+  }
+  return job;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // 잡 실행. 5개 공개 진입점이 각자의 빌더로 스펙을 만든 뒤 동일한 워커 isolate 실행 경로를 탄다.
 
@@ -205,6 +246,20 @@ Future<QpdfJobResult> runCompressJob({
   String? libraryPathOverride,
 }) => _executeJob(
   jobSpec: buildCompressJob(sourcePath: sourcePath, outputPath: outputPath),
+  outputPath: outputPath,
+  onProgress: onProgress,
+  cancelToken: cancelToken,
+  libraryPathOverride: libraryPathOverride,
+);
+
+Future<QpdfJobResult> runComposeJob({
+  required List<QpdfPageSource> pages,
+  required String outputPath,
+  void Function(PdfProgress progress)? onProgress,
+  CancelToken? cancelToken,
+  String? libraryPathOverride,
+}) => _executeJob(
+  jobSpec: buildComposeJob(pages: pages, outputPath: outputPath),
   outputPath: outputPath,
   onProgress: onProgress,
   cancelToken: cancelToken,

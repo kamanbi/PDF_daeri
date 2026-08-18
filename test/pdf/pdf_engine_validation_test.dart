@@ -16,7 +16,7 @@ void main() {
   late Directory root;
   late String docId;
   late String outputPath;
-  late PdfrxPdfEngine engine;
+  late QpdfPdfEngine engine;
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('pdf_daeri_engine_validation_');
@@ -25,7 +25,7 @@ void main() {
     stagingDir.createSync(recursive: true);
     Directory('${stagingDir.path}/sources/pages').createSync(recursive: true);
     outputPath = '${stagingDir.path}/document.pdf';
-    engine = PdfrxPdfEngine(appRoot: root.path);
+    engine = QpdfPdfEngine(appRoot: root.path);
   });
 
   tearDown(() {

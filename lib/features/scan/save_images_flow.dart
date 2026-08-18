@@ -50,8 +50,31 @@ class _SaveImagesScreenState extends ConsumerState<SaveImagesScreen> {
   PdfProgress? _progress;
   CancelToken? _cancelToken;
 
+  // appBusyProvider(§4.4): 스캔·사진 선택 화면에서 이어받은 busy 신호를 이
+  // 화면이 마지막으로 들고 있다가(제목 입력 + 실제 저장 구간 전부) 화면을
+  // 벗어날 때 false로 되돌린다. 이 화면은 더 이상 다른 화면으로 handoff하지
+  // 않는다(성공 시 popUntil(isFirst)로 홈까지 되돌아간다) — 항상 dispose에서
+  // 되돌리면 된다.
+  late final StateController<bool> _busyNotifier;
+
+  @override
+  void initState() {
+    super.initState();
+    _busyNotifier = ref.read(appBusyProvider.notifier);
+    // Riverpod은 위젯 생명주기 중 프로바이더 상태 동기 수정을 금지한다 —
+    // `Future(() {...})`로 미룬다(scan_screen.dart와 동일 이유). `mounted`
+    // 가드는 미루는 동안 컨테이너가 먼저 dispose된 경우를 방어한다.
+    Future.microtask(() {
+      if (_busyNotifier.mounted) _busyNotifier.state = true;
+    });
+  }
+
   @override
   void dispose() {
+    final notifier = _busyNotifier;
+    Future.microtask(() {
+      if (notifier.mounted) notifier.state = false;
+    });
     _titleController.dispose();
     super.dispose();
   }

@@ -66,6 +66,10 @@ class _FakeGuardBlockedRepository implements DocumentRepository {
 
   @override
   Future<void> reconcileWithFilesystem() async {}
+
+  @override
+  Future<PdfResult<String?>> ensureThumbnail(String docId) async =>
+      const PdfOk(null);
 }
 
 void main() {

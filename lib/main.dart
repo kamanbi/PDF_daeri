@@ -26,6 +26,7 @@ import 'data/storage/saf_import.dart';
 import 'data/storage/workspace.dart';
 import 'features/settings/settings_screen.dart';
 import 'pdf/pdf_engine.dart';
+import 'pdf/pdf_renderer.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,7 +84,15 @@ Future<void> main() async {
     try {
       final db = AppDatabase.open(appWorkspace.root);
       engine = QpdfPdfEngine(appRoot: appWorkspace.root);
-      final repo = DriftDocumentRepository(db: db, workspace: appWorkspace, engine: engine);
+      // ensureThumbnail 전용 렌더러 인스턴스. 뷰어가 쓰는 pdfRendererProvider의
+      // PdfxRenderer와는 별개 핸들 캐시를 갖는다(§2.0 — 문서 핸들 캐시는
+      // 인스턴스별로 독립적이며 뷰어 쪽 캐시 무효화(evictDocument)에 영향받지 않는다).
+      final repo = DriftDocumentRepository(
+        db: db,
+        workspace: appWorkspace,
+        engine: engine,
+        renderer: PdfxRenderer(),
+      );
       await repo.reconcileWithFilesystem();
       repository = repo;
       // RecentRepository는 같은 db/workspace를 공유한다 — 두 번째 DB 연결을 열지

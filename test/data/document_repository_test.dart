@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,7 @@ import 'package:pdf_daeri/data/repository/document_repository.dart';
 import 'package:pdf_daeri/data/storage/workspace.dart';
 import 'package:pdf_daeri/pdf/page_ref.dart';
 import 'package:pdf_daeri/pdf/pdf_engine.dart';
+import 'package:pdf_daeri/pdf/pdf_renderer.dart';
 
 /// [Q-D 2026-08-18] 정리 책임 회귀 테스트용 스텁. `save()`가 항상 지정된
 /// [PdfResult]를 반환한다. 실패를 흉내 낼 뿐, 파일 시스템에 아무것도 남기지
@@ -61,6 +63,49 @@ class _StubPdfEngine implements PdfEngine {
   @override
   Future<PdfResult<PdfDocInfo>> inspect(String pdfPath, {String? password}) =>
       throw UnimplementedError();
+}
+
+/// `createDocument`/`OutOfSpace` 계열 테스트는 썸네일 렌더를 쓰지 않는다 —
+/// 호출되면 즉시 실패하도록 만들어 "몰래 렌더가 끼어드는" 회귀를 잡는다
+/// (§7.1 — 저장 경로에 렌더러가 끼면 안 된다는 불변식과 같은 취지).
+class _StubPdfRenderer implements PdfRenderer {
+  @override
+  Future<PdfResult<int>> openPageCount(String pdfPath, {String? password}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<PdfResult<Uint8List>> renderPage({
+    required String pdfPath,
+    required int pageIndex,
+    required int targetWidthPx,
+    String? password,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<PdfResult<Uint8List>> renderThumbnail({
+    required String pdfPath,
+    required int pageIndex,
+    required int targetWidthPx,
+    String? password,
+  }) => throw UnimplementedError('createDocument 경로에서 렌더러가 호출되면 안 된다');
+
+  @override
+  Future<PdfResult<Uint8List>> renderPageThumbnail({
+    required PageRef page,
+    required int targetWidthPx,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
+  void evictCache() => throw UnimplementedError();
+
+  @override
+  Future<PdfResult<PdfPageGeometry>> pageGeometry(String pdfPath, {String? password}) =>
+      throw UnimplementedError();
+
+  @override
+  void evictDocument(String pdfPath, {String? password}) => throw UnimplementedError();
 }
 
 /// [B2 2026-08-18] `freeSpaceBytes()`만 고정값으로 바꾸는 얇은 위임 데코레이터.
@@ -146,6 +191,7 @@ void main() {
       db: db,
       workspace: workspace,
       engine: _StubPdfEngine(saveResult),
+      renderer: _StubPdfRenderer(),
     );
   }
 
@@ -329,6 +375,7 @@ void main() {
         workspace: tinyFreeSpace,
         // save()가 호출되면 안 된다 — 여유 공간 확인은 beginStaging보다도 앞선다.
         engine: _StubPdfEngine(() => throw StateError('엔진이 호출되면 안 된다')),
+        renderer: _StubPdfRenderer(),
       );
 
       final result = await repo.createDocument(
@@ -376,6 +423,7 @@ void main() {
             ),
           ),
         ),
+        renderer: _StubPdfRenderer(),
       );
 
       final result = await repo.createDocument(
@@ -406,6 +454,7 @@ void main() {
             ),
           ),
         ),
+        renderer: _StubPdfRenderer(),
       );
 
       final result = await repo.createDocument(

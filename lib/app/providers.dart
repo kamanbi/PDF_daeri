@@ -69,3 +69,14 @@ final recentFilesStreamProvider = StreamProvider<List<RecentFile>>((ref) {
   if (repo == null) return Stream.value(const []);
   return repo.watchRecent();
 });
+
+/// [2주차 신설] "지금 스캔·저장·PDF 열기 진행 중" 신호. 인텐트 수신(§4.4)이
+/// "스캔·저장 진행 중에는 가로채지 않는다"를 지키기 위해 소비 지점
+/// (`lib/app/app.dart`)이 이 값을 확인한 뒤에만 대기 중인 URI를 처리한다.
+///
+/// 이번 라운드에는 `lib/features/viewer/open_pdf_flow.dart`(PDF 열기 흐름)가
+/// 이 값을 true/false로 설정한다. `lib/features/scan/**`(S2, 이번 라운드
+/// 수정 범위 밖)는 아직 이 신호를 설정하지 않는다 — 스캔·저장 진행 중 인텐트가
+/// 도착하는 경우는 다음 라운드에 S2 담당이 이 provider를 사용해 마저 배선해야
+/// 한다(신호 자체는 여기 이미 있다).
+final appBusyProvider = StateProvider<bool>((ref) => false);

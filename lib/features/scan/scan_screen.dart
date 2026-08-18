@@ -27,10 +27,40 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   _ScanState _state = _ScanState.checking;
   String? _errorMessage;
 
+  // appBusyProvider(§4.4·26번 문서 §6 미해결 항목): 스캔 화면이 떠 있는 동안
+  // 인텐트 소비가 가로채지 않도록 진입 시 true, 이탈 시 false로 되돌린다.
+  // `SaveImagesScreen`/`PhotoToPdfScreen`으로 pushReplacement하는 경우는 그
+  // 다음 화면이 busy를 이어받으므로(각 화면도 자신의 initState에서 true를
+  // 세팅한다) 여기서 false로 되돌리지 않는다 — `_busyHandedOff`로 표시한다.
+  // (pushReplacement 전환 애니메이션 중 새 화면이 이미 true를 세팅한 뒤에
+  // 이 화면의 dispose가 뒤늦게 호출되어 잘못 false로 되돌리는 것을 막는다.)
+  late final StateController<bool> _busyNotifier;
+  bool _busyHandedOff = false;
+
   @override
   void initState() {
     super.initState();
+    _busyNotifier = ref.read(appBusyProvider.notifier);
+    // Riverpod은 위젯 생명주기(빌드·initState·dispose 등) 중 프로바이더 상태
+    // 동기 수정을 금지한다("Tried to modify a provider while the widget tree
+    // was building") — Riverpod이 권고하는 대로 `Future(() {...})`로 미룬다.
+    // `mounted`(StateController가 노출하는 것, 위젯의 mounted가 아니다) 가드는
+    // 미루는 동안 컨테이너가 먼저 dispose된 경우(위젯 테스트 종료 등)를 방어한다.
+    Future.microtask(() {
+      if (_busyNotifier.mounted) _busyNotifier.state = true;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _startScan());
+  }
+
+  @override
+  void dispose() {
+    if (!_busyHandedOff) {
+      final notifier = _busyNotifier;
+      Future.microtask(() {
+        if (notifier.mounted) notifier.state = false;
+      });
+    }
+    super.dispose();
   }
 
   Future<void> _startScan() async {
@@ -51,6 +81,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     switch (result) {
       case PdfOk<List<String>>():
         final images = result.value;
+        _busyHandedOff = true;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => SaveImagesScreen(
@@ -125,9 +156,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                   FilledButton.icon(
                     icon: const Icon(Icons.photo_library_outlined),
                     label: const Text('사진 → PDF로 계속하기'),
-                    onPressed: () => Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(builder: (_) => const PhotoToPdfScreen()),
-                    ),
+                    onPressed: () {
+                      _busyHandedOff = true;
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(builder: (_) => const PhotoToPdfScreen()),
+                      );
+                    },
                   ),
                   const SizedBox(height: 8),
                   TextButton(

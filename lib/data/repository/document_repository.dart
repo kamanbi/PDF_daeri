@@ -11,7 +11,9 @@
 /// (`_deleteDocDirIfExists`는 커밋 **이후** DB 실패 시에만 쓰는 별개 경로다 — 04-A 참조).
 library;
 
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:drift/drift.dart' as drift;
 import 'package:uuid/uuid.dart';
@@ -22,6 +24,7 @@ import '../../core/progress.dart';
 import '../../core/size_guard.dart';
 import '../../pdf/page_ref.dart';
 import '../../pdf/pdf_engine.dart';
+import '../../pdf/pdf_renderer.dart';
 import '../db/app_database.dart';
 import '../storage/workspace.dart';
 
@@ -50,7 +53,31 @@ abstract interface class DocumentRepository {
   /// docs/ 에 있으나 DB에 없는 디렉터리는 그대로 둔다(파일이 원본 진실이며
   /// 사용자 데이터를 임의 삭제하지 않는다).
   Future<void> reconcileWithFilesystem();
+
+  /// [2주차 신설 · §1.1] 목록용 대표 썸네일을 **필요할 때 만들어** 파일로 남기고
+  /// 경로를 돌려준다.
+  ///
+  /// - 이미 `thumbs/<docId>.png`가 존재하면 렌더하지 않고 그 경로만 반환한다.
+  /// - 없으면 `PdfRenderer.renderThumbnail(pageIndex: 0, targetWidthPx: thumbWidthPx)`로
+  ///   바이트를 받아 파일로 쓰고, `documents.thumb_path`를 갱신한 뒤 경로를 반환한다.
+  ///   파일을 쓰는 주체는 Repository이고 Renderer는 바이트만 준다(설계 §7.1 불변).
+  /// - 문서를 열 수 없으면(손상·암호) 파일을 만들지 않고 `PdfOk(null)`을 반환한다.
+  ///   썸네일 부재는 실패가 아니라 정상 상태다 — 목록에 자리표시자 아이콘이 나온다.
+  ///   같은 세션에서는 재시도하지 않는다(§1.4 — 손상 파일을 스크롤할 때마다
+  ///   렌더를 반복하지 않게).
+  /// - 동일 `docId`에 대한 동시 호출은 내부에서 1개로 합친다(그리드 스크롤 중
+  ///   중복 렌더 방지). 동시 렌더 상한은 3이며 초과 요청은 큐잉한다(§1.4).
+  Future<PdfResult<String?>> ensureThumbnail(String docId);
+
+  /// 목록 썸네일의 렌더 폭. 상수는 여기 1곳에만 존재한다(§1.1).
+  /// 2열 그리드 · 3x DPI 기준 카드 폭 ≈ 200dp → 320px로 고정한다(목록 썸네일은
+  /// 확대되지 않는다). 구현체에서 리터럴 `320`을 다시 쓰면 안 된다.
+  static const int thumbWidthPx = 320;
 }
+
+/// `ensureThumbnail`의 동시 렌더 상한(§1.4) — 빠른 스크롤 시 수십 개가 동시에
+/// 붙는 것을 막는다.
+const int _thumbnailConcurrencyLimit = 3;
 
 class DocumentSummary {
   const DocumentSummary({
@@ -149,13 +176,22 @@ class DriftDocumentRepository implements DocumentRepository {
     required this._db,
     required this._workspace,
     required this._engine,
+    required this._renderer,
     Uuid? uuid,
   }) : _uuid = uuid ?? const Uuid();
 
   final AppDatabase _db;
   final Workspace _workspace;
   final PdfEngine _engine;
+  final PdfRenderer _renderer;
   final Uuid _uuid;
+
+  // ensureThumbnail(§1.1·§1.4): 동일 docId 동시 호출 병합 + 동시 렌더 3개 제한 큐
+  // + 같은 세션 내 실패 재시도 억제. 인스턴스 소유 상태이며 DB에 반영되지 않는다.
+  final Map<String, Future<PdfResult<String?>>> _thumbnailInFlight = {};
+  final Set<String> _thumbnailFailedOnce = {};
+  int _thumbnailActiveCount = 0;
+  final List<Completer<void>> _thumbnailWaitQueue = [];
 
   DocumentSummary _toSummary(Document row) => DocumentSummary(
     id: row.id,
@@ -466,5 +502,94 @@ class DriftDocumentRepository implements DocumentRepository {
     }
     // docs/ 에 있으나 DB에 없는 디렉터리는 그대로 둔다 — 파일이 원본 진실이며
     // 사용자 데이터를 임의 삭제하지 않는다(§7.3).
+  }
+
+  @override
+  Future<PdfResult<String?>> ensureThumbnail(String docId) {
+    // 동일 docId 동시 호출은 1개로 합친다(그리드 스크롤 중 중복 렌더 방지).
+    final inFlight = _thumbnailInFlight[docId];
+    if (inFlight != null) return inFlight;
+
+    final future = _ensureThumbnailUnshared(docId);
+    _thumbnailInFlight[docId] = future;
+    // 완료되면 다음 호출이 다시 캐시(파일 존재)나 재시도 억제 상태를 보게 한다.
+    unawaited(future.whenComplete(() => _thumbnailInFlight.remove(docId)));
+    return future;
+  }
+
+  Future<PdfResult<String?>> _ensureThumbnailUnshared(String docId) async {
+    final thumbPath = _workspace.thumb(docId);
+    final thumbFile = File(thumbPath);
+    if (await thumbFile.exists()) {
+      return PdfOk(thumbPath);
+    }
+
+    // 같은 세션에서 이미 실패(손상·암호 등)한 문서는 스크롤할 때마다 다시
+    // 렌더를 시도하지 않는다(§1.4).
+    if (_thumbnailFailedOnce.contains(docId)) {
+      return const PdfOk(null);
+    }
+
+    await _acquireThumbnailSlot();
+    try {
+      // 다른 대기 중 호출이 슬롯을 기다리는 동안 이미 만들어졌을 수 있다.
+      if (await thumbFile.exists()) {
+        return PdfOk(thumbPath);
+      }
+
+      final docRow = await (_db.select(
+        _db.documents,
+      )..where((t) => t.id.equals(docId))).getSingleOrNull();
+      if (docRow == null) {
+        return const PdfOk(null);
+      }
+
+      final renderResult = await _renderer.renderThumbnail(
+        pdfPath: _workspace.docPdf(docId),
+        pageIndex: 0,
+        targetWidthPx: DocumentRepository.thumbWidthPx,
+      );
+
+      switch (renderResult) {
+        case PdfErr<Uint8List>():
+          // 손상·암호 등으로 렌더 불가 — 실패가 아니라 정상 상태(자리표시자 유지).
+          _thumbnailFailedOnce.add(docId);
+          return const PdfOk(null);
+        case PdfOk<Uint8List>(:final value):
+          try {
+            await thumbFile.parent.create(recursive: true);
+            await thumbFile.writeAsBytes(value);
+          } catch (e) {
+            _thumbnailFailedOnce.add(docId);
+            return const PdfOk(null);
+          }
+          await (_db.update(
+            _db.documents,
+          )..where((t) => t.id.equals(docId))).write(
+            DocumentsCompanion(thumbPath: drift.Value(thumbPath)),
+          );
+          return PdfOk(thumbPath);
+      }
+    } finally {
+      _releaseThumbnailSlot();
+    }
+  }
+
+  Future<void> _acquireThumbnailSlot() async {
+    if (_thumbnailActiveCount < _thumbnailConcurrencyLimit) {
+      _thumbnailActiveCount++;
+      return;
+    }
+    final completer = Completer<void>();
+    _thumbnailWaitQueue.add(completer);
+    await completer.future;
+    _thumbnailActiveCount++;
+  }
+
+  void _releaseThumbnailSlot() {
+    _thumbnailActiveCount--;
+    if (_thumbnailWaitQueue.isNotEmpty) {
+      _thumbnailWaitQueue.removeAt(0).complete();
+    }
   }
 }

@@ -5,7 +5,10 @@
 ///   docs/`docId`/sources/             임포트·스캔 원본 복사본 (재편집용, 함부로 지우지 않는다)
 ///   docs/`docId`.tmp/                 저장 스테이징. 커밋 전까지만 존재
 ///   docs/`docId`.old/                 커밋 중 임시로만 존재
-///   thumbs/`docId`.jpg                문서 대표 썸네일 (삭제해도 재생성 가능)
+///   thumbs/`docId`.png                문서 대표 썸네일 (삭제해도 재생성 가능)
+///                                     [2026-08-18 · 2주차] `.jpg` → `.png`로 변경.
+///                                     `PdfRenderer`가 반환하는 것이 PNG 바이트라
+///                                     확장자를 맞췄다(§1.4). 시그니처는 불변.
 ///   recent/`id`.pdf                   SAF/인텐트로 받은 외부 PDF 복사본
 ///   cache/`key`.jpg                   렌더 캐시. **항상 삭제해도 안전**
 ///
@@ -39,7 +42,7 @@ abstract interface class Workspace {
   String sourcesDir(String docId);
   String sourcePdf(String docId, int n); // sources/src_<n>.pdf
   String sourceImage(String docId, int n); // sources/pages/<NNN>.jpg
-  String thumb(String docId); // thumbs/<docId>.jpg
+  String thumb(String docId); // thumbs/<docId>.png
   String recentFile(String id); // recent/<id>.pdf
   String cacheFile(String key); // cache/<key>.jpg
 
@@ -138,7 +141,7 @@ class AppWorkspace implements Workspace {
   );
 
   @override
-  String thumb(String docId) => p.join(_thumbsRoot, '$docId.jpg');
+  String thumb(String docId) => p.join(_thumbsRoot, '$docId.png');
 
   @override
   String recentFile(String id) => p.join(_recentRoot, '$id.pdf');

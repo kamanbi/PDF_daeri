@@ -47,6 +47,41 @@ abstract interface class PdfRenderer {
   });
 
   void evictCache();
+
+  /// 문서의 모든 페이지 기하 정보를 한 번에 얻는다. **픽셀을 만들지 않는다** —
+  /// 페이지 dict의 MediaBox/Rotate만 읽으므로 대용량 문서에서도 렌더 없이 끝난다.
+  ///
+  /// 뷰어가 페이지를 렌더하기 **전에** 종횡비를 알아 자리를 잡기 위한 것이다.
+  ///
+  /// 반환의 [PdfPageGeometry.sizes] 길이는 항상 [PdfPageGeometry.pageCount]와 같다.
+  Future<PdfResult<PdfPageGeometry>> pageGeometry(String pdfPath, {String? password});
+
+  /// 특정 문서의 핸들만 닫는다. [password]까지 일치해야 같은 핸들로 취급한다
+  /// (구현의 캐시 키가 `path|password`이므로).
+  ///
+  /// 뷰어 이탈 시 호출한다. **`evictCache()`를 뷰어에서 호출하지 않는다** —
+  /// 그것은 열린 문서를 전부 닫아 홈 그리드의 썸네일 생성까지 무효화한다.
+  void evictDocument(String pdfPath, {String? password});
+}
+
+/// 페이지 기하 정보. 픽셀이 아니라 **치수만** 담는다 — 이 타입에 바이트가 들어가는
+/// 순간 저장 경로로 새어 나갈 표면이 생긴다(§3.2 타입 봉쇄).
+class PdfPageGeometry {
+  const PdfPageGeometry({required this.pageCount, required this.sizes});
+  final int pageCount;
+  final List<PdfPageSize> sizes; // 0-base, 길이 == pageCount
+}
+
+class PdfPageSize {
+  const PdfPageSize({required this.widthPt, required this.heightPt});
+
+  /// **표시 기준** 치수(pt). 원본 `/Rotate`가 이미 반영된 값이다 —
+  /// 90/270도 회전 페이지는 폭·높이가 뒤바뀐 상태로 들어온다.
+  final double widthPt;
+  final double heightPt;
+
+  /// 0 이하면 1.0으로 대체한다(방어). 뷰어가 0으로 나누지 않게 한다.
+  double get aspectRatio => (widthPt <= 0 || heightPt <= 0) ? 1.0 : widthPt / heightPt;
 }
 
 class PdfxRenderer implements PdfRenderer {
@@ -199,5 +234,27 @@ class PdfxRenderer implements PdfRenderer {
       doc.dispose();
     }
     _openDocs.clear();
+  }
+
+  @override
+  Future<PdfResult<PdfPageGeometry>> pageGeometry(String pdfPath, {String? password}) async {
+    try {
+      final doc = await _open(pdfPath, password: password);
+      final sizes = [for (final page in doc.pages) PdfPageSize(widthPt: page.width, heightPt: page.height)];
+      return PdfOk(PdfPageGeometry(pageCount: doc.pages.length, sizes: sizes));
+    } on pdfrx.PdfPasswordException {
+      return PdfErr(SourceEncrypted(pdfPath));
+    } on pdfrx.PdfException catch (e) {
+      return PdfErr(SourceCorrupted(e.message));
+    } catch (e) {
+      return PdfErr(UnknownFailure(e.toString()));
+    }
+  }
+
+  @override
+  void evictDocument(String pdfPath, {String? password}) {
+    final key = '$pdfPath|${password ?? ''}';
+    final doc = _openDocs.remove(key);
+    doc?.dispose();
   }
 }

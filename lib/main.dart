@@ -21,6 +21,8 @@ import 'app/providers.dart';
 import 'core/korean_font.dart';
 import 'data/db/app_database.dart';
 import 'data/repository/document_repository.dart';
+import 'data/repository/recent_repository.dart';
+import 'data/storage/saf_import.dart';
 import 'data/storage/workspace.dart';
 import 'features/settings/settings_screen.dart';
 import 'pdf/pdf_engine.dart';
@@ -76,6 +78,7 @@ Future<void> main() async {
 
   DocumentRepository? repository;
   PdfEngine? engine;
+  RecentRepository? recentRepository;
   if (appWorkspace != null) {
     try {
       final db = AppDatabase.open(appWorkspace.root);
@@ -83,11 +86,20 @@ Future<void> main() async {
       final repo = DriftDocumentRepository(db: db, workspace: appWorkspace, engine: engine);
       await repo.reconcileWithFilesystem();
       repository = repo;
+      // RecentRepository는 같은 db/workspace를 공유한다 — 두 번째 DB 연결을 열지
+      // 않는다. SafImporter는 얇은 채널 래퍼라 실패 여지가 없어 여기서 직접 만든다
+      // (providers.dart의 safImporterProvider와 동일한 구현체).
+      recentRepository = DriftRecentRepository(
+        database: db,
+        workspace: appWorkspace,
+        importer: MethodChannelSafImporter(),
+      );
     } catch (e, st) {
       developer.log('문서 저장소 초기화 실패', name: 'main', level: 1000, error: e, stackTrace: st);
       issues.add('문서 목록을 불러오지 못했습니다. 앱을 다시 시작해 주세요.');
       repository = null;
       engine = null;
+      recentRepository = null;
     }
   }
 
@@ -99,6 +111,7 @@ Future<void> main() async {
           workspaceProvider.overrideWithValue(workspace),
           documentRepositoryProvider.overrideWithValue(repository),
           pdfEngineProvider.overrideWithValue(engine),
+          recentRepositoryProvider.overrideWithValue(recentRepository),
           bootIssuesProvider.overrideWithValue(List.unmodifiable(issues)),
         ],
         child: const PdfDaeriApp(),

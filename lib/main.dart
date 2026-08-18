@@ -22,10 +22,15 @@ import 'core/korean_font.dart';
 import 'data/db/app_database.dart';
 import 'data/repository/document_repository.dart';
 import 'data/storage/workspace.dart';
+import 'features/settings/settings_screen.dart';
 import 'pdf/pdf_engine.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // R10(§3.2 위험 등록부): qpdf·libjpeg-turbo·zlib 오픈소스 고지. 등록만 하면 Flutter 표준
+  // LicensePage/AboutDialog가 이후 어디서든 이 항목들을 노출한다(설정 화면이 여는 것도 동일 위젯).
+  registerOpenSourceLicenses();
 
   // 위젯 트리 내부 오류로 앱 프로세스가 죽지 않게 한다 — 기본 빨간 에러 화면은
   // 유지하되(문제를 숨기지 않는다) 로그를 남긴다.

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../scan/photo_to_pdf_screen.dart';
 import '../scan/scan_screen.dart';
+import '../settings/settings_screen.dart';
 import '../viewer/open_pdf_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -25,7 +26,18 @@ class HomeScreen extends ConsumerWidget {
     final canOpenPdf = workspace != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('PDF 대리')),
+      appBar: AppBar(
+        title: const Text('PDF 대리'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '설정',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           if (issues.isNotEmpty)

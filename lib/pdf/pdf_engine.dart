@@ -21,8 +21,14 @@ import '../core/progress.dart';
 import '../core/size_guard.dart';
 import 'image_encode_isolate.dart';
 import 'image_pdf_builder.dart';
+import 'image_quality.dart';
 import 'page_ref.dart';
 import 'qpdf_isolate.dart';
+
+// `ImageQuality`는 `image_quality.dart`(신설)에 있다 — `pdf_compressor.dart`와 상호 import
+// 없이 같은 타입을 공유하기 위함(§6.4 자동 검사 19). 이 export로 기존에
+// `import 'pdf_engine.dart'`를 통해 `ImageQuality`를 쓰던 코드는 전부 그대로 컴파일된다.
+export 'image_quality.dart' show ImageQuality;
 
 abstract interface class PdfEngine {
   /// 페이지 목록으로 새 PDF를 만든다. 항상 전체 재작성(full rebuild).
@@ -76,8 +82,6 @@ class PdfDocInfo {
   final int bytes;
   final bool isEncrypted;
 }
-
-enum ImageQuality { high, standard, min }
 
 /// qpdf(`dart:ffi` + `libqpdf.so`/`qpdf.dll`) 기반 구현체. `_workspace/15_architect_qpdf_migration.md`
 /// §5(API 재설계)에 따라 `PdfrxPdfEngine`을 교체했다(§7.1 -- 어댑터 공존 없이 전면 교체).

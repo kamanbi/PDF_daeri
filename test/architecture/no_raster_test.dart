@@ -379,4 +379,35 @@ void main() {
     });
   });
 
+  // ── §15 §6.4 "자동 검사 추가분"(검사 19~21) — pdf_compressor.dart(M-Q6) 경계 강제 ──────────
+  group('§15 §6.4 검사19 : pdf_compressor.dart ↔ pdf_engine.dart 상호 import가 0회다', () {
+    test('pdf_compressor.dart가 pdf_engine.dart를 import하지 않는다', () {
+      final source = _read('lib/pdf/pdf_compressor.dart');
+      expect(source.contains("import 'pdf_engine.dart'"), isFalse, reason: 'pdf_compressor.dart가 pdf_engine.dart를 import함');
+    });
+    test('pdf_engine.dart가 pdf_compressor.dart를 import하지 않는다', () {
+      final source = _read('lib/pdf/pdf_engine.dart');
+      expect(source.contains("import 'pdf_compressor.dart'"), isFalse, reason: 'pdf_engine.dart가 pdf_compressor.dart를 import함');
+    });
+  });
+
+  group('§15 §6.4 검사20 : 저장 경로 프리셋 리터럴이 pdf_compressor.dart에 없다', () {
+    test('pdf_compressor.dart에 2480/1754/1240/85/75/60 리터럴이 0회다', () {
+      final presetLiterals = RegExp(r'\b(2480|1754|1240|85|75|60)\b');
+      final codeOnly = _codeOnly(_read('lib/pdf/pdf_compressor.dart'));
+      expect(presetLiterals.hasMatch(codeOnly), isFalse, reason: 'pdf_compressor.dart에 프리셋 리터럴 발견 -- ImagePdfBuilder 상수를 참조할 것');
+    });
+  });
+
+  group('§15 §6.4 검사21 : lib/**에서 SaveOp.compress 식별자가 0회다', () {
+    test("'SaveOp.compress' 문자열이 lib/ 전체에 없다", () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        if (file.readAsStringSync().contains('SaveOp.compress')) {
+          violations.add(file.path);
+        }
+      }
+      expect(violations, isEmpty, reason: 'SaveOp.compress 식별자 발견: $violations -- 압축 결과를 저장 경로로 우회시키는 유인이 된다(§6.3)');
+    });
+  });
 }

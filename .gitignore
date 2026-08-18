@@ -38,6 +38,7 @@ coverage/
 # Android
 # ─────────────────────────────────────────────
 android/.gradle/
+android/.kotlin/
 android/gradle/
 android/gradlew
 android/gradlew.bat
@@ -88,3 +89,16 @@ test/fixtures/large/
 
 # 테스트 픽스처 대용량 파일
 test/fixtures/
+
+# ─────────────────────────────────────────────
+# QPDF 마이그레이션(M-Q0) — 네이티브 크로스컴파일 중간 산출물
+# 빌드 스크립트(tool/build_qpdf_android.sh)와 매니페스트만 커밋한다.
+# 최종 .so는 android/app/src/main/jniLibs/<abi>/ 에 별도로 커밋한다.
+# install-* 아래의 정적 라이브러리·CLI 실행 파일·문서·man 페이지는
+# libqpdf.so를 만들기 위한 중간 산출물이므로 커밋하지 않는다.
+# ─────────────────────────────────────────────
+native/*/install-*/
+native/*/build-*/
+native/*/*.tar.gz
+native/*/src-*/
+.qpdf_build_tmp/

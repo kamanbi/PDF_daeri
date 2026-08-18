@@ -1,0 +1,74 @@
+# qpdf C API 바인딩 생성 설정. `dart run ffigen --config ffigen.yaml`로 `lib/pdf/qpdf_ffi.dart`를 생성한다.
+#
+# 대상 헤더: qpdfjob-c.h(저장·병합·발췌 잡 실행) + qpdf-c.h(inspect: qpdf_read/qpdf_get_num_pages/
+# qpdf_is_encrypted) + qpdflogger-c.h(qpdfjob-c.h가 트랜지티브로 요구하는 로거 핸들 타입).
+#
+# 헤더 출처: `native/qpdf/install-arm64-v8a/include/qpdf/` — 이번에 실제로 Android용 libqpdf.so를
+# 빌드한 소스 트리(qpdf 12.4.0)의 설치된 헤더다. Windows msvc64 배포 zip의 헤더가 아니라 이 헤더를
+# 기준으로 삼는다 -- 실기기에 배치된 .so가 내보내는 심볼과 정확히 같은 버전이어야 하기 때문이다.
+# (arm64-v8a/x86_64 두 ABI 모두 동일 qpdf 12.4.0 소스에서 빌드했으므로 헤더는 ABI 무관 동일하다.)
+#
+# 이 파일은 생성물(`lib/pdf/qpdf_ffi.dart`)의 원본이다. 생성물 자체는 수정 금지(§15 §2.2).
+
+name: QpdfBindings
+description: |
+  qpdf 12.4.0 C API(qpdfjob-c.h + qpdf-c.h + qpdflogger-c.h) 바인딩. 생성물이며 수정 금지.
+output: 'lib/pdf/qpdf_ffi.dart'
+language: c
+
+headers:
+  entry-points:
+    - 'native/qpdf/install-arm64-v8a/include/qpdf/qpdfjob-c.h'
+    - 'native/qpdf/install-arm64-v8a/include/qpdf/qpdf-c.h'
+    - 'native/qpdf/install-arm64-v8a/include/qpdf/qpdflogger-c.h'
+
+# 화이트리스트: 우리가 실제로 쓰는 잡 실행/inspect/logger 함수·타입만 바인딩한다.
+# qpdf-c.h는 QPDFObjectHandle(qpdf_oh_*) 등 저수준 객체 그래프 API까지 포함하지만
+# §5.2/§5.3 설계는 그 계층을 쓰지 않는다(JSON 잡 스펙 + inspect 4종 함수만 사용) -- 바인딩
+# 범위를 넓히면 §5.7 "qpdf_isolate.dart 외 dart:ffi 금지" 검사의 표면만 커진다.
+functions:
+  include:
+    - 'qpdfjob_init'
+    - 'qpdfjob_cleanup'
+    - 'qpdfjob_initialize_from_json'
+    - 'qpdfjob_run'
+    - 'qpdfjob_register_progress_reporter'
+    - 'qpdfjob_set_logger'
+    - 'qpdfjob_get_logger'
+    - 'qpdf_init'
+    - 'qpdf_cleanup'
+    - 'qpdf_read'
+    - 'qpdf_has_error'
+    - 'qpdf_get_error'
+    - 'qpdf_get_error_full_text'
+    - 'qpdf_is_encrypted'
+    - 'qpdf_get_num_pages'
+    - 'qpdflogger_default_logger'
+    - 'qpdflogger_create'
+    - 'qpdflogger_cleanup'
+    - 'qpdflogger_set_error'
+
+structs:
+  include: []
+unions:
+  include: []
+enums:
+  include:
+    - 'qpdf_error_code_e'
+    - 'qpdf_log_dest_e'
+
+typedefs:
+  include:
+    - 'qpdfjob_handle'
+    - 'qpdf_data'
+    - 'qpdf_error'
+    - 'qpdflogger_handle'
+
+comments:
+  style: any
+  length: full
+
+preamble: |
+  // GENERATED FILE — ffigen.yaml로 생성. 직접 수정하지 말 것.
+  // 재생성: `dart run ffigen --config ffigen.yaml`
+  // ignore_for_file: always_specify_types, camel_case_types, non_constant_identifier_names, unused_field

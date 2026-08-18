@@ -242,19 +242,25 @@ void main() {
     });
   });
 
-  group('§3.4-13 : Isolate.spawn( 호출부는 이미지 인코딩 워커 파일 하나에만 있다', () {
-    test('lib/pdf/**에서 Isolate.spawn(이 image_encode_isolate.dart에만 있다', () {
+  // qpdf 마이그레이션(§15 §5.7)으로 정당한 Isolate.spawn( 호출부가 2개로 늘었다: 기존
+  // image_encode_isolate.dart(이미지 인코딩)에 더해 qpdf_isolate.dart(§5.7 개정 -- qpdfjob_run이
+  // 동기 블로킹 FFI라 워커 isolate로 옮겨야 한다). §3.4-12(dart:isolate ∩ pdfrx = ∅)는 그대로
+  // 유효하다 -- qpdf_isolate.dart는 pdfrx를 import하지 않는다(§3.4-15에서 별도 확인).
+  group('§3.4-13 : Isolate.spawn( 호출부는 정해진 워커 파일에만 있다', () {
+    test('lib/pdf/**에서 Isolate.spawn(이 image_encode_isolate.dart·qpdf_isolate.dart에만 있다', () {
+      const allowed = {'image_encode_isolate.dart', 'qpdf_isolate.dart'};
       final callers = <String>[];
       for (final file in _dartFilesUnder('lib/pdf')) {
         if (file.readAsStringSync().contains('Isolate.spawn(')) {
           callers.add(file.path.replaceAll('\\', '/'));
         }
       }
-      expect(callers.length, 1, reason: 'Isolate.spawn( 호출부가 정확히 1개여야 한다(실측: $callers)');
+      final unexpected = callers.where((c) => !allowed.any(c.endsWith)).toList();
+      expect(unexpected, isEmpty, reason: 'Isolate.spawn(이 허용 목록 밖에서 호출됨: $unexpected');
       expect(
-        callers.single.endsWith('image_encode_isolate.dart'),
-        isTrue,
-        reason: 'Isolate.spawn(이 image_encode_isolate.dart 밖에서 호출됨: $callers -- PDF를 만지는 파일이 새 isolate를 스폰하면 안 된다',
+        callers.map((c) => c.split('/').last).toSet(),
+        allowed,
+        reason: '허용된 2개 워커 파일이 실제로 전부 Isolate.spawn(을 쓰는지 확인(실측: $callers)',
       );
     });
   });
@@ -268,6 +274,83 @@ void main() {
         }
       }
       expect(violations, isEmpty, reason: 'stopBackgroundWorker 호출 발견: $violations -- 살아있는 문서 핸들이 있으면 UB다(FPDF_DestroyLibrary)');
+    });
+  });
+
+  // ── §15(`_workspace/15_architect_qpdf_migration.md`) §5.7 "§3.4 자동 검사 추가분"(검사 14~18) ──
+  // 문서의 번호(14~18)를 그대로 쓰면 위 §3.4-14(stopBackgroundWorker)와 충돌하므로, 이 파일
+  // 내에서는 "§15 §5.7 검사 N" 이름으로 구분한다.
+  group('§15 §5.7 검사14 : dart:ffi import는 qpdf_ffi.dart·qpdf_isolate.dart에만 있다', () {
+    test("lib/**에서 \"import 'dart:ffi'\"가 이 2개 파일에만 있다", () {
+      const allowed = {'qpdf_ffi.dart', 'qpdf_isolate.dart'};
+      final callers = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        if (file.readAsStringSync().contains("import 'dart:ffi'")) {
+          callers.add(file.path.replaceAll('\\', '/'));
+        }
+      }
+      final unexpected = callers.where((c) => !allowed.any(c.endsWith)).toList();
+      expect(unexpected, isEmpty, reason: "dart:ffi import가 허용 목록 밖에서 발견됨: $unexpected");
+    });
+  });
+
+  group('§15 §5.7 검사15 : qpdf_isolate.dart는 pdfrx·이미지 인코딩 API를 쥐지 않는다(2-키 분리)', () {
+    test("코드(주석 제외)에 'pdfrx', 'package:image', 'package:pdf/' 문자열이 0회다", () {
+      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+      for (final token in const ['pdfrx', 'package:image', 'package:pdf/']) {
+        expect(codeOnly.contains(token), isFalse, reason: 'qpdf_isolate.dart가 금지 토큰 "$token"을 참조함');
+      }
+    });
+  });
+
+  group('§15 §5.7 검사16 : qpdf_isolate.dart의 잡 스펙에 금지 키가 없다(§5.3 화이트리스트)', () {
+    test("코드(주석 제외)에 금지 키가 Map 키/값 리터럴로 등장하지 않는다", () {
+      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+      // 정확히 "Map 키 리터럴"(따옴표 직후 콜론) 형태만 검사한다 -- 단순 부분 문자열 검사는
+      // qpdf-c.h의 정당한 API 식별자(qpdf_is_encrypted)·우리 자체 에러 코드('encrypted')·
+      // 에러 텍스트 휴리스틱(text.contains('encrypt'))까지 오탐해 이 잡 자체를 구현 불가능하게
+      // 만든다 -- inspect가 암호화 PDF를 판별하려면 "encrypt"라는 글자 자체는 불가피하게 코드에
+      // 등장한다. 화이트리스트가 실제로 막아야 하는 것은 "이 단어를 job 스펙의 키로 쓰는 것"이다.
+      final bannedKeyPattern = RegExp(r"""['"](replaceInput|splitPages|qdf|encrypt|linearize)['"]\s*:""");
+      final bannedValuePattern = RegExp(r"""[:]\s*['"]uncompress['"]""");
+      expect(bannedKeyPattern.hasMatch(codeOnly), isFalse, reason: '금지 키가 Map 리터럴로 등장함: ${bannedKeyPattern.allMatches(codeOnly).map((m) => m.group(0)).toList()}');
+      expect(bannedValuePattern.hasMatch(codeOnly), isFalse, reason: 'streamData: uncompress 패턴 등장');
+    });
+  });
+
+  group('§15 §5.7 검사17 : lib/**에서 Process.run/Process.start를 쓰지 않는다', () {
+    test("CLI 실행 경로(§2.1 (B) 기각안)가 부활하지 않았다", () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        final source = file.readAsStringSync();
+        if (source.contains('Process.run(') || source.contains('Process.start(')) {
+          violations.add(file.path.replaceAll('\\', '/'));
+        }
+      }
+      expect(violations, isEmpty, reason: 'Process.run/Process.start 호출 발견: $violations');
+    });
+  });
+
+  group('§15 §5.7 검사18 : qpdf_isolate.dart가 노출하는 공개 함수는 임의 JSON/argv 문자열을 받지 않는다', () {
+    test('공개 함수 시그니처에 String 타입의 잡스펙/JSON/argv 파라미터가 없다', () {
+      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+      // "jobSpec"/"jobJson"/"argv" 류 이름의 String 파라미터가 톱레벨(비-`_` 접두) 함수 시그니처에
+      // 있는지 본다. 내부(`_` 접두) 헬퍼는 제외 -- 그건 공개 API가 아니다.
+      final publicFnPattern = RegExp(r'^(Future<[^>]+>|Map<[^>]+>|String|void)\s+([a-zA-Z][a-zA-Z0-9]*)\s*\(', multiLine: true);
+      final suspiciousParamPattern = RegExp(r'String\??\s+(jobSpec|jobJson|argv)\w*', caseSensitive: false);
+      for (final match in publicFnPattern.allMatches(codeOnly)) {
+        final name = match.group(2)!;
+        if (name.startsWith('_')) continue;
+        // 함수 시그니처 전체(다음 '{' 또는 '=>' 까지)를 대략 스캔한다.
+        final start = match.start;
+        final end = codeOnly.indexOf(RegExp(r'[{]|=>'), start);
+        final signature = end == -1 ? codeOnly.substring(start) : codeOnly.substring(start, end);
+        expect(
+          suspiciousParamPattern.hasMatch(signature),
+          isFalse,
+          reason: '공개 함수 "$name"가 임의 JSON/argv 문자열을 받는 것으로 보임: $signature',
+        );
+      }
     });
   });
 

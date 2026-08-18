@@ -15,6 +15,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/home/home_screen.dart';
 import '../features/viewer/open_pdf_flow.dart';
 import 'providers.dart';
 import 'router.dart';
@@ -94,6 +95,10 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp> with WidgetsBindingOb
       theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo)),
       initialRoute: AppRoutes.home,
       onGenerateRoute: onGenerateRoute,
+      // 방어선(근본 수정은 MainActivity.kt의 shouldHandleDeeplinking()=false —
+      // _workspace/29 참고). 그럼에도 알 수 없는 이름의 라우트가 push되면(예:
+      // 향후 다른 딥링크 경로, 테스트) Navigator가 죽지 않고 홈으로 안전 착지한다.
+      onUnknownRoute: (settings) => MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
   }
 }

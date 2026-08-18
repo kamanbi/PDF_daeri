@@ -26,8 +26,21 @@ import java.io.FileNotFoundException
  * 절대 규칙 6(원본 미수정) 관련: 이 파일은 `content://` URI에 대해 읽기(복사)만
  * 하며 `takePersistableUriPermission` 등 지속 권한을 요청하지 않는다. 인텐트가
  * 부여한 일회성 grant로 복사가 끝나면 그걸로 충분하다.
+ *
+ * `shouldHandleDeeplinking()` = false 관련 (2026-08-19, _workspace/29 근거):
+ * `FlutterActivity`는 `AndroidManifest.xml`에 `flutter_deeplinking_enabled`
+ * 메타데이터가 없으면 **기본값 true**로 동작한다(flutter/engine
+ * `FlutterActivityLaunchConfigs.deepLinkEnabled`). 이 상태에서는 `onNewIntent`가
+ * 호출될 때마다(그리고 cold start의 `getInitialRoute()`에서도) 엔진이 intent의
+ * `data`(URI)를 **자체적으로** `flutter/navigation` 채널의 `pushRouteInformation`으로
+ * Dart Navigator에 밀어넣는다. 이 앱은 인텐트 URI를 `IncomingIntentService`
+ * (EventChannel, 아래 `intentEventChannel`)로 **직접** 소비하므로, 저 자동 동작은
+ * 불필요할 뿐 아니라 실제로 파일 경로가 라우트 이름으로 잘못 해석돼
+ * "Could not find a generator for route" 예외를 유발한다(실기기 확인,
+ * `_workspace/28_build-runner_intent_device.md`). 그래서 명시적으로 끈다.
  */
 class MainActivity : FlutterActivity() {
+    override fun shouldHandleDeeplinking(): Boolean = false
     private val storageChannel = "com.kamanbi.pdf_daeri/storage"
     private val safChannel = "com.kamanbi.pdf_daeri/saf"
     private val intentMethodChannel = "com.kamanbi.pdf_daeri/intent"

@@ -87,16 +87,23 @@ Future<Map<String, Object?>> runSave({
     return {'error': 'unknown', 'detail': 'invalid PageRef map: $e'};
   }
 
-  final inPlaceSource = singleInPlaceSource(decoded);
-  if (inPlaceSource != null) {
-    return _runInPlace(
-      sourcePath: inPlaceSource,
-      orderedRefs: decoded.cast<PdfPageRef>(),
-      outputPath: outputPath,
-      onProgress: onProgress,
-      cancelToken: cancelToken,
-    );
-  }
+  // 【긴급 비활성화】 pdfrx_engine 0.4.6 버그: 9x_architect_verdict.md §9.1 — `PdfDocument.pages`
+  // setter가 페이지 번호를 새 위치 번호로 덮어쓰고, `assemble()`이 그 번호를 원본 위치로
+  // 오인해 `modifiedCount`가 항상 0이 된다. 그 결과 삭제·순서변경이 무음으로 무시되고 원본이
+  // 그대로 저장된다(회전만 별도 비교 경로라 예외적으로 반영됨 -- 단 회전+비연속 발췌 조합은
+  // 여전히 틀린 페이지가 나오는 사각지대다, §9.2). `singleInPlaceSource`/`_runInPlace`는
+  // 문서화된 정상 사용법이었고 우리 쪽 버그가 아니다 -- 그러나 0.4.6의 공개 API로는 이 결함을
+  // 피해갈 방법이 없다. 인플레이스 분기 호출을 여기서 완전히 걷어내고 전량
+  // `_runComposeNew`(createNew + import, R2에서 재오픈 검증까지 통과)로 되돌린다. 지시 3
+  // (상류 3줄 패치)은 의존성 변경이라 별도 사용자 승인 트랙이며 이번 작업 범위가 아니다.
+  // `singleInPlaceSource`/`_runInPlace` 자체와 그 라우팅 테스트는 지우지 않는다 -- 상류 패치
+  // 승인 시 아래 두 줄의 주석을 풀어 되살릴 수 있다.
+  //
+  //   final inPlaceSource = singleInPlaceSource(decoded);
+  //   if (inPlaceSource != null) {
+  //     return _runInPlace(sourcePath: inPlaceSource, orderedRefs: decoded.cast<PdfPageRef>(),
+  //         outputPath: outputPath, onProgress: onProgress, cancelToken: cancelToken);
+  //   }
 
   return _runComposeNew(
     pages: decoded,
@@ -114,6 +121,11 @@ Future<Map<String, Object?>> runSave({
 /// 원본 파일은 절대 덮어쓰지 않는다(절대 규칙 6). `doc.pages = kept`와 `doc.encodePdf()`는
 /// 메모리상의 `PdfDocument` 객체만 바꾸고 바이트 버퍼를 반환할 뿐이다 -- 그 바이트를 [outputPath]
 /// (스테이징 경로, 원본과 다른 파일)에 쓰는 것은 이 함수이지 pdfrx가 원본 파일에 쓰는 것이 아니다.
+///
+/// 【긴급 비활성화】 `runSave()`에서 현재 호출되지 않는다 -- `9x_architect_verdict.md` §9.1의
+/// `pdfrx_engine` 0.4.6 버그(삭제·순서변경 무음 실패) 때문이다. 함수는 상류 패치 승인 시
+/// 되살릴 수 있도록 삭제하지 않고 남긴다.
+// ignore: unused_element
 Future<Map<String, Object?>> _runInPlace({
   required String sourcePath,
   required List<PdfPageRef> orderedRefs,

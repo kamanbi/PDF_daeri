@@ -63,6 +63,10 @@ abstract final class FileName {
   /// 편집 저장 결과 제목.
   static String editedTitle(String originalTitle) => '$originalTitle (편집본)';
 
+  /// 압축 결과 제목. `pipeline.md` 163행 확정(Q21, 2026-08-19) — `(압축본)`이
+  /// 아니라 `(압축)`이다. 외부 PDF L2 압축(`_workspace/31_...md`)도 이 규칙을 그대로 쓴다.
+  static String compressedTitle(String originalTitle) => '$originalTitle (압축)';
+
   /// [existing]에 [title]이 이미 있으면 ` (2)`, ` (3)` ... 을 붙여 유일하게 만든다.
   static String dedupe(String title, Set<String> existing) {
     if (!existing.contains(title)) return title;

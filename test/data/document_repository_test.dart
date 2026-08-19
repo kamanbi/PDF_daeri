@@ -140,6 +140,8 @@ class _FixedFreeSpaceWorkspace implements Workspace {
   @override
   String stagingSourceImage(String docId, int n) => _inner.stagingSourceImage(docId, n);
   @override
+  String stagingCompressImagesDir(String docId) => _inner.stagingCompressImagesDir(docId);
+  @override
   String thumb(String docId) => _inner.thumb(docId);
   @override
   String recentFile(String id) => _inner.recentFile(id);

@@ -20,9 +20,11 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/app_error.dart';
 import '../../core/cancel_token.dart';
+import '../../core/file_name.dart';
 import '../../core/progress.dart';
 import '../../core/size_guard.dart';
 import '../../pdf/page_ref.dart';
+import '../../pdf/pdf_compressor.dart';
 import '../../pdf/pdf_engine.dart';
 import '../../pdf/pdf_renderer.dart';
 import '../db/app_database.dart';
@@ -42,6 +44,28 @@ abstract interface class DocumentRepository {
     required List<PageRef> pages,
     required ImageQuality quality,
     required GuardInput guardInput,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  });
+
+  /// **M-E7** — 압축 결과를 **새 문서**로 만든다(`_workspace/31_architect_external_compress_l2.md`
+  /// §2/§3.2/§4.5). 원본(`docs/<docId>/` 또는 `recent/<id>.pdf`)은 절대 수정하지 않는다 —
+  /// 항상 새 `docId`(UUID v4)의 문서를 만든다.
+  ///
+  /// 절차: ① `Workspace.freeSpaceBytes()`로 여유 공간 확인(원본의 약 1.2배, §31 R3) —
+  /// 부족하면 스테이징 시작 전에 `OutOfSpace`로 즉시 실패 ② 스테이징 생성 ③
+  /// `PdfCompressor.compress` 호출 — [source]가 [CompressSource.myDocument]이고 그
+  /// 문서의 페이지 전량이 `ImagePageRef`면 L2-app(`imagePagePaths`), 그 외(혼합 내
+  /// 문서·[CompressSource.externalPdf])는 L2-ext(`embeddedImageStagingDir`)로 실행한다
+  /// ④ 결과 파일 커밋(원자적 rename), DB 행 생성 — 제목은 `FileName.compressedTitle`
+  /// (`<원본 제목> (압축)`, `(압축본)` 아님, Q21) ⑤ 실패·취소 시 스테이징을 남기지 않는다
+  /// (`Workspace.rollbackStaging` 재사용).
+  ///
+  /// `outcome.keptOriginal`(압축 효과 없음)이면 **새 문서를 만들지 않는다** — 스테이징을
+  /// 버리고 [CompressToNewDocumentResult.summary]가 `null`인 결과를 돌려준다(§4.3 상태3).
+  Future<PdfResult<CompressToNewDocumentResult>> compressToNewDocument({
+    required CompressSource source,
+    required ImageQuality preset,
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   });
@@ -104,6 +128,52 @@ class DocumentDetail {
   const DocumentDetail({required this.summary, required this.pages});
   final DocumentSummary summary;
   final List<PageRef> pages; // DB pages 행 → PageRef 복원
+}
+
+/// `compressToNewDocument`의 압축 대상 지정. `lib/pdf/**`가 `lib/data/**`를 모르는
+/// 레이어 경계(`pdf_compressor.dart` 상단 문서)를 지키기 위해, "내 문서인가 외부
+/// PDF인가"의 판별은 이 타입으로 Repository 밖(호출자)이 명시적으로 알려준다.
+sealed class CompressSource {
+  const CompressSource();
+
+  /// 내 문서(`docs/<docId>/`). 페이지 전량이 `ImagePageRef`면 L2-app으로,
+  /// 그 외(혼합 문서)는 L2-ext로 압축한다 — 판별 근거인 `pages.kind`는
+  /// `compressToNewDocument`가 DB에서 직접 조회한다(§31 "호출자가 kind 목록을
+  /// 넘긴다"는 이 경계 — `PdfCompressor`의 실제 호출자는 Repository다).
+  const factory CompressSource.myDocument(String docId) = _MyDocumentSource;
+
+  /// 외부에서 연 PDF(`recent/<id>.pdf` 등). 앱이 소유하지 않는 원본이므로 항상
+  /// L2-ext로 압축한다. [title]은 결과 문서 제목의 원본 제목으로 쓰인다
+  /// (Repository는 `recent_files` 테이블을 모르므로 호출자가 표시명을 전달한다).
+  const factory CompressSource.externalPdf({required String pdfPath, required String title}) =
+      _ExternalPdfSource;
+}
+
+final class _MyDocumentSource extends CompressSource {
+  const _MyDocumentSource(this.docId);
+  final String docId;
+}
+
+final class _ExternalPdfSource extends CompressSource {
+  const _ExternalPdfSource({required this.pdfPath, required this.title});
+  final String pdfPath;
+  final String title;
+}
+
+/// `compressToNewDocument`의 결과. [summary]가 `null`이면 [keptOriginal]이 true라는
+/// 뜻이다 — 압축 효과가 없어 새 문서를 만들지 않았다(§4.3 상태3 "이미 최적화된 문서").
+class CompressToNewDocumentResult {
+  const CompressToNewDocumentResult({
+    required this.summary,
+    required this.originalBytes,
+    required this.resultBytes,
+    required this.keptOriginal,
+  });
+
+  final DocumentSummary? summary;
+  final int originalBytes;
+  final int resultBytes;
+  final bool keptOriginal;
 }
 
 enum DocOrigin { scan, photo, imported }
@@ -171,19 +241,39 @@ class _CopiedSources {
   final List<PageRef> finalPages;
 }
 
+/// `_resolveCompressSource`의 반환값 — `compressToNewDocument`가 `PdfCompressor.compress`를
+/// 호출하기 위해 필요한 것만 담는다.
+class _ResolvedCompressSource {
+  const _ResolvedCompressSource({
+    required this.pdfPath,
+    required this.originalTitle,
+    required this.imagePagePaths,
+  });
+
+  /// 압축할 원본 PDF 경로(읽기 전용으로만 연다).
+  final String pdfPath;
+  final String originalTitle;
+
+  /// non-null이면 L2-app(문서 페이지 전량이 `ImagePageRef`), null이면 L2-ext.
+  final List<String>? imagePagePaths;
+}
+
 class DriftDocumentRepository implements DocumentRepository {
   DriftDocumentRepository({
     required this._db,
     required this._workspace,
     required this._engine,
     required this._renderer,
+    PdfCompressor? compressor,
     Uuid? uuid,
-  }) : _uuid = uuid ?? const Uuid();
+  }) : _compressor = compressor ?? const QpdfCompressor(),
+       _uuid = uuid ?? const Uuid();
 
   final AppDatabase _db;
   final Workspace _workspace;
   final PdfEngine _engine;
   final PdfRenderer _renderer;
+  final PdfCompressor _compressor;
   final Uuid _uuid;
 
   // ensureThumbnail(§1.1·§1.4): 동일 docId 동시 호출 병합 + 동시 렌더 3개 제한 큐
@@ -353,6 +443,224 @@ class DriftDocumentRepository implements DocumentRepository {
     } catch (e) {
       await _workspace.rollbackStaging(docId);
       return PdfErr(UnknownFailure('createDocument 실패: $e'));
+    }
+  }
+
+  /// **M-E7** — 인터페이스 문서 참조. 원본(`docs/<docId>/` 또는 외부 PDF)은 읽기만
+  /// 한다 — 새 `docId`를 발급하고 그 스테이징에만 쓴다(절대 규칙: 원본 미수정).
+  @override
+  Future<PdfResult<CompressToNewDocumentResult>> compressToNewDocument({
+    required CompressSource source,
+    required ImageQuality preset,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
+    final resolveResult = await _resolveCompressSource(source);
+    if (resolveResult is PdfErr<_ResolvedCompressSource>) {
+      return PdfErr(resolveResult.failure);
+    }
+    final resolved = (resolveResult as PdfOk<_ResolvedCompressSource>).value;
+
+    final srcFile = File(resolved.pdfPath);
+    if (!srcFile.existsSync()) {
+      return PdfErr(SourceMissing(resolved.pdfPath));
+    }
+    final originalBytes = srcFile.lengthSync();
+
+    // §31 R3: "대형 스캔 PDF에서 디스크·메모리 압박" — 원본의 약 1.2배 여유 공간이
+    // 필요하다. createDocument의 §7.3과 같은 원칙(스테이징 시작 전에 확인, freeBytes
+    // -1이면 판단 불가로 취급해 막지 않는다)을 그대로 따른다.
+    final requiredBytes = (originalBytes * 1.2).ceil() + Workspace.spaceSafetyBufferBytes;
+    final freeBytes = await _workspace.freeSpaceBytes();
+    if (freeBytes >= 0 && freeBytes < requiredBytes) {
+      return PdfErr(OutOfSpace(requiredBytes));
+    }
+
+    if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
+
+    final docId = _uuid.v4();
+    try {
+      await _workspace.beginStaging(docId);
+    } catch (e) {
+      return PdfErr(UnknownFailure('스테이징 생성 실패: $e'));
+    }
+
+    try {
+      final stagingPdfPath = _workspace.stagingDocPdf(docId);
+      // L2-app(모든 페이지가 ImagePageRef)이면 imagePagePaths를, 그 외(외부 PDF·혼합
+      // 내 문서)는 embeddedImageStagingDir를 넘긴다 — 둘은 상호 배타이며 이 분기가
+      // 유일한 선택 지점이다(`PdfCompressor.compress` §31 §2.6).
+      final embeddedStagingDir = resolved.imagePagePaths == null
+          ? _workspace.stagingCompressImagesDir(docId)
+          : null;
+
+      final compressResult = await _compressor.compress(
+        pdfPath: resolved.pdfPath,
+        outputPath: stagingPdfPath,
+        preset: preset,
+        imagePagePaths: resolved.imagePagePaths,
+        embeddedImageStagingDir: embeddedStagingDir,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
+
+      if (compressResult is PdfErr<CompressOutcome>) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(compressResult.failure);
+      }
+      final outcome = (compressResult as PdfOk<CompressOutcome>).value;
+
+      // L2-ext가 남긴 임시 추출 폴더는 최종 docDir에 들어가면 안 된다(sources/도
+      // cache/도 아닌 순수 작업 폴더) — keptOriginal이든 아니든 여기서 지운다.
+      // 실패 경로는 위에서 이미 rollbackStaging으로 `.tmp` 전체가 지워지므로 별도
+      // 처리가 필요 없다.
+      if (embeddedStagingDir != null) {
+        final dir = Directory(embeddedStagingDir);
+        if (await dir.exists()) {
+          try {
+            await dir.delete(recursive: true);
+          } catch (_) {
+            // 최선 노력 — rollbackStaging/commitStaging 어느 쪽이든 `.tmp`를
+            // 통째로 정리하거나 옮기므로 여기 잔재가 최종 결과에 남지 않는다.
+          }
+        }
+      }
+
+      if (outcome.keptOriginal) {
+        // §4.3 상태3 "이미 최적화된 문서" — 새 문서를 만들지 않는다. 스테이징을
+        // 버린다(성공이지만 커밋할 산출물이 없다).
+        await _workspace.rollbackStaging(docId);
+        return PdfOk(
+          CompressToNewDocumentResult(
+            summary: null,
+            originalBytes: outcome.originalBytes,
+            resultBytes: outcome.resultBytes,
+            keptOriginal: true,
+          ),
+        );
+      }
+
+      if (cancelToken?.isCancelled ?? false) {
+        await _workspace.rollbackStaging(docId);
+        return const PdfErr(Cancelled());
+      }
+
+      // 재편집 가능성 보장(B6과 같은 원칙, §7.3): 압축 산출물 자체를 sources/src_1.pdf로도
+      // 남겨 pages 행이 PdfPageRef(sourcePath: sources/src_1.pdf, sourceIndex: i)로
+      // 재구성 가능하게 한다. document.pdf와 내용이 같으므로 재렌더가 아니라 파일 복사다.
+      final pageCountResult = await _renderer.openPageCount(stagingPdfPath);
+      if (pageCountResult is PdfErr<int>) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(pageCountResult.failure);
+      }
+      final pageCount = (pageCountResult as PdfOk<int>).value;
+
+      try {
+        await File(stagingPdfPath).copy(_workspace.stagingSourcePdf(docId, 1));
+      } catch (e) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(UnknownFailure('압축 결과 소스 복사 실패: $e'));
+      }
+
+      try {
+        await _workspace.commitStaging(docId);
+      } catch (e) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(UnknownFailure('스테이징 반영 실패: $e'));
+      }
+
+      final finalSourcePath = _workspace.sourcePdf(docId, 1);
+      final title = FileName.compressedTitle(resolved.originalTitle);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      try {
+        await _db.transaction(() async {
+          await _db
+              .into(_db.documents)
+              .insert(
+                DocumentsCompanion.insert(
+                  id: docId,
+                  title: title,
+                  origin: _originToDb(DocOrigin.imported),
+                  pageCount: pageCount,
+                  fileSize: outcome.resultBytes,
+                  createdAt: now,
+                  updatedAt: now,
+                ),
+              );
+          for (var i = 0; i < pageCount; i++) {
+            await _db
+                .into(_db.pages)
+                .insert(
+                  _pageToCompanion(
+                    _uuid.v4(),
+                    docId,
+                    i,
+                    PdfPageRef(sourcePath: finalSourcePath, sourceIndex: i, rotation: 0),
+                  ),
+                );
+          }
+        });
+      } catch (e) {
+        // DB 기록 실패: docId가 새로 발급되었으므로 복원할 ".old"가 없다(04-A와 동일
+        // 사유) — 방금 커밋한 docs/<docId>를 통째로 지워 반쪽 문서를 남기지 않는다.
+        await _deleteDocDirIfExists(docId);
+        return PdfErr(UnknownFailure('DB 기록 실패: $e'));
+      }
+
+      return PdfOk(
+        CompressToNewDocumentResult(
+          summary: DocumentSummary(
+            id: docId,
+            title: title,
+            origin: DocOrigin.imported,
+            pageCount: pageCount,
+            fileSize: outcome.resultBytes,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(now),
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(now),
+            thumbPath: null,
+          ),
+          originalBytes: outcome.originalBytes,
+          resultBytes: outcome.resultBytes,
+          keptOriginal: false,
+        ),
+      );
+    } catch (e) {
+      await _workspace.rollbackStaging(docId);
+      return PdfErr(UnknownFailure('compressToNewDocument 실패: $e'));
+    }
+  }
+
+  /// [source]를 실제 압축 입력(원본 PDF 경로·원본 제목·L2-app용 이미지 경로 목록)으로
+  /// 해석한다. [CompressSource.myDocument]는 DB에서 제목·페이지 종류를 조회해
+  /// "전량 이미지"일 때만 [imagePagePaths]를 채운다 — 그 외에는 `null`을 돌려줘
+  /// `compressToNewDocument`가 L2-ext(embeddedImageStagingDir)로 넘어가게 한다.
+  Future<PdfResult<_ResolvedCompressSource>> _resolveCompressSource(CompressSource source) async {
+    switch (source) {
+      case _MyDocumentSource(:final docId):
+        final docRow = await (_db.select(
+          _db.documents,
+        )..where((t) => t.id.equals(docId))).getSingleOrNull();
+        if (docRow == null) {
+          return const PdfErr(UnknownFailure('document not found'));
+        }
+        final pageRows =
+            await (_db.select(_db.pages)
+                  ..where((t) => t.docId.equals(docId))
+                  ..orderBy([(t) => drift.OrderingTerm(expression: t.orderIndex)]))
+                .get();
+        final allImage = pageRows.isNotEmpty && pageRows.every((r) => r.kind == 'image');
+        final imagePagePaths = allImage
+            ? [for (final row in pageRows) (_pageRowToRef(row) as ImagePageRef).imagePath]
+            : null;
+        return PdfOk(
+          _ResolvedCompressSource(
+            pdfPath: _workspace.docPdf(docId),
+            originalTitle: docRow.title,
+            imagePagePaths: imagePagePaths,
+          ),
+        );
+      case _ExternalPdfSource(:final pdfPath, :final title):
+        return PdfOk(_ResolvedCompressSource(pdfPath: pdfPath, originalTitle: title, imagePagePaths: null));
     }
   }
 

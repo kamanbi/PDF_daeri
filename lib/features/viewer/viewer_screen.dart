@@ -26,8 +26,10 @@ import '../../app/providers.dart';
 import '../../app/router.dart';
 import '../../core/app_error.dart';
 import '../../core/cancel_token.dart';
+import '../../data/repository/document_repository.dart';
 import '../../pdf/pdf_renderer.dart';
 import '../common/failure_ui.dart';
+import 'compress_sheet.dart';
 import 'page_thumbnail_bar.dart';
 
 /// 프리로드 범위(현재 ±1)와 메모리 LRU 상한(§2.2).
@@ -52,6 +54,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   PdfFailure? _fatalFailure;
   late final PageController _pageController;
   int _currentPage = 0;
+
+  // 압축 결과로 배경 문서를 교체할 수 있어야 하므로(§31 §4.3 "결과 시트가 뜨는
+  // 순간 배경의 뷰어를 압축 결과 파일로 교체") `_args`를 고정값으로 쓰지
+  // 않고 이 필드에 복사해 둔다. 화면을 새로 쌓지 않는다 -- 같은 ViewerScreen이
+  // 새 pdfPath를 가리키도록 갱신될 뿐이다.
+  late ViewerArgs _args = widget.args;
 
   // 페이지 이미지 메모리 캐시(LRU 5) + 페이지별 진행 중 취소 토큰. 뷰어 본체
   // 소유 — 썸네일 바(`PageThumbnailBar`)는 자신만의 캐시를 따로 갖는다(§2.2).
@@ -86,16 +94,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
     try {
       final renderer = ref.read(pdfRendererProvider);
-      final result = await renderer.pageGeometry(widget.args.pdfPath, password: widget.args.password);
+      final result = await renderer.pageGeometry(_args.pdfPath, password: _args.password);
       if (!mounted) return;
 
       switch (result) {
         case PdfOk<PdfPageGeometry>(:final value):
-          if (value.pageCount != widget.args.pageCount) {
+          if (value.pageCount != _args.pageCount) {
             // §2.3: pageGeometry의 pageCount를 진실로 삼는다. 불일치는 임포트 경로의
             // 결함 신호이므로 로그만 남기고 진행을 막지 않는다.
             debugPrint(
-              'ViewerScreen: pageCount 불일치 (args=${widget.args.pageCount}, geometry=${value.pageCount})',
+              'ViewerScreen: pageCount 불일치 (args=${_args.pageCount}, geometry=${value.pageCount})',
             );
           }
           setState(() {
@@ -104,7 +112,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           });
           _prefetchAround(0);
         case PdfErr<PdfPageGeometry>(:final failure):
-          final mapped = failure is SourceEncrypted ? SourceCorrupted(widget.args.pdfPath) : failure;
+          final mapped = failure is SourceEncrypted ? SourceCorrupted(_args.pdfPath) : failure;
           setState(() {
             _loading = false;
             _fatalFailure = mapped;
@@ -120,9 +128,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (!mounted) return;
     final action = await FailureUi.showDialog(context, failure);
     if (!mounted) return;
-    if (action == FailureAction.removeFromList && widget.args.recentId != null) {
+    if (action == FailureAction.removeFromList && _args.recentId != null) {
       final recentRepo = ref.read(recentRepositoryProvider);
-      await recentRepo?.removeFromList(widget.args.recentId!);
+      await recentRepo?.removeFromList(_args.recentId!);
     }
     if (!mounted) return;
     // 뷰어가 스택 어디에 있었든(push든 pushReplacement든) 홈 하나로 정리한다 —
@@ -170,10 +178,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     _loadingPages.add(index);
 
     final result = await renderer.renderPage(
-      pdfPath: widget.args.pdfPath,
+      pdfPath: _args.pdfPath,
       pageIndex: index,
       targetWidthPx: targetWidthPx,
-      password: widget.args.password,
+      password: _args.password,
       cancelToken: token,
     );
 
@@ -217,6 +225,53 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await _renderPage(index, target, highRes: true);
   }
 
+  void _openCompressSheet() {
+    showCompressSheet(
+      context: context,
+      ref: ref,
+      pdfPath: _args.pdfPath,
+      title: _args.title,
+      docId: _args.docId,
+      recentId: _args.recentId,
+      onDocumentReady: _replaceWithCompressedDocument,
+    );
+  }
+
+  /// §31 §4.3 확정: 압축 결과 시트가 뜨는 즉시(닫히기를 기다리지 않고) 호출된다.
+  /// 새 화면을 쌓지 않고 같은 뷰어가 새 문서를 가리키도록 상태를 갈아 끼운다.
+  void _replaceWithCompressedDocument(DocumentSummary newDocument) {
+    final workspace = ref.read(workspaceProvider);
+    if (workspace == null) return;
+
+    final oldPath = _args.pdfPath;
+    final oldPassword = _args.password;
+    for (final token in _cancelTokens.values) {
+      token.cancel();
+    }
+    _cancelTokens.clear();
+    _loadingPages.clear();
+
+    setState(() {
+      _args = ViewerArgs(
+        pdfPath: workspace.docPdf(newDocument.id),
+        title: newDocument.title,
+        pageCount: newDocument.pageCount,
+        docId: newDocument.id,
+      );
+      _bytesCache.clear();
+      _renderedWidthPx.clear();
+      _loading = true;
+      _geometry = null;
+      _currentPage = 0;
+    });
+    if (_pageController.hasClients) {
+      _pageController.jumpToPage(0);
+    }
+    // 압축 전 문서의 렌더러 핸들을 닫는다 -- 새 문서는 _loadGeometry가 다시 연다.
+    ref.read(pdfRendererProvider).evictDocument(oldPath, password: oldPassword);
+    _loadGeometry();
+  }
+
   @override
   void dispose() {
     for (final token in _cancelTokens.values) {
@@ -224,7 +279,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
     // 뷰어 이탈 — 이 문서의 핸들만 닫는다. evictCache()(전체 해제)는 쓰지 않는다
     // (§2.1 — 홈 그리드의 썸네일 생성용 핸들까지 닫으면 안 된다).
-    ref.read(pdfRendererProvider).evictDocument(widget.args.pdfPath, password: widget.args.password);
+    ref.read(pdfRendererProvider).evictDocument(_args.pdfPath, password: _args.password);
     _pageController.dispose();
     super.dispose();
   }
@@ -233,9 +288,19 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Widget build(BuildContext context) {
     final geometry = _geometry;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.args.title, overflow: TextOverflow.ellipsis)),
-      // 상단 액션(공유·편집으로 이동)은 2주차에 배치하지 않는다(설계 §0.4·§2.3 —
-      // 3주차 기능과 함께 붙는다. 빈 버튼을 미리 만들지 않는다).
+      appBar: AppBar(
+        title: Text(_args.title, overflow: TextOverflow.ellipsis),
+        // §31 §4.2 신설: 압축 진입 아이콘 1개. 암호 PDF는 편집과 같은 정책으로
+        // 비활성화한다(`ViewerArgs.isEncrypted`, §3.3 Q10). 공유·편집 이동은
+        // 3주차(설계 §0.4)에 이 자리에 함께 붙는다 — 지금은 아이콘 1개뿐이다.
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.compress),
+            tooltip: '압축',
+            onPressed: _args.isEncrypted ? null : _openCompressSheet,
+          ),
+        ],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : (geometry == null || _fatalFailure != null)
@@ -257,8 +322,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
                 PageThumbnailBar(
                   renderer: ref.read(pdfRendererProvider),
-                  pdfPath: widget.args.pdfPath,
-                  password: widget.args.password,
+                  pdfPath: _args.pdfPath,
+                  password: _args.password,
                   sizes: geometry.sizes,
                   currentPage: _currentPage,
                   onPageSelected: (index) => _pageController.animateToPage(

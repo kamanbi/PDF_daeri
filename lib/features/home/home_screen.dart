@@ -238,6 +238,7 @@ class _DocumentCard extends ConsumerWidget {
             pdfPath: workspace.docPdf(summary.id),
             title: summary.title,
             pageCount: summary.pageCount,
+            docId: summary.id,
           ),
         );
       },

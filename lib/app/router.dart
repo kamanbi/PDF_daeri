@@ -34,6 +34,7 @@ class ViewerArgs {
     this.password,
     this.isEncrypted = false,
     this.recentId,
+    this.docId,
   });
 
   /// 앱 작업공간 안의 복사본(또는 소유 문서) 경로. **외부 URI를 여기 넣지 않는다.**
@@ -53,6 +54,12 @@ class ViewerArgs {
   /// 최근 파일에서 열었으면 그 id. 뷰어 진입 시 `RecentRepository.touch(recentId)`는
   /// `open_pdf_flow.dart`가 임포트 단계에서 이미 처리한다(중복 호출하지 않는다).
   final String? recentId;
+
+  /// [2026-08-19 신설, §31 M-E8] "내 문서"(`docs/<docId>/`)를 열었을 때만 채워진다.
+  /// `recentId`와 상호 배타 — 홈의 "내 문서" 섹션에서 진입하면 이 값이, 최근 연 파일
+  /// (또는 외부 인텐트)로 진입하면 `recentId`가 채워진다. 압축 결과 시트(§4.4)의
+  /// [원본 삭제]/[앱에서 원본 제거] 라벨 분기가 이 두 필드로 출처를 판별한다.
+  final String? docId;
 }
 
 Route<Object?>? onGenerateRoute(RouteSettings settings) {

@@ -55,6 +55,15 @@ abstract interface class Workspace {
   String stagingSourcePdf(String docId, int n); // <docId>.tmp/sources/src_<n>.pdf
   String stagingSourceImage(String docId, int n); // <docId>.tmp/sources/pages/<NNN>.jpg
 
+  /// [M-E7 신설 · `_workspace/31_architect_external_compress_l2.md` §2.2] L2-ext
+  /// 3-패스 왕복(`PdfCompressor.compress`의 `embeddedImageStagingDir`)이 추출 JPEG·
+  /// 치환 중간 PDF를 쓰는 임시 폴더. `<docId>.tmp` 트리 **안**에 둔다 — 압축 실패 시
+  /// `rollbackStaging`이 이 폴더까지 함께 지우고, 성공 시 `commitStaging` 이전에
+  /// 호출자가 직접 지워 최종 `docDir`에 남지 않게 한다(스테이징 폴더도 아니고
+  /// `sources/`도 아니므로 별도 하위 경로로 둔다 — `sources/`·`cache/`·`recent/`
+  /// 역할과 혼동하지 않는다).
+  String stagingCompressImagesDir(String docId); // <docId>.tmp/_compress_staging
+
   /// 스테이징 디렉터리 생성. 저장은 항상 여기에 먼저 쓴다.
   /// 반환값은 스테이징 디렉터리 경로(`<root>/docs/<docId>.tmp`)다.
   /// `sources/pages/`까지 미리 만들어 둔다(§3.3 화이트리스트 대상 경로).
@@ -166,6 +175,10 @@ class AppWorkspace implements Workspace {
     'pages',
     '${n.toString().padLeft(3, '0')}.jpg',
   );
+
+  @override
+  String stagingCompressImagesDir(String docId) =>
+      p.join(_stagingDir(docId), '_compress_staging');
 
   @override
   Future<String> beginStaging(String docId) async {

@@ -58,6 +58,14 @@ class _FakeGuardBlockedRepository implements DocumentRepository {
   }
 
   @override
+  Future<PdfResult<CompressToNewDocumentResult>> compressToNewDocument({
+    required CompressSource source,
+    required ImageQuality preset,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) async => const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
+
+  @override
   Future<PdfResult<DocumentSummary>> rename(String docId, String newTitle) async =>
       const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
 

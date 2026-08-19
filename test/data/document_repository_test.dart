@@ -155,6 +155,10 @@ class _FixedFreeSpaceWorkspace implements Workspace {
   Future<void> rollbackStaging(String docId) => _inner.rollbackStaging(docId);
   @override
   Future<void> clearCache() => _inner.clearCache();
+  @override
+  String shareFile(String fileName) => _inner.shareFile(fileName);
+  @override
+  Future<void> clearShareStaging() => _inner.clearShareStaging();
 }
 
 void main() {
@@ -439,6 +443,110 @@ void main() {
       expect(result, isA<PdfOk<DocumentSummary>>());
     });
 
+  });
+
+  group('§1.5 회귀: createDocument가 제목 dedupe를 배선한다', () {
+    test('동일 제목으로 두 번 저장하면 두 번째는 " (2)"가 붙는다', () async {
+      final repo = repoWith(
+        () => const PdfOk(
+          SaveOutcome(
+            outputPath: '',
+            bytes: 10,
+            pageCount: 1,
+            guard: GuardPass(resultBytes: 10, limitBytes: 999),
+          ),
+        ),
+      );
+
+      final first = await repo.createDocument(
+        title: '2026년 8월 보고서 (최종)',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
+      );
+      expect(first, isA<PdfOk<DocumentSummary>>());
+      expect((first as PdfOk<DocumentSummary>).value.title, '2026년 8월 보고서 (최종)');
+
+      final second = await repo.createDocument(
+        title: '2026년 8월 보고서 (최종)',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
+      );
+      expect(second, isA<PdfOk<DocumentSummary>>());
+      final secondValue = (second as PdfOk<DocumentSummary>).value;
+      expect(secondValue.title, '2026년 8월 보고서 (최종) (2)');
+
+      // DB에도 dedupe된 제목이 실제로 기록됐는지 확인(반환값만이 아니라).
+      final detail = await repo.load(secondValue.id);
+      expect((detail as PdfOk<DocumentDetail>).value.summary.title, '2026년 8월 보고서 (최종) (2)');
+    });
+
+    test('세 번째 저장은 " (3)"이 붙는다(연속 dedupe)', () async {
+      final repo = repoWith(
+        () => const PdfOk(
+          SaveOutcome(
+            outputPath: '',
+            bytes: 10,
+            pageCount: 1,
+            guard: GuardPass(resultBytes: 10, limitBytes: 999),
+          ),
+        ),
+      );
+
+      for (var i = 0; i < 2; i++) {
+        await repo.createDocument(
+          title: '중복 제목',
+          origin: DocOrigin.imported,
+          pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+          quality: ImageQuality.standard,
+          guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
+        );
+      }
+
+      final third = await repo.createDocument(
+        title: '중복 제목',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
+      );
+      expect((third as PdfOk<DocumentSummary>).value.title, '중복 제목 (3)');
+    });
+
+    test('제목이 다르면 dedupe가 적용되지 않는다(양성 대조)', () async {
+      final repo = repoWith(
+        () => const PdfOk(
+          SaveOutcome(
+            outputPath: '',
+            bytes: 10,
+            pageCount: 1,
+            guard: GuardPass(resultBytes: 10, limitBytes: 999),
+          ),
+        ),
+      );
+
+      await repo.createDocument(
+        title: '문서 A',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
+      );
+      final result = await repo.createDocument(
+        title: '문서 B',
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
+      );
+      expect((result as PdfOk<DocumentSummary>).value.title, '문서 B');
+    });
+  });
+
+  group('B2 회귀: 공간 부족 시 OutOfSpace로 실패하고 스테이징이 시작되지 않는다', () {
     test('freeSpaceBytes()가 -1(판단 불가)이면 막지 않는다', () async {
       const baseline = 1000;
       final unknownSpace = _FixedFreeSpaceWorkspace(workspace, -1);

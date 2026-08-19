@@ -209,6 +209,10 @@ class _FixedFreeSpaceWorkspace implements Workspace {
   Future<void> rollbackStaging(String docId) => _inner.rollbackStaging(docId);
   @override
   Future<void> clearCache() => _inner.clearCache();
+  @override
+  String shareFile(String fileName) => _inner.shareFile(fileName);
+  @override
+  Future<void> clearShareStaging() => _inner.clearShareStaging();
 }
 
 void main() {

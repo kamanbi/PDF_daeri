@@ -11,6 +11,12 @@
 ///                                     확장자를 맞췄다(§1.4). 시그니처는 불변.
 ///   recent/`id`.pdf                   SAF/인텐트로 받은 외부 PDF 복사본
 ///   cache/`key`.jpg                   렌더 캐시. **항상 삭제해도 안전**
+///   cache/share/`fileName`.pdf        [2026-08-20 · 3주차 T5] 시스템 공유 스테이징.
+///                                     `cache/` 하위이므로 **항상 삭제해도 안전**
+///                                     (`shareFile`/`clearShareStaging` 참조).
+///                                     내부 경로(`docs/<uuid>/document.pdf`)가 아니라
+///                                     한글 제목이 살아있는 파일명으로 공유하기 위한
+///                                     사본이 여기 놓인다(`ShareExport`, 설계 §5.2).
 ///
 /// `docId`는 UUID v4다. 사용자 제목을 경로에 절대 쓰지 않는다(한글·특수문자 사고
 /// 원천 차단, CLAUDE.md).
@@ -80,6 +86,19 @@ abstract interface class Workspace {
 
   Future<int> freeSpaceBytes();
   Future<void> clearCache();
+
+  /// [2026-08-20 · 3주차 T5] `<root>/cache/share/<fileName>`. `cache/` 아래이므로
+  /// 언제 지워져도 기능에 영향이 없다(`clearShareStaging`이 존재하는 이유).
+  /// [fileName]은 이미 `FileName.toFileName(title)`을 거친 값이어야 한다 — 이
+  /// 메서드는 경로만 조립하고 파일명 정규화는 하지 않는다(단일 소유 원칙,
+  /// `FileName`이 유일한 정규화 지점).
+  String shareFile(String fileName);
+
+  /// 공유 스테이징(`cache/share/`) 전체 삭제. 앱 시작 시 1회(`ensureLayout`이
+  /// 호출하는 `_cleanupStaleStaging`과 같은 취지) + `clearCache()`에 포함된다.
+  /// `cache/`가 이미 사라져도(경합) 조용히 성공해야 한다 — "항상 삭제해도 안전"
+  /// 원칙을 지키려면 이 메서드 자체도 실패하지 않아야 한다.
+  Future<void> clearShareStaging();
 }
 
 class AppWorkspace implements Workspace {
@@ -101,6 +120,7 @@ class AppWorkspace implements Workspace {
   String get _thumbsRoot => p.join(root, 'thumbs');
   String get _recentRoot => p.join(root, 'recent');
   String get _cacheRoot => p.join(root, 'cache');
+  String get _shareRoot => p.join(_cacheRoot, 'share');
 
   @override
   Future<void> ensureLayout() async {
@@ -112,6 +132,9 @@ class AppWorkspace implements Workspace {
     // ensureLayout()에 포함시켰다 — 앱 시작 시 정확히 한 번 호출되는 지점이
     // 여기뿐이라 자연스럽다고 판단했다. 인터페이스 변경이 필요하면 통지 바람.
     await _cleanupStaleStaging();
+    // [2026-08-20 · 3주차 T5] 공유 스테이징도 앱 시작 시 1회 정리한다
+    // (`clearShareStaging` 문서 주석의 "앱 시작 시 1회" 계약).
+    await clearShareStaging();
   }
 
   Future<void> _cleanupStaleStaging() async {
@@ -264,5 +287,26 @@ class AppWorkspace implements Workspace {
       await dir.delete(recursive: true);
     }
     await dir.create(recursive: true);
+    // clearCache()는 cache/ 전체를 지우므로 cache/share/도 함께 사라진다 —
+    // 별도로 clearShareStaging()을 다시 부를 필요는 없지만, 하위 디렉터리를
+    // 곧바로 다시 만들어 shareFile()이 반환한 경로의 부모가 항상 존재하도록
+    // 보장하지는 않는다(그 책임은 ShareExport 구현체가 쓰기 직전에 진다 — 다른
+    // 경로 조립 메서드와 동일한 계약).
+  }
+
+  @override
+  String shareFile(String fileName) => p.join(_shareRoot, fileName);
+
+  @override
+  Future<void> clearShareStaging() async {
+    final dir = Directory(_shareRoot);
+    if (await dir.exists()) {
+      try {
+        await dir.delete(recursive: true);
+      } catch (_) {
+        // "항상 삭제해도 안전" 원칙 — 정리 실패로 앱 기동/작업을 막지 않는다.
+        // 다음 clearCache()/앱 재시작 때 다시 시도된다.
+      }
+    }
   }
 }

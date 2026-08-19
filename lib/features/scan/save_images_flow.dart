@@ -25,6 +25,7 @@ import '../../core/size_guard.dart';
 import '../../data/repository/document_repository.dart';
 import '../../pdf/page_ref.dart';
 import '../../pdf/pdf_engine.dart';
+import '../common/failure_ui.dart';
 
 class SaveImagesScreen extends ConsumerStatefulWidget {
   const SaveImagesScreen({
@@ -198,38 +199,10 @@ class _SaveImagesScreenState extends ConsumerState<SaveImagesScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // 실패 매핑의 유일한 소유자는 FailureUi다(2주차 확정 패턴 · 설계 §6.3).
+  // 여기서 두 번째 매핑을 만들지 않는다. UnknownFailure의 원본 예외 메시지는
+  // FailureUi 내부에서 developer.log로만 남고 화면에는 노출되지 않는다.
   void _showFailureDialog(PdfFailure failure) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('저장하지 못했습니다'),
-        content: Text(_failureMessage(failure)),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('확인')),
-        ],
-      ),
-    );
+    FailureUi.showDialog(context, failure);
   }
-}
-
-/// `GuardBlocked`를 포함해 모든 실패 사유를 화면에 그대로 노출한다 — 삼키지 않는다.
-String _failureMessage(PdfFailure failure) => switch (failure) {
-      SourceMissing(:final path) => '원본 파일을 찾을 수 없습니다: $path',
-      SourceCorrupted(:final path) => '손상된 파일입니다: $path',
-      SourceEncrypted(:final path) => '암호로 보호된 파일입니다: $path',
-      OutOfSpace(:final requiredBytes) =>
-        '저장 공간이 부족합니다 (필요한 여유 공간 약 ${_formatBytes(requiredBytes)})',
-      PermissionDenied(:final detail) => '접근 권한이 거부되었습니다: $detail',
-      Cancelled() => '저장을 취소했습니다',
-      SizeGuardViolation(:final blocked) =>
-        '용량 검증 게이트에 막혀 저장을 중단했습니다 '
-            '(결과 ${_formatBytes(blocked.resultBytes)} > 허용 한도 ${_formatBytes(blocked.limitBytes)})',
-      EngineUnsupported(:final capability) => '이 기기에서 지원하지 않는 기능입니다: $capability',
-      UnknownFailure(:final message) => '저장 중 오류가 발생했습니다: $message',
-    };
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }

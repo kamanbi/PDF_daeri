@@ -11,6 +11,11 @@
 //
 // qpdf FFI 잡 실행은 Windows `test/native/qpdf30.dll`이 있어야 돈다(호스트 검증 경로,
 // `18_pdf-core_qpdf_bindings.md` §5). DLL/픽스처가 없으면 이 파일의 모든 테스트를 건너뛴다.
+//
+// **게이트 검증은 이 파일의 역할이 아니다.** 아래 `generousGuard`는 게이트를 의도적으로
+// 무력화해 저장 정확성(RO 원칙)만 격리해서 본다. 실제 바이트로 SizeGuard가 Pass/Blocked를
+// 올바르게 판정하는지는 `test/core/size_guard_gate_test.dart`가 검증한다 -- 이 파일의
+// 통과를 게이트가 검증됐다는 증거로 읽지 않는다(3주차 §4 갭 명시).
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

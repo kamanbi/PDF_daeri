@@ -596,6 +596,15 @@ class $PagesTable extends Pages with TableInfo<$PagesTable, Page> {
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _cropMeta = const VerificationMeta('crop');
+  @override
+  late final GeneratedColumn<String> crop = GeneratedColumn<String>(
+    'crop',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -605,6 +614,7 @@ class $PagesTable extends Pages with TableInfo<$PagesTable, Page> {
     sourcePath,
     sourceIndex,
     rotation,
+    crop,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -670,6 +680,12 @@ class $PagesTable extends Pages with TableInfo<$PagesTable, Page> {
         rotation.isAcceptableOrUnknown(data['rotation']!, _rotationMeta),
       );
     }
+    if (data.containsKey('crop')) {
+      context.handle(
+        _cropMeta,
+        crop.isAcceptableOrUnknown(data['crop']!, _cropMeta),
+      );
+    }
     return context;
   }
 
@@ -707,6 +723,10 @@ class $PagesTable extends Pages with TableInfo<$PagesTable, Page> {
         DriftSqlType.int,
         data['${effectivePrefix}rotation'],
       )!,
+      crop: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}crop'],
+      ),
     );
   }
 
@@ -724,6 +744,7 @@ class Page extends DataClass implements Insertable<Page> {
   final String sourcePath;
   final int? sourceIndex;
   final int rotation;
+  final String? crop;
   const Page({
     required this.id,
     required this.docId,
@@ -732,6 +753,7 @@ class Page extends DataClass implements Insertable<Page> {
     required this.sourcePath,
     this.sourceIndex,
     required this.rotation,
+    this.crop,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -745,6 +767,9 @@ class Page extends DataClass implements Insertable<Page> {
       map['source_index'] = Variable<int>(sourceIndex);
     }
     map['rotation'] = Variable<int>(rotation);
+    if (!nullToAbsent || crop != null) {
+      map['crop'] = Variable<String>(crop);
+    }
     return map;
   }
 
@@ -759,6 +784,7 @@ class Page extends DataClass implements Insertable<Page> {
           ? const Value.absent()
           : Value(sourceIndex),
       rotation: Value(rotation),
+      crop: crop == null && nullToAbsent ? const Value.absent() : Value(crop),
     );
   }
 
@@ -775,6 +801,7 @@ class Page extends DataClass implements Insertable<Page> {
       sourcePath: serializer.fromJson<String>(json['sourcePath']),
       sourceIndex: serializer.fromJson<int?>(json['sourceIndex']),
       rotation: serializer.fromJson<int>(json['rotation']),
+      crop: serializer.fromJson<String?>(json['crop']),
     );
   }
   @override
@@ -788,6 +815,7 @@ class Page extends DataClass implements Insertable<Page> {
       'sourcePath': serializer.toJson<String>(sourcePath),
       'sourceIndex': serializer.toJson<int?>(sourceIndex),
       'rotation': serializer.toJson<int>(rotation),
+      'crop': serializer.toJson<String?>(crop),
     };
   }
 
@@ -799,6 +827,7 @@ class Page extends DataClass implements Insertable<Page> {
     String? sourcePath,
     Value<int?> sourceIndex = const Value.absent(),
     int? rotation,
+    Value<String?> crop = const Value.absent(),
   }) => Page(
     id: id ?? this.id,
     docId: docId ?? this.docId,
@@ -807,6 +836,7 @@ class Page extends DataClass implements Insertable<Page> {
     sourcePath: sourcePath ?? this.sourcePath,
     sourceIndex: sourceIndex.present ? sourceIndex.value : this.sourceIndex,
     rotation: rotation ?? this.rotation,
+    crop: crop.present ? crop.value : this.crop,
   );
   Page copyWithCompanion(PagesCompanion data) {
     return Page(
@@ -823,6 +853,7 @@ class Page extends DataClass implements Insertable<Page> {
           ? data.sourceIndex.value
           : this.sourceIndex,
       rotation: data.rotation.present ? data.rotation.value : this.rotation,
+      crop: data.crop.present ? data.crop.value : this.crop,
     );
   }
 
@@ -835,7 +866,8 @@ class Page extends DataClass implements Insertable<Page> {
           ..write('kind: $kind, ')
           ..write('sourcePath: $sourcePath, ')
           ..write('sourceIndex: $sourceIndex, ')
-          ..write('rotation: $rotation')
+          ..write('rotation: $rotation, ')
+          ..write('crop: $crop')
           ..write(')'))
         .toString();
   }
@@ -849,6 +881,7 @@ class Page extends DataClass implements Insertable<Page> {
     sourcePath,
     sourceIndex,
     rotation,
+    crop,
   );
   @override
   bool operator ==(Object other) =>
@@ -860,7 +893,8 @@ class Page extends DataClass implements Insertable<Page> {
           other.kind == this.kind &&
           other.sourcePath == this.sourcePath &&
           other.sourceIndex == this.sourceIndex &&
-          other.rotation == this.rotation);
+          other.rotation == this.rotation &&
+          other.crop == this.crop);
 }
 
 class PagesCompanion extends UpdateCompanion<Page> {
@@ -871,6 +905,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
   final Value<String> sourcePath;
   final Value<int?> sourceIndex;
   final Value<int> rotation;
+  final Value<String?> crop;
   final Value<int> rowid;
   const PagesCompanion({
     this.id = const Value.absent(),
@@ -880,6 +915,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
     this.sourcePath = const Value.absent(),
     this.sourceIndex = const Value.absent(),
     this.rotation = const Value.absent(),
+    this.crop = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   PagesCompanion.insert({
@@ -890,6 +926,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
     required String sourcePath,
     this.sourceIndex = const Value.absent(),
     this.rotation = const Value.absent(),
+    this.crop = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        docId = Value(docId),
@@ -904,6 +941,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
     Expression<String>? sourcePath,
     Expression<int>? sourceIndex,
     Expression<int>? rotation,
+    Expression<String>? crop,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -914,6 +952,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
       if (sourcePath != null) 'source_path': sourcePath,
       if (sourceIndex != null) 'source_index': sourceIndex,
       if (rotation != null) 'rotation': rotation,
+      if (crop != null) 'crop': crop,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -926,6 +965,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
     Value<String>? sourcePath,
     Value<int?>? sourceIndex,
     Value<int>? rotation,
+    Value<String?>? crop,
     Value<int>? rowid,
   }) {
     return PagesCompanion(
@@ -936,6 +976,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
       sourcePath: sourcePath ?? this.sourcePath,
       sourceIndex: sourceIndex ?? this.sourceIndex,
       rotation: rotation ?? this.rotation,
+      crop: crop ?? this.crop,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -964,6 +1005,9 @@ class PagesCompanion extends UpdateCompanion<Page> {
     if (rotation.present) {
       map['rotation'] = Variable<int>(rotation.value);
     }
+    if (crop.present) {
+      map['crop'] = Variable<String>(crop.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -980,6 +1024,7 @@ class PagesCompanion extends UpdateCompanion<Page> {
           ..write('sourcePath: $sourcePath, ')
           ..write('sourceIndex: $sourceIndex, ')
           ..write('rotation: $rotation, ')
+          ..write('crop: $crop, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2126,6 +2171,7 @@ typedef $$PagesTableCreateCompanionBuilder =
       required String sourcePath,
       Value<int?> sourceIndex,
       Value<int> rotation,
+      Value<String?> crop,
       Value<int> rowid,
     });
 typedef $$PagesTableUpdateCompanionBuilder =
@@ -2137,6 +2183,7 @@ typedef $$PagesTableUpdateCompanionBuilder =
       Value<String> sourcePath,
       Value<int?> sourceIndex,
       Value<int> rotation,
+      Value<String?> crop,
       Value<int> rowid,
     });
 
@@ -2197,6 +2244,11 @@ class $$PagesTableFilterComposer extends Composer<_$AppDatabase, $PagesTable> {
 
   ColumnFilters<int> get rotation => $composableBuilder(
     column: $table.rotation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get crop => $composableBuilder(
+    column: $table.crop,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2263,6 +2315,11 @@ class $$PagesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get crop => $composableBuilder(
+    column: $table.crop,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$DocumentsTableOrderingComposer get docId {
     final $$DocumentsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -2319,6 +2376,9 @@ class $$PagesTableAnnotationComposer
 
   GeneratedColumn<int> get rotation =>
       $composableBuilder(column: $table.rotation, builder: (column) => column);
+
+  GeneratedColumn<String> get crop =>
+      $composableBuilder(column: $table.crop, builder: (column) => column);
 
   $$DocumentsTableAnnotationComposer get docId {
     final $$DocumentsTableAnnotationComposer composer = $composerBuilder(
@@ -2379,6 +2439,7 @@ class $$PagesTableTableManager
                 Value<String> sourcePath = const Value.absent(),
                 Value<int?> sourceIndex = const Value.absent(),
                 Value<int> rotation = const Value.absent(),
+                Value<String?> crop = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PagesCompanion(
                 id: id,
@@ -2388,6 +2449,7 @@ class $$PagesTableTableManager
                 sourcePath: sourcePath,
                 sourceIndex: sourceIndex,
                 rotation: rotation,
+                crop: crop,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2399,6 +2461,7 @@ class $$PagesTableTableManager
                 required String sourcePath,
                 Value<int?> sourceIndex = const Value.absent(),
                 Value<int> rotation = const Value.absent(),
+                Value<String?> crop = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PagesCompanion.insert(
                 id: id,
@@ -2408,6 +2471,7 @@ class $$PagesTableTableManager
                 sourcePath: sourcePath,
                 sourceIndex: sourceIndex,
                 rotation: rotation,
+                crop: crop,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

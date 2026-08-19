@@ -20,6 +20,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 
 import '../../core/app_error.dart';
+import '../../core/size_guard.dart';
 
 /// 실패에서 사용자가 할 수 있는 행동. §5.1.
 enum FailureAction { retry, removeFromList, goHome, dismiss, freeUpSpace }
@@ -54,10 +55,18 @@ abstract final class FailureUi {
         return '약 ${mb}MB가 더 필요합니다';
       case Cancelled():
         return '';
-      case SizeGuardViolation():
-        // op별 상세 문구는 3주차 저장 경로(SizeGuard 발동 지점) 소유. 여기서는
-        // 이 실패 타입이 뷰어·열기 흐름에서도 안전하게 표시될 수 있는 일반형만 둔다.
-        return '용량 제한으로 작업을 완료하지 못했습니다';
+      case SizeGuardViolation(:final blocked):
+        // op별 문구는 여기(FailureUi)가 유일한 소유자다(3주차 §6.2·설계 §6.3).
+        // 두 번째 매핑 지점(예: 화면 로컬 switch)을 만들지 않는다.
+        // `default:`를 두지 않는다 — `SaveOp`에 값이 늘면 이 switch가 컴파일
+        // 에러를 내야 문구 누락이 구조적으로 막힌다.
+        return switch (blocked.op) {
+          SaveOp.deletePages => '페이지를 지웠는데 용량이 줄지 않아 저장을 중단했습니다',
+          SaveOp.reorderOrRotate => '순서·회전만 바꿨는데 용량이 늘어 저장을 중단했습니다',
+          SaveOp.split => '발췌 결과가 예상보다 커서 저장을 중단했습니다',
+          SaveOp.merge => '합친 결과가 원본 합계보다 커서 저장을 중단했습니다',
+          SaveOp.compose => '페이지를 추가한 결과가 예상보다 커서 저장을 중단했습니다',
+        };
       case EngineUnsupported():
         return '이 파일은 처리할 수 없습니다';
       case UnknownFailure(:final message):

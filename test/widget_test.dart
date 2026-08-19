@@ -132,6 +132,10 @@ void main() {
     await tester.tap(find.byIcon(Icons.check));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('용량 검증 게이트'), findsOneWidget);
+    // 3주차 T1에서 SizeGuardViolation 문구가 op별로 세분화됐다(FailureUi
+    // §6.2). 이 테스트의 목적은 GuardBlocked가 삼켜지지 않고 화면에 뜨는지
+    // 확인하는 것이므로, op에 무관하게 항상 뜨는 제목('저장 중단')으로
+    // 단언한다 — 특정 op 문구 변경에 테스트가 매번 깨지지 않게 한다.
+    expect(find.textContaining('저장 중단'), findsOneWidget);
   });
 }

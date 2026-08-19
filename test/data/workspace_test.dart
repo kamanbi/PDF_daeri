@@ -191,4 +191,49 @@ void main() {
       isTrue,
     );
   });
+
+  group('shareFile/clearShareStaging (3주차 T5 · 설계 §5.2)', () {
+    test('shareFile: cache/share/<fileName> 경로를 반환한다', () {
+      expect(
+        workspace.shareFile('2026년 8월 보고서 (최종).pdf'),
+        p.join(tempRoot.path, 'cache', 'share', '2026년 8월 보고서 (최종).pdf'),
+      );
+    });
+
+    test('shareFile로 만든 사본은 clearShareStaging으로 지워진다', () async {
+      final sharePath = workspace.shareFile('공유용.pdf');
+      await File(sharePath).create(recursive: true);
+      await File(sharePath).writeAsBytes([1, 2, 3]);
+      expect(await File(sharePath).exists(), isTrue);
+
+      await workspace.clearShareStaging();
+
+      expect(await File(sharePath).exists(), isFalse);
+    });
+
+    test('clearShareStaging: cache/share/가 없어도 조용히 성공한다', () async {
+      // ensureLayout() 직후에는 아직 cache/share/에 아무것도 쓰지 않았다.
+      await expectLater(workspace.clearShareStaging(), completes);
+    });
+
+    test('ensureLayout: 이전 세션의 공유 스테이징 잔재를 정리한다', () async {
+      final sharePath = workspace.shareFile('이전세션.pdf');
+      await File(sharePath).create(recursive: true);
+      await File(sharePath).writeAsBytes([1]);
+
+      await workspace.ensureLayout();
+
+      expect(await File(sharePath).exists(), isFalse);
+    });
+
+    test('clearCache는 cache/share/도 함께 지운다(cache/ 하위이므로)', () async {
+      final sharePath = workspace.shareFile('지워질파일.pdf');
+      await File(sharePath).create(recursive: true);
+      await File(sharePath).writeAsBytes([9]);
+
+      await workspace.clearCache();
+
+      expect(await File(sharePath).exists(), isFalse);
+    });
+  });
 }

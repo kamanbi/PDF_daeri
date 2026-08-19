@@ -46,6 +46,10 @@ class Pages extends Table {
   TextColumn get sourcePath => text().named('source_path')();
   IntColumn get sourceIndex => integer().named('source_index').nullable()();
   IntColumn get rotation => integer().withDefault(const Constant(0))();
+  // schemaVersion 2 신설(`_workspace/36_architect_week3_design.md` §1·§2.3).
+  // "l,t,r,b" 형식(CropRect.encode()) 또는 null. kind='image'일 때만 non-null일
+  // 수 있다 — PDF 페이지는 크롭을 갖지 않는다(§2.2 판정).
+  TextColumn get crop => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -57,6 +61,8 @@ class Pages extends Table {
     // kind 이원화 제약: pdf면 source_index 필수, image면 반드시 null
     "CHECK ((kind='pdf' AND source_index IS NOT NULL) OR "
         "(kind='image' AND source_index IS NULL))",
+    // 신설(schemaVersion 2): PDF 페이지는 크롭을 가질 수 없다.
+    "CHECK (kind='image' OR crop IS NULL)",
   ];
 }
 

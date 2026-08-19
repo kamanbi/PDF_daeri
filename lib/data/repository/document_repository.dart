@@ -193,15 +193,21 @@ DocOrigin _originFromDb(String s) => switch (s) {
 
 /// `PageRef` → DB 행 변환 시 kind/source_index 조합을 assert로 이중 방어한다
 /// (스키마의 CHECK 제약과 별도로 코드 레벨에서도 지킨다, §6).
+///
+/// [2026-08-20 · 3주차 schemaVersion 2] `pages.crop` 컬럼 신설에 맞춰 assert를
+/// 확장한다 — `addColumn` 마이그레이션은 기존 설치의 `pages` 테이블에 새 CHECK
+/// (`kind='image' OR crop IS NULL`)를 걸지 않으므로(SQLite 제약, `app_database.dart`
+/// 주석 참조), 이 코드 레벨 방어가 실질적인 유일한 방어선이다.
 PagesCompanion _pageToCompanion(String id, String docId, int orderIndex, PageRef page) {
   return switch (page) {
-    ImagePageRef(:final imagePath, :final rotation) => PagesCompanion.insert(
+    ImagePageRef(:final imagePath, :final rotation, :final crop) => PagesCompanion.insert(
       id: id,
       docId: docId,
       orderIndex: orderIndex,
       kind: 'image',
       sourcePath: imagePath,
       rotation: drift.Value(rotation),
+      crop: drift.Value(crop?.encode()),
     ),
     PdfPageRef(:final sourcePath, :final sourceIndex, :final rotation) => PagesCompanion.insert(
       id: id,
@@ -211,6 +217,9 @@ PagesCompanion _pageToCompanion(String id, String docId, int orderIndex, PageRef
       sourcePath: sourcePath,
       sourceIndex: drift.Value(sourceIndex),
       rotation: drift.Value(rotation),
+      // PdfPageRef는 크롭을 갖지 않는다(§2.2 판정) — 여기서 명시적으로 null을 못박아
+      // 호출부가 실수로 값을 흘려 넣는 경로 자체를 차단한다.
+      crop: const drift.Value(null),
     ),
   };
 }
@@ -221,8 +230,16 @@ PageRef _pageRowToRef(Page row) {
         (row.kind == 'image' && row.sourceIndex == null),
     'kind/source_index 조합 위반: ${row.kind}/${row.sourceIndex} (doc=${row.docId})',
   );
+  assert(
+    row.kind == 'image' || row.crop == null,
+    'kind/crop 조합 위반: PDF 페이지는 crop을 가질 수 없다 (doc=${row.docId})',
+  );
   return switch (row.kind) {
-    'image' => ImagePageRef(imagePath: row.sourcePath, rotation: row.rotation),
+    'image' => ImagePageRef(
+      imagePath: row.sourcePath,
+      rotation: row.rotation,
+      crop: CropRect.decode(row.crop),
+    ),
     'pdf' => PdfPageRef(
       sourcePath: row.sourcePath,
       sourceIndex: row.sourceIndex!,
@@ -398,6 +415,16 @@ class DriftDocumentRepository implements DocumentRepository {
       // 실제 파일 위치와 일치한다.
       final finalPages = copied.finalPages;
 
+      // §1.5 "동일 제목 회피" — FileName.dedupe는 구현돼 있었으나 호출 지점이
+      // 없었다(설계 §1.5·§3.5 갭). createDocument 삽입 직전이 유일한 호출 지점이다
+      // — 화면은 dedupe를 하지 않는다. 정규화까지 여기서 함께 적용해, 화면이
+      // 이미 정규화를 거쳤든 아니든(합치기/나누기/편집 파생 제목 포함) 최종
+      // 삽입 제목은 항상 이 함수를 통과한 값이다.
+      final existingTitles = (await _db.select(_db.documents).get())
+          .map((row) => row.title)
+          .toSet();
+      final dedupedTitle = FileName.dedupe(FileName.normalize(title), existingTitles);
+
       final now = DateTime.now().millisecondsSinceEpoch;
       try {
         await _db.transaction(() async {
@@ -406,7 +433,7 @@ class DriftDocumentRepository implements DocumentRepository {
               .insert(
                 DocumentsCompanion.insert(
                   id: docId,
-                  title: title,
+                  title: dedupedTitle,
                   origin: _originToDb(origin),
                   pageCount: outcome.pageCount,
                   fileSize: outcome.bytes,
@@ -431,7 +458,7 @@ class DriftDocumentRepository implements DocumentRepository {
       return PdfOk(
         DocumentSummary(
           id: docId,
-          title: title,
+          title: dedupedTitle,
           origin: origin,
           pageCount: outcome.pageCount,
           fileSize: outcome.bytes,

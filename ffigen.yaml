@@ -9,6 +9,11 @@
 # (arm64-v8a/x86_64 두 ABI 모두 동일 qpdf 12.4.0 소스에서 빌드했으므로 헤더는 ABI 무관 동일하다.)
 #
 # 이 파일은 생성물(`lib/pdf/qpdf_ffi.dart`)의 원본이다. 생성물 자체는 수정 금지(§15 §2.2).
+#
+# M-E0(`_workspace/31_architect_external_compress_l2.md` §1.2/§2.7/§3.2) 갱신: §1.2가 실검증한
+# L2-ext(외부 PDF 임베디드 이미지 재인코딩) 왕복에 필요한 qpdf_oh_* 스트림/객체 그래프 API 30개를
+# 화이트리스트에 추가했다. 기존 5종 잡(save/rotate/merge/split/compress)이 쓰는 19개 심볼은
+# 그대로 두고 **추가만** 했다 -- 기존 시그니처는 변경하지 않는다.
 
 name: QpdfBindings
 description: |
@@ -22,10 +27,10 @@ headers:
     - 'native/qpdf/install-arm64-v8a/include/qpdf/qpdf-c.h'
     - 'native/qpdf/install-arm64-v8a/include/qpdf/qpdflogger-c.h'
 
-# 화이트리스트: 우리가 실제로 쓰는 잡 실행/inspect/logger 함수·타입만 바인딩한다.
-# qpdf-c.h는 QPDFObjectHandle(qpdf_oh_*) 등 저수준 객체 그래프 API까지 포함하지만
-# §5.2/§5.3 설계는 그 계층을 쓰지 않는다(JSON 잡 스펙 + inspect 4종 함수만 사용) -- 바인딩
-# 범위를 넓히면 §5.7 "qpdf_isolate.dart 외 dart:ffi 금지" 검사의 표면만 커진다.
+# 화이트리스트: 우리가 실제로 쓰는 잡 실행/inspect/logger 함수·타입 + L2-ext 왕복(§2.2 3-패스
+# 설계, `31_architect_external_compress_l2.md` §1.2)에 필요한 qpdf_oh_* 스트림/객체 그래프 API만
+# 바인딩한다. qpdf-c.h의 나머지 저수준 API(약 60여 개 더)는 여전히 화이트리스트 밖이다 -- 이
+# 확장이 쓰는 것만 넓힌다(§2.7 신설 검사 22~25가 이 표면이 잘못 쓰이는 것을 막는다).
 functions:
   include:
     - 'qpdfjob_init'
@@ -47,6 +52,36 @@ functions:
     - 'qpdflogger_create'
     - 'qpdflogger_cleanup'
     - 'qpdflogger_set_error'
+    # ── M-E0 신설: L2-ext 3-패스 왕복(추출/치환/쓰기)에 필요한 30개(§1.2 실검증 목록) ──
+    - 'qpdf_oh_get_stream_data'
+    - 'qpdf_oh_replace_stream_data'
+    - 'qpdf_oh_free_buffer'
+    - 'qpdf_get_page_n'
+    - 'qpdf_push_inherited_attributes_to_page'
+    - 'qpdf_oh_get_key'
+    - 'qpdf_oh_has_key'
+    - 'qpdf_oh_get_dict'
+    - 'qpdf_oh_is_stream'
+    - 'qpdf_oh_is_dictionary_of_type'
+    - 'qpdf_oh_get_type_code'
+    - 'qpdf_oh_begin_dict_key_iter'
+    - 'qpdf_oh_dict_more_keys'
+    - 'qpdf_oh_dict_next_key'
+    - 'qpdf_oh_replace_key'
+    - 'qpdf_oh_remove_key'
+    - 'qpdf_oh_is_name_and_equals'
+    - 'qpdf_oh_new_integer'
+    - 'qpdf_oh_new_name'
+    - 'qpdf_oh_new_null'
+    - 'qpdf_oh_get_array_n_items'
+    - 'qpdf_oh_get_array_item'
+    - 'qpdf_oh_get_int_value_as_int'
+    - 'qpdf_oh_get_object_id'
+    - 'qpdf_oh_get_generation'
+    - 'qpdf_get_object_by_id'
+    - 'qpdf_oh_release_all'
+    - 'qpdf_init_write'
+    - 'qpdf_write'
 
 structs:
   include: []
@@ -56,6 +91,10 @@ enums:
   include:
     - 'qpdf_error_code_e'
     - 'qpdf_log_dest_e'
+    # M-E0 신설: qpdf_oh_get_stream_data의 decode_level 파라미터(qpdf_dl_none만 쓴다),
+    # qpdf_oh_get_type_code의 반환 타입(ot_stream/ot_dictionary 판별에 쓴다).
+    - 'qpdf_stream_decode_level_e'
+    - 'qpdf_object_type_e'
 
 typedefs:
   include:
@@ -63,6 +102,7 @@ typedefs:
     - 'qpdf_data'
     - 'qpdf_error'
     - 'qpdflogger_handle'
+    - 'qpdf_oh' # M-E0 신설: unsigned int 별칭(불투명 정수 핸들, 포인터 아님)
 
 comments:
   style: any

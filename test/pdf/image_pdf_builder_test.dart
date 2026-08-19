@@ -194,6 +194,45 @@ void main() {
     });
   });
 
+  group('M-E4: jpegPixelSize(공개) — 폭·높이·성분 수', () {
+    test('컬러(numChannels=3) 입력 -> SOF 성분 수 3', () {
+      final jpeg = _solidJpeg(120, 80);
+      final result = ImagePdfBuilder.jpegPixelSize(jpeg);
+      expect(result, isNotNull);
+      expect(result!.$1, 120);
+      expect(result.$2, 80);
+      expect(result.$3, 3, reason: '컬러 입력은 3성분(YCbCr)으로 인코딩된다');
+    });
+
+    // R2(§31 R2, §7 미검증 항목) 실측: package:image의 encodeJpg가 그레이스케일(numChannels=1)
+    // 입력에서 몇 성분을 내는지. 이 버전(image ^4.9.1)의 JpegEncoder(`_writeSOF0`/`_writeSOS`)는
+    // 입력 채널 수와 무관하게 항상 3성분(Y/Cb/Cr, nrofcomponents 하드코딩)으로 인코딩한다 --
+    // 소스 검토(jpeg_encoder.dart `_writeSOF0`)로 확인했고, 아래는 실제 인코딩 결과로 재확인한다.
+    // 결론: encodeJpg 왕복을 거친 이미지는 원본이 그레이스케일 JPEG(1성분)이었더라도 재인코딩
+    // 결과는 3성분이 된다 -- L2-ext(pdf_compressor.dart)의 성분 수 비교(§2.3 규칙5/R2 대응)는
+    // "재인코딩 결과 성분 수(항상 3)"와 "원본 성분 수"를 비교해야 하며, 원본이 1성분
+    // (/DeviceGray)이면 재인코딩 결과(3성분)와 반드시 불일치하므로 그 이미지는 통째로 스킵된다
+    // (색공간을 추측해 고쳐 쓰지 않는다는 §2.3/절대 규칙과 일치하는 안전한 귀결).
+    test('그레이스케일(numChannels=1) 입력 -> SOF 성분 수도 3이다(실측, package:image 4.9.1)', () {
+      final gray = img.Image(width: 64, height: 48, numChannels: 1);
+      for (var y = 0; y < gray.height; y++) {
+        for (var x = 0; x < gray.width; x++) {
+          gray.setPixelRgb(x, y, 128, 128, 128);
+        }
+      }
+      final grayJpeg = Uint8List.fromList(img.encodeJpg(gray, quality: 90));
+      final result = ImagePdfBuilder.jpegPixelSize(grayJpeg);
+      expect(result, isNotNull);
+      expect(result!.$1, 64);
+      expect(result.$2, 48);
+      expect(result.$3, 3, reason: 'encodeJpg는 그레이스케일 입력에서도 3성분 JPEG을 낸다(실측 확정) -- 1성분을 기대하는 로직을 만들지 말 것');
+    });
+
+    test('비-JPEG 입력은 null', () {
+      expect(ImagePdfBuilder.jpegPixelSize(Uint8List.fromList([0, 1, 2, 3])), isNull);
+    });
+  });
+
   group('A-3: 인코딩은 순수 함수다(입력 바이트 이외의 숨은 상태가 없다)', () {
     test('같은 입력을 반복 적용해도 결과가 항상 같다(세대 누적/시간 의존성 없음)', () {
       final master = _solidJpeg(3000, 2000);

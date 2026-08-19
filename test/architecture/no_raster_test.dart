@@ -410,4 +410,59 @@ void main() {
       expect(violations, isEmpty, reason: 'SaveOp.compress 식별자 발견: $violations -- 압축 결과를 저장 경로로 우회시키는 유인이 된다(§6.3)');
     });
   });
+
+  // ── §31(`_workspace/31_architect_external_compress_l2.md`) §2.7 "신설 자동 검사"(검사22~25) ──
+  // L2-ext(외부 PDF 임베디드 이미지 압축, M-E2~M-E5)가 §5.7 2-키 분리·절대 규칙2(래스터화 금지)·
+  // §2.6 L2-app/L2-ext 상호 배타 경계를 코드 수준에서 유지하는지 검증한다. 이 4종 전부 실효성을
+  // "위반 코드 주입 → 실패 확인 → 원복" 절차로 확인했다(`_workspace/33_pdf-core_l2ext_impl.md` 기록,
+  // 이 파일 자체는 정상 상태만 담는다).
+  group('§31 §2.7 검사22 : qpdf_isolate.dart에 package:image/decodeJpg/encodeJpg가 0회다(검사15의 명시적 확장)', () {
+    test("코드(주석 제외)에 'package:image', 'decodeJpg', 'encodeJpg' 문자열이 0회다", () {
+      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+      for (final token in const ['package:image', 'decodeJpg', 'encodeJpg']) {
+        expect(codeOnly.contains(token), isFalse, reason: 'qpdf_isolate.dart가 이미지 코덱 토큰 "$token"을 참조함 -- §5.7 2-키 분리 위반');
+      }
+    });
+  });
+
+  group('§31 §2.7 검사23 : qpdf_isolate.dart에 JPEG 마커 리터럴·픽셀 크기 계산이 0회다', () {
+    test("코드(주석 제외)에 '0xFFD8', 'SOF' 문자열이 0회다(코덱 지식이 이 파일로 새는 첫 증상)", () {
+      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+      for (final token in const ['0xFFD8', 'SOF']) {
+        expect(codeOnly.contains(token), isFalse, reason: 'qpdf_isolate.dart에 JPEG 헤더 파싱 토큰 "$token" 발견 -- 픽셀 크기 계산은 image_pdf_builder.dart의 단일 소유다');
+      }
+    });
+  });
+
+  group('§31 §2.7 검사24 : imagePagePaths·embeddedImageStagingDir 동시 지정 시 런타임 거부 가드가 존재한다', () {
+    test('pdf_compressor.dart의 compress()가 두 파라미터를 함께 검사하는 코드를 포함한다', () {
+      final codeOnly = _codeOnly(_read('lib/pdf/pdf_compressor.dart'));
+      // 두 식별자가 하나의 조건식(&&)으로 함께 등장하는지 -- 이 패턴이 사라지면 상호 배타 가드가
+      // 삭제된 것이다. 실제 거부 동작 자체는 test/pdf/pdf_compressor_test.dart의 런타임 테스트가
+      // 단언한다(이 검사는 그 가드가 소스에서 조용히 사라지는 것을 막는 정적 안전망이다).
+      final guardPattern = RegExp(r'imagePagePaths\s*!=\s*null\s*&&\s*embeddedImageStagingDir\s*!=\s*null');
+      expect(guardPattern.hasMatch(codeOnly), isTrue, reason: 'pdf_compressor.dart에서 imagePagePaths/embeddedImageStagingDir 상호 배타 가드를 찾지 못함(§2.6)');
+    });
+  });
+
+  group('§31 §2.7 검사25 : L2-ext 경로에 qpdf_oh_get_page_content_data가 없고, normalizeContent가 켜지지 않는다(절대 규칙2 봉쇄)', () {
+    test("qpdf_isolate.dart·pdf_compressor.dart 코드(주석 제외)에 콘텐츠 스트림 접근 API가 없다", () {
+      // qpdf_oh_get_page_content_data는 실제 콘텐츠 스트림(텍스트·벡터·연산자)을 읽는 API다 --
+      // L2-ext는 이미지 XObject 스트림만 다루므로 이 심볼이 등장할 이유가 없다(§2.5).
+      for (final path in const ['lib/pdf/qpdf_isolate.dart', 'lib/pdf/pdf_compressor.dart']) {
+        final codeOnly = _codeOnly(_read(path));
+        expect(codeOnly.contains('qpdf_oh_get_page_content_data'), isFalse, reason: '$path가 콘텐츠 스트림 접근 API를 참조함 -- 절대 규칙2(래스터화 금지) 봉쇄선 위반 소지');
+      }
+    });
+
+    test("_commonWriteOptions의 normalizeContent 값이 켜지지 않는다('y' 리터럴이 없다)", () {
+      // normalizeContent는 §5.2부터 이미 존재하는 정당한 L1 쓰기 옵션 키이며 항상 'n'(끔)으로
+      // 고정돼 있다(qpdf_isolate.dart:45) -- 토큰 자체를 금지하면 그 기존 정당한 사용과 충돌한다.
+      // 이 검사가 실제로 막아야 하는 것은 "L2-ext가 콘텐츠 정규화를 켜는 것"이므로 값이 'y'로
+      // 바뀌는 것만 잡는다.
+      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+      final enabledPattern = RegExp(r"""['"]normalizeContent['"]\s*:\s*['"]y['"]""");
+      expect(enabledPattern.hasMatch(codeOnly), isFalse, reason: 'qpdf_isolate.dart가 normalizeContent를 켬(y) -- 콘텐츠 스트림 재작성은 절대 규칙2 위반');
+    });
+  });
 }

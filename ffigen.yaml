@@ -76,6 +76,7 @@ functions:
     - 'qpdf_oh_get_array_n_items'
     - 'qpdf_oh_get_array_item'
     - 'qpdf_oh_get_int_value_as_int'
+    - 'qpdf_oh_get_bool_value' # M-E2: /ImageMask 판정
     - 'qpdf_oh_get_object_id'
     - 'qpdf_oh_get_generation'
     - 'qpdf_get_object_by_id'

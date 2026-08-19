@@ -21,6 +21,8 @@ import 'package:pdf_daeri/pdf/pdf_compressor.dart';
 import 'package:pdf_daeri/pdf/qpdf_isolate.dart';
 import 'package:pdfrx/pdfrx.dart' as pdfrx;
 
+import 'raw_pdf_fixture.dart';
+
 const _fixtureRelPath = 'test/fixtures/(서일)-클라우디움 사용자 매뉴얼(윈도우탐색기)_20180821.pdf';
 const _dllRelPath = 'test/native/qpdf30.dll';
 
@@ -335,5 +337,168 @@ void main() {
         expect(inspected['pageCount'], pageCount);
       }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 3)));
     }
+  });
+
+  // ── M-E5/M-E6: L2-ext(외부 PDF 임베디드 이미지 압축, `_workspace/31_...md` §2.2/§2.6) ─────────
+  group('compress() — L2-ext(embeddedImageStagingDir) 3-패스 오케스트레이션', () {
+    test('상호 배타(§2.6 검사24): imagePagePaths와 embeddedImageStagingDir를 동시에 주면 즉시 거부', () async {
+      final tempDir = await Directory.systemTemp.createTemp('l2ext_mutex_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final srcPath = await _buildMarkerPdf(tempDir, 'src.pdf', 1);
+      final stagingDir = p.join(tempDir.path, 'staging');
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = const QpdfCompressor(); // FFI 호출 이전에 거부되므로 libraryPathOverride 불필요.
+
+      final result = await compressor.compress(
+        pdfPath: srcPath,
+        outputPath: outputPath,
+        preset: ImageQuality.standard,
+        imagePagePaths: const ['fake.jpg'],
+        embeddedImageStagingDir: stagingDir,
+      );
+      expect(result, isA<PdfErr<CompressOutcome>>());
+      expect((result as PdfErr<CompressOutcome>).failure, isA<UnknownFailure>());
+      expect(File(outputPath).existsSync(), isFalse);
+    });
+
+    test('텍스트 PDF -- 적격 이미지 0개(L1만 실행), RO(페이지 수 + **텍스트 바이트 동일성**) 통과, 원본 미수정', () async {
+      final tempDir = await Directory.systemTemp.createTemp('l2ext_text_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      const pageCount = 6;
+      final srcPath = await _buildMarkerPdf(tempDir, 'src.pdf', pageCount);
+      final srcBytesBefore = await File(srcPath).readAsBytes();
+
+      // 압축 전 원본에서 추출한 텍스트(비교 기준선) -- 설계 문서가 요구하는 "바이트 단위 동일성"은
+      // PDF 파일 전체의 바이트 동일성이 아니라(L1이 항상 컨테이너를 재작성하므로 그건 불가능하다)
+      // **추출 텍스트 문자열의 완전 동일성**이다(§31 §2.5, 절대 규칙 2 봉쇄 실측).
+      final beforeDoc = await pdfrx.PdfDocument.openFile(srcPath);
+      final beforeTexts = <String>[];
+      try {
+        for (var i = 0; i < pageCount; i++) {
+          beforeTexts.add((await beforeDoc.pages[i].loadText())?.fullText ?? '');
+        }
+      } finally {
+        await beforeDoc.dispose();
+      }
+
+      final stagingDir = p.join(tempDir.path, 'staging');
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = QpdfCompressor(libraryPathOverride: _dllPath);
+
+      final result = await compressor.compress(
+        pdfPath: srcPath,
+        outputPath: outputPath,
+        preset: ImageQuality.standard,
+        embeddedImageStagingDir: stagingDir,
+      );
+      final outcome = (result as PdfOk<CompressOutcome>).value;
+
+      // 원본 미수정(절대 규칙 6) -- 패스 A는 읽기 전용이어야 한다.
+      expect(await File(srcPath).readAsBytes(), srcBytesBefore);
+
+      final inspected = await runInspect(pdfPath: outputPath, libraryPathOverride: _dllPath);
+      expect(inspected['ok'], true);
+      expect(inspected['pageCount'], pageCount);
+
+      final afterDoc = await pdfrx.PdfDocument.openFile(outputPath);
+      try {
+        expect(afterDoc.pages.length, pageCount);
+        for (var i = 0; i < pageCount; i++) {
+          final afterText = (await afterDoc.pages[i].loadText())?.fullText ?? '';
+          expect(afterText, equals(beforeTexts[i]), reason: '텍스트 바이트 동일성(§31 §2.5): 페이지 $i의 추출 텍스트가 압축 전후 완전히 같아야 한다');
+        }
+      } finally {
+        await afterDoc.dispose();
+      }
+      // 참고 기록용(단언 아님): keptOriginal 여부는 L1 자체의 효과에 좌우된다.
+      // ignore: avoid_print
+      print('[L2-ext 텍스트] keptOriginal=${outcome.keptOriginal} reduction=${(outcome.reduction * 100).toStringAsFixed(1)}%');
+    }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 1)));
+
+    test('스캔형 외부 PDF(DCTDecode/DeviceRGB, 상한 초과) -- 실제로 작아짐, RO(페이지 수) 통과, 원본 미수정', () async {
+      final tempDir = await Directory.systemTemp.createTemp('l2ext_scan_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      const pageCount = 4;
+      final jpegs = [for (var i = 0; i < pageCount; i++) _scanLikeJpeg(2400, 3000, seed: 200 + i)];
+      final srcBytes = buildMultiPageImagePdf(jpegPagesBytes: jpegs, width: 2400, height: 3000);
+      final srcPath = p.join(tempDir.path, 'src.pdf');
+      await File(srcPath).writeAsBytes(srcBytes);
+      final srcBytesBefore = await File(srcPath).readAsBytes();
+
+      final stagingDir = p.join(tempDir.path, 'staging');
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = QpdfCompressor(libraryPathOverride: _dllPath);
+
+      final result = await compressor.compress(
+        pdfPath: srcPath,
+        outputPath: outputPath,
+        preset: ImageQuality.min,
+        embeddedImageStagingDir: stagingDir,
+      );
+      final outcome = (result as PdfOk<CompressOutcome>).value;
+
+      expect(outcome.keptOriginal, isFalse, reason: '2400x3000 DCT 원본을 min(1240px)로 다운샘플링하면 반드시 작아져야 한다');
+      expect(outcome.resultBytes, lessThan(outcome.originalBytes));
+      expect(await File(srcPath).readAsBytes(), srcBytesBefore, reason: '원본 미수정(절대 규칙 6)');
+
+      final inspected = await runInspect(pdfPath: outputPath, libraryPathOverride: _dllPath);
+      expect(inspected['ok'], true);
+      expect(inspected['pageCount'], pageCount);
+    }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('혼합 PDF(텍스트 페이지 + 이미지 페이지) -- 결과가 작아지고, 텍스트 페이지 내용은 그대로 유지된다', () async {
+      final tempDir = await Directory.systemTemp.createTemp('l2ext_mixed_');
+      addTearDown(() => tempDir.delete(recursive: true));
+
+      // 텍스트 페이지 1장 + (상한을 넘는) 이미지 페이지 1장을 qpdf runComposeJob(기존, 무변경)으로
+      // 하나의 혼합 문서로 합친다 -- 두 소스 모두 이미 검증된 빌더로 만들어 구조적으로 안전하다.
+      final textOnlyPath = p.join(tempDir.path, 'text_only.pdf');
+      await File(textOnlyPath).writeAsBytes(await File(await _buildMarkerPdf(tempDir, 'marker.pdf', 1)).readAsBytes());
+      final imageJpeg = _scanLikeJpeg(2400, 3000, seed: 300);
+      final imageOnlyPath = p.join(tempDir.path, 'image_only.pdf');
+      await File(
+        imageOnlyPath,
+      ).writeAsBytes(buildMultiPageImagePdf(jpegPagesBytes: [imageJpeg], width: 2400, height: 3000));
+
+      final mixedPath = p.join(tempDir.path, 'mixed_src.pdf');
+      final composeResult = await runComposeJob(
+        pages: [
+          QpdfPageSource(sourcePath: textOnlyPath, sourceIndex: 0),
+          QpdfPageSource(sourcePath: imageOnlyPath, sourceIndex: 0),
+        ],
+        outputPath: mixedPath,
+        libraryPathOverride: _dllPath,
+      );
+      expect(composeResult['ok'], true, reason: '${composeResult['error']}: ${composeResult['detail']}');
+
+      final beforeDoc = await pdfrx.PdfDocument.openFile(mixedPath);
+      final beforeTextPage0 = (await beforeDoc.pages[0].loadText())?.fullText ?? '';
+      await beforeDoc.dispose();
+
+      final stagingDir = p.join(tempDir.path, 'staging');
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = QpdfCompressor(libraryPathOverride: _dllPath);
+      final result = await compressor.compress(
+        pdfPath: mixedPath,
+        outputPath: outputPath,
+        preset: ImageQuality.min,
+        embeddedImageStagingDir: stagingDir,
+      );
+      final outcome = (result as PdfOk<CompressOutcome>).value;
+      expect(outcome.keptOriginal, isFalse);
+      expect(outcome.resultBytes, lessThan(outcome.originalBytes));
+
+      final inspected = await runInspect(pdfPath: outputPath, libraryPathOverride: _dllPath);
+      expect(inspected['ok'], true);
+      expect(inspected['pageCount'], 2, reason: '혼합 문서(텍스트1+이미지1)의 페이지 수는 그대로 유지돼야 한다');
+
+      final afterDoc = await pdfrx.PdfDocument.openFile(outputPath);
+      try {
+        final afterTextPage0 = (await afterDoc.pages[0].loadText())?.fullText ?? '';
+        expect(afterTextPage0, equals(beforeTextPage0), reason: '혼합 문서에서도 텍스트 페이지는 이미지 치환의 영향을 받지 않아야 한다');
+      } finally {
+        await afterDoc.dispose();
+      }
+    }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 2)));
   });
 }

@@ -24,6 +24,7 @@ import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 
@@ -283,6 +284,540 @@ Future<QpdfJobResult> runInspect({required String pdfPath, String? password, Str
   final result = await receivePort.first as Map<String, Object?>;
   receivePort.close();
   return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// L2-ext(외부 PDF 임베디드 이미지 압축) 패스 A/C -- `_workspace/31_architect_external_compress_l2.md`
+// §2.2(3-패스 왕복)·§2.3(적격 규칙 6종)·§8.3(딕셔너리 접근 힌트)의 확정 설계를 구현한다.
+//
+// **§8.3 필수 규칙 그대로 준수**: XObject 딕셔너리에서 얻은 이미지/Form 핸들은 스트림 객체다 --
+// `/Subtype`·`/Filter`·`/BitsPerComponent`·`/ImageMask`·`/ColorSpace`·`/Width`·`/Height` 등 딕셔너리
+// 키 연산은 반드시 `qpdf_oh_get_dict(qpdf, streamOh)`로 얻은 딕셔너리 핸들에 걸어야 한다. 스트림
+// 바이트 자체(`qpdf_oh_get_stream_data`/`qpdf_oh_replace_stream_data`)만 스트림 핸들을 직접 쓴다.
+// 이 파일은 이미지를 디코드·파싱하지 않는다(§5.7 2-키 분리) -- 성분 수는 `/ColorSpace` PDF 객체
+// 그래프에서만 읽는다(픽셀을 열어보지 않는다), 재인코딩 후 크기는 호출자가 [ImageReplacement]로
+// 넘겨준 값을 그대로 쓴다.
+
+/// 패스 A(M-E2) 이미지 1장의 적격 판정 결과. `/Width`·`/Height`는 딕셔너리에서 읽은 원본 값,
+/// `components`는 `/ColorSpace`에서 유도한 성분 수(§2.3 규칙5) -- 이미지 바이트를 열어보지 않는다.
+class _EligibleImage {
+  const _EligibleImage({required this.width, required this.height, required this.components});
+  final int width;
+  final int height;
+  final int components;
+}
+
+int _getKey(QpdfBindings b, qpdf_data qpdf, int oh, String key) {
+  final keyPtr = key.toNativeUtf8();
+  final result = b.qpdf_oh_get_key(qpdf, oh, keyPtr.cast());
+  pkg_ffi.malloc.free(keyPtr);
+  return result;
+}
+
+bool _hasKey(QpdfBindings b, qpdf_data qpdf, int oh, String key) {
+  final keyPtr = key.toNativeUtf8();
+  final result = b.qpdf_oh_has_key(qpdf, oh, keyPtr.cast()) != 0;
+  pkg_ffi.malloc.free(keyPtr);
+  return result;
+}
+
+bool _isName(QpdfBindings b, qpdf_data qpdf, int oh, String name) {
+  final namePtr = name.toNativeUtf8();
+  final result = b.qpdf_oh_is_name_and_equals(qpdf, oh, namePtr.cast()) != 0;
+  pkg_ffi.malloc.free(namePtr);
+  return result;
+}
+
+int _newName(QpdfBindings b, qpdf_data qpdf, String name) {
+  final namePtr = name.toNativeUtf8();
+  final result = b.qpdf_oh_new_name(qpdf, namePtr.cast());
+  pkg_ffi.malloc.free(namePtr);
+  return result;
+}
+
+void _replaceIntKey(QpdfBindings b, qpdf_data qpdf, int oh, String key, int value) {
+  final keyPtr = key.toNativeUtf8();
+  final valueOh = b.qpdf_oh_new_integer(qpdf, value);
+  b.qpdf_oh_replace_key(qpdf, oh, keyPtr.cast(), valueOh);
+  pkg_ffi.malloc.free(keyPtr);
+}
+
+/// 적격 규칙 2: `/Filter`가 `/DCTDecode`(이름) 또는 원소 1개 배열 `[/DCTDecode]`.
+bool _filterIsDct(QpdfBindings b, qpdf_data qpdf, int imgDict) {
+  if (!_hasKey(b, qpdf, imgDict, '/Filter')) return false;
+  final filterOh = _getKey(b, qpdf, imgDict, '/Filter');
+  if (_isName(b, qpdf, filterOh, '/DCTDecode')) return true;
+  if (b.qpdf_oh_get_type_code(qpdf, filterOh) == qpdf_object_type_e.ot_array) {
+    if (b.qpdf_oh_get_array_n_items(qpdf, filterOh) != 1) return false;
+    return _isName(b, qpdf, b.qpdf_oh_get_array_item(qpdf, filterOh, 0), '/DCTDecode');
+  }
+  return false;
+}
+
+/// 적격 규칙 5: `/ColorSpace`가 `/DeviceGray`(1) / `/DeviceRGB`(3) / `[/ICCBased ref]`(`/N` ∈ {1,3}).
+/// 그 외(Indexed/Separation/DeviceN/CMYK 등)는 null -- 이미지를 통째로 스킵시킨다(R2 대응, 추측 금지).
+int? _colorSpaceComponents(QpdfBindings b, qpdf_data qpdf, int imgDict) {
+  if (!_hasKey(b, qpdf, imgDict, '/ColorSpace')) return null;
+  final csOh = _getKey(b, qpdf, imgDict, '/ColorSpace');
+  if (_isName(b, qpdf, csOh, '/DeviceGray')) return 1;
+  if (_isName(b, qpdf, csOh, '/DeviceRGB')) return 3;
+  if (b.qpdf_oh_get_type_code(qpdf, csOh) != qpdf_object_type_e.ot_array) return null;
+  if (b.qpdf_oh_get_array_n_items(qpdf, csOh) != 2) return null;
+  final tagOh = b.qpdf_oh_get_array_item(qpdf, csOh, 0);
+  if (!_isName(b, qpdf, tagOh, '/ICCBased')) return null;
+  final iccStreamOh = b.qpdf_oh_get_array_item(qpdf, csOh, 1);
+  if (b.qpdf_oh_is_stream(qpdf, iccStreamOh) == 0) return null;
+  final iccDict = b.qpdf_oh_get_dict(qpdf, iccStreamOh);
+  if (!_hasKey(b, qpdf, iccDict, '/N')) return null;
+  final n = b.qpdf_oh_get_int_value_as_int(qpdf, _getKey(b, qpdf, iccDict, '/N'));
+  return (n == 1 || n == 3) ? n : null;
+}
+
+/// 적격 규칙 1~6(§2.3) 전체 판정. [imgDict]는 이미 `qpdf_oh_get_dict`로 얻은 딕셔너리 핸들이어야
+/// 한다(§8.3). 하나라도 어긋나면 null -- 그 이미지는 추출 대상에서 제외된다(명시적 제외 목록:
+/// JPXDecode/CCITTFaxDecode/JBIG2Decode/Indexed/Separation/DeviceN/CMYK JPEG/SMask·Mask 대상/
+/// 인라인 이미지 -- 인라인 이미지는 애초에 이 순회 경로(XObject 딕셔너리)에 나타나지 않는다).
+_EligibleImage? _checkEligibility(QpdfBindings b, qpdf_data qpdf, int imgDict, int longEdgeMaxPx) {
+  // 규칙 2: /Filter == /DCTDecode.
+  if (!_filterIsDct(b, qpdf, imgDict)) return null;
+  // 규칙 3: /BitsPerComponent == 8.
+  if (!_hasKey(b, qpdf, imgDict, '/BitsPerComponent')) return null;
+  if (b.qpdf_oh_get_int_value_as_int(qpdf, _getKey(b, qpdf, imgDict, '/BitsPerComponent')) != 8) return null;
+  // 규칙 4: /ImageMask 없거나 false, /Decode 없음.
+  if (_hasKey(b, qpdf, imgDict, '/ImageMask')) {
+    final imOh = _getKey(b, qpdf, imgDict, '/ImageMask');
+    if (b.qpdf_oh_get_bool_value(qpdf, imOh) != 0) return null;
+  }
+  if (_hasKey(b, qpdf, imgDict, '/Decode')) return null;
+  // 규칙 5: 색공간 화이트리스트.
+  final components = _colorSpaceComponents(b, qpdf, imgDict);
+  if (components == null) return null;
+  // /Width, /Height 필수.
+  if (!_hasKey(b, qpdf, imgDict, '/Width') || !_hasKey(b, qpdf, imgDict, '/Height')) return null;
+  final width = b.qpdf_oh_get_int_value_as_int(qpdf, _getKey(b, qpdf, imgDict, '/Width'));
+  final height = b.qpdf_oh_get_int_value_as_int(qpdf, _getKey(b, qpdf, imgDict, '/Height'));
+  if (width <= 0 || height <= 0) return null;
+  // 규칙 6: 긴 변이 상한을 넘는 것만 추출한다(이하면 A-4가 어차피 스킵 -- 추출 I/O 자체를 안 한다).
+  final longEdge = width >= height ? width : height;
+  if (longEdge <= longEdgeMaxPx) return null;
+  return _EligibleImage(width: width, height: height, components: components);
+}
+
+/// 페이지/Form XObject의 `/Resources`/`/XObject`를 순회하며 적격 이미지를 찾는다. [holderDictOh]는
+/// 페이지 딕셔너리(스트림이 아니므로 그대로) 또는 Form의 딕셔너리 핸들(`qpdf_oh_get_dict`로 이미
+/// 변환된 것)이어야 한다. [visitedForms]는 Form XObject 순환·중복 재귀를 막고(§2.3), [visitedImages]는
+/// 같은 이미지 객체가 여러 페이지/Form에서 참조돼도 1회만 처리되게 한다(§2.3, M-E2 완료 판정).
+void _visitResourcesForImages({
+  required QpdfBindings b,
+  required qpdf_data qpdf,
+  required int holderDictOh,
+  required String stagingDir,
+  required int longEdgeMaxPx,
+  required Set<String> visitedImages,
+  required Set<String> visitedForms,
+  required List<Map<String, Object?>> results,
+}) {
+  if (!_hasKey(b, qpdf, holderDictOh, '/Resources')) return;
+  final resourcesOh = _getKey(b, qpdf, holderDictOh, '/Resources');
+  if (!_hasKey(b, qpdf, resourcesOh, '/XObject')) return;
+  final xobjDict = _getKey(b, qpdf, resourcesOh, '/XObject');
+
+  b.qpdf_oh_begin_dict_key_iter(qpdf, xobjDict);
+  final keys = <String>[];
+  while (b.qpdf_oh_dict_more_keys(qpdf) != 0) {
+    keys.add(b.qpdf_oh_dict_next_key(qpdf).cast<pkg_ffi.Utf8>().toDartString());
+  }
+
+  for (final key in keys) {
+    final xoh = _getKey(b, qpdf, xobjDict, key);
+    // 인라인 이미지(BI…ID…EI)는 콘텐츠 스트림 안에만 있어 이 딕셔너리 순회에 절대 나타나지 않는다
+    // -- 명시적 제외를 코드로 강제할 필요조차 없다(§2.3, §31 §2.5).
+    if (b.qpdf_oh_is_stream(qpdf, xoh) == 0) continue;
+    final xdict = b.qpdf_oh_get_dict(qpdf, xoh); // §8.3: 스트림은 반드시 이 변환을 거친다.
+    final subtype = _getKey(b, qpdf, xdict, '/Subtype');
+
+    if (_isName(b, qpdf, subtype, '/Form')) {
+      final objid = b.qpdf_oh_get_object_id(qpdf, xoh);
+      final gen = b.qpdf_oh_get_generation(qpdf, xoh);
+      final formKey = '$objid:$gen';
+      if (visitedForms.contains(formKey)) continue; // 순환/중복 재귀 차단.
+      visitedForms.add(formKey);
+      _visitResourcesForImages(
+        b: b,
+        qpdf: qpdf,
+        holderDictOh: xdict,
+        stagingDir: stagingDir,
+        longEdgeMaxPx: longEdgeMaxPx,
+        visitedImages: visitedImages,
+        visitedForms: visitedForms,
+        results: results,
+      );
+      continue;
+    }
+
+    if (!_isName(b, qpdf, subtype, '/Image')) continue;
+
+    final objid = b.qpdf_oh_get_object_id(qpdf, xoh);
+    final gen = b.qpdf_oh_get_generation(qpdf, xoh);
+    final imgKey = '$objid:$gen';
+    if (visitedImages.contains(imgKey)) continue; // 반복 참조 dedup -- 1회만 처리.
+    visitedImages.add(imgKey);
+
+    final eligible = _checkEligibility(b, qpdf, xdict, longEdgeMaxPx);
+    if (eligible == null) continue;
+
+    // §1.5: qpdf_dl_none -- 필터를 전혀 풀지 않는다. DCTDecode 스트림의 원시 바이트 = 완전한 JPEG.
+    final filteredPtr = pkg_ffi.malloc<ffi.Int32>();
+    final bufPtrPtr = pkg_ffi.malloc<ffi.Pointer<ffi.Uint8>>();
+    final lenPtr = pkg_ffi.malloc<ffi.Size>();
+    final getRc = b.qpdf_oh_get_stream_data(
+      qpdf,
+      xoh,
+      qpdf_stream_decode_level_e.qpdf_dl_none,
+      filteredPtr,
+      bufPtrPtr,
+      lenPtr,
+    );
+    if (getRc != 0) {
+      pkg_ffi.malloc.free(filteredPtr);
+      pkg_ffi.malloc.free(bufPtrPtr);
+      pkg_ffi.malloc.free(lenPtr);
+      continue; // 이 이미지 1장만 스킵 -- 문서 전체를 실패시키지 않는다.
+    }
+    final len = lenPtr.value;
+    final bytes = Uint8List.fromList(bufPtrPtr.value.asTypedList(len));
+    b.qpdf_oh_free_buffer(bufPtrPtr);
+    pkg_ffi.malloc.free(filteredPtr);
+    pkg_ffi.malloc.free(bufPtrPtr);
+    pkg_ffi.malloc.free(lenPtr);
+
+    final path = '$stagingDir${Platform.pathSeparator}${objid}_$gen.jpg';
+    File(path).writeAsBytesSync(bytes);
+    results.add({
+      'objid': objid,
+      'gen': gen,
+      'path': path,
+      'w': eligible.width,
+      'h': eligible.height,
+      'comps': eligible.components,
+    });
+  }
+}
+
+QpdfJobResult _extractSync({
+  required QpdfBindings bindings,
+  required String pdfPath,
+  required String stagingDir,
+  required int longEdgeMaxPx,
+}) {
+  final dataPtr = pkg_ffi.malloc<qpdf_data>();
+  ffi.Pointer<pkg_ffi.Utf8>? pathPtr;
+  try {
+    dataPtr.value = bindings.qpdf_init();
+    final qpdf = dataPtr.value;
+    pathPtr = pdfPath.toNativeUtf8();
+    final rc = bindings.qpdf_read(qpdf, pathPtr.cast(), ffi.nullptr);
+    final hasError = bindings.qpdf_has_error(qpdf) != 0;
+    if (rc != 0 || hasError) {
+      final err = bindings.qpdf_get_error(qpdf);
+      final textPtr = err == ffi.nullptr ? ffi.nullptr : bindings.qpdf_get_error_full_text(qpdf, err);
+      final text = textPtr == ffi.nullptr ? 'qpdf_read failed (rc=$rc)' : textPtr.cast<pkg_ffi.Utf8>().toDartString();
+      final isPasswordIssue = text.toLowerCase().contains('password') || text.toLowerCase().contains('encrypt');
+      return {'ok': false, 'error': isPasswordIssue ? 'encrypted' : 'corrupted', 'detail': text};
+    }
+
+    Directory(stagingDir).createSync(recursive: true);
+
+    bindings.qpdf_push_inherited_attributes_to_page(qpdf);
+    final numPages = bindings.qpdf_get_num_pages(qpdf);
+    if (numPages < 0) {
+      return const {'ok': false, 'error': 'corrupted', 'detail': 'qpdf_get_num_pages returned -1'};
+    }
+
+    final visitedImages = <String>{};
+    final visitedForms = <String>{};
+    final results = <Map<String, Object?>>[];
+    for (var i = 0; i < numPages; i++) {
+      final pageOh = bindings.qpdf_get_page_n(qpdf, i); // 페이지 딕셔너리 -- 스트림이 아니다.
+      _visitResourcesForImages(
+        b: bindings,
+        qpdf: qpdf,
+        holderDictOh: pageOh,
+        stagingDir: stagingDir,
+        longEdgeMaxPx: longEdgeMaxPx,
+        visitedImages: visitedImages,
+        visitedForms: visitedForms,
+        results: results,
+      );
+    }
+
+    return {'ok': true, 'images': results};
+  } finally {
+    if (dataPtr.value != ffi.nullptr) {
+      bindings.qpdf_oh_release_all(dataPtr.value);
+      bindings.qpdf_cleanup(dataPtr);
+    }
+    pkg_ffi.malloc.free(dataPtr);
+    if (pathPtr != null) pkg_ffi.malloc.free(pathPtr);
+  }
+}
+
+class _ExtractRequest {
+  const _ExtractRequest({
+    required this.sendPort,
+    required this.pdfPath,
+    required this.stagingDir,
+    required this.longEdgeMaxPx,
+    required this.libraryPath,
+  });
+  final SendPort sendPort;
+  final String pdfPath;
+  final String stagingDir;
+  final int longEdgeMaxPx;
+  final String libraryPath;
+}
+
+void _extractIsolateMain(_ExtractRequest req) {
+  final library = ffi.DynamicLibrary.open(req.libraryPath);
+  final bindings = QpdfBindings(library);
+  final result = _extractSync(
+    bindings: bindings,
+    pdfPath: req.pdfPath,
+    stagingDir: req.stagingDir,
+    longEdgeMaxPx: req.longEdgeMaxPx,
+  );
+  req.sendPort.send(result);
+}
+
+/// **M-E2** — 패스 A(추출). 페이지 트리(Form XObject 재귀 포함)를 순회해 적격 `/DCTDecode` 이미지의
+/// 원시 스트림 바이트를 `<stagingDir>/<objid>_<gen>.jpg`로 기록한다. [pdfPath]는 읽기 전용으로만
+/// 열린다(원본은 이 잡 이후에도 그대로 남는다). 반환:
+/// 성공 `{'ok': true, 'images': [{'objid':int,'gen':int,'path':String,'w':int,'h':int,'comps':int}, ...]}`
+/// 실패 `{'ok': false, 'error': <code>, 'detail': String?}`.
+Future<QpdfJobResult> runImageExtractJob({
+  required String pdfPath,
+  required String stagingDir,
+  required int longEdgeMaxPx,
+  CancelToken? cancelToken,
+  String? libraryPathOverride,
+}) async {
+  if (cancelToken?.isCancelled ?? false) return const {'ok': false, 'error': 'cancelled'};
+  final receivePort = ReceivePort();
+  Isolate? isolate;
+  try {
+    isolate = await Isolate.spawn(
+      _extractIsolateMain,
+      _ExtractRequest(
+        sendPort: receivePort.sendPort,
+        pdfPath: pdfPath,
+        stagingDir: stagingDir,
+        longEdgeMaxPx: longEdgeMaxPx,
+        libraryPath: libraryPathOverride ?? _defaultLibraryPath(),
+      ),
+    );
+    final raw = await receivePort.first;
+    return (raw as Map).cast<String, Object?>();
+  } finally {
+    receivePort.close();
+    isolate?.kill(priority: Isolate.immediate);
+  }
+}
+
+/// **M-E3** 패스 C(치환) 입력 1건. [expectedWidth]/[expectedHeight]는 패스 A가 기록한 원본
+/// `/Width`/`/Height`(재검증 가드 -- 치환 직전 원본이 그대로인지 재확인, §2.2). [newWidth]/[newHeight]는
+/// 재인코딩된 JPEG의 실제 픽셀 크기(호출자가 `ImagePdfBuilder.jpegPixelSize`로 계산해 넘긴다 --
+/// 이 파일은 이미지를 파싱하지 않으므로 스스로 계산하지 않는다, §5.7 2-키 분리).
+class ImageReplacement {
+  const ImageReplacement({
+    required this.objid,
+    required this.gen,
+    required this.newBytes,
+    required this.newWidth,
+    required this.newHeight,
+    required this.expectedWidth,
+    required this.expectedHeight,
+  });
+  final int objid;
+  final int gen;
+  final Uint8List newBytes;
+  final int newWidth;
+  final int newHeight;
+  final int expectedWidth;
+  final int expectedHeight;
+
+  Map<String, Object?> _toMap() => {
+    'objid': objid,
+    'gen': gen,
+    'newBytes': newBytes,
+    'newWidth': newWidth,
+    'newHeight': newHeight,
+    'expectedWidth': expectedWidth,
+    'expectedHeight': expectedHeight,
+  };
+}
+
+QpdfJobResult _replaceSync({
+  required QpdfBindings bindings,
+  required String sourcePath,
+  required String outputPath,
+  required List<Map<String, Object?>> replacements,
+}) {
+  final dataPtr = pkg_ffi.malloc<qpdf_data>();
+  ffi.Pointer<pkg_ffi.Utf8>? pathPtr;
+  var replaced = 0;
+  var skipped = 0;
+  QpdfJobResult? earlyFailure;
+  try {
+    dataPtr.value = bindings.qpdf_init();
+    final qpdf = dataPtr.value;
+    pathPtr = sourcePath.toNativeUtf8();
+    final rc = bindings.qpdf_read(qpdf, pathPtr.cast(), ffi.nullptr);
+    final hasError = bindings.qpdf_has_error(qpdf) != 0;
+    if (rc != 0 || hasError) {
+      final err = bindings.qpdf_get_error(qpdf);
+      final textPtr = err == ffi.nullptr ? ffi.nullptr : bindings.qpdf_get_error_full_text(qpdf, err);
+      final text = textPtr == ffi.nullptr ? 'qpdf_read failed (rc=$rc)' : textPtr.cast<pkg_ffi.Utf8>().toDartString();
+      earlyFailure = {'ok': false, 'error': 'corrupted', 'detail': text};
+    } else {
+      for (final r in replacements) {
+        final objid = r['objid']! as int;
+        final gen = r['gen']! as int;
+        final newBytes = r['newBytes']! as Uint8List;
+        final newWidth = r['newWidth']! as int;
+        final newHeight = r['newHeight']! as int;
+        final expectedWidth = r['expectedWidth']! as int;
+        final expectedHeight = r['expectedHeight']! as int;
+
+        final imgOh = bindings.qpdf_get_object_by_id(qpdf, objid, gen);
+        if (bindings.qpdf_oh_is_stream(qpdf, imgOh) == 0) {
+          skipped++;
+          continue; // 개별 이미지 실패 -- 이 이미지만 스킵하고 나머지는 계속 진행한다.
+        }
+        final imgDict = bindings.qpdf_oh_get_dict(qpdf, imgOh); // §8.3.
+        if (!_isName(bindings, qpdf, _getKey(bindings, qpdf, imgDict, '/Subtype'), '/Image')) {
+          skipped++;
+          continue;
+        }
+        // 재검증 가드(§2.2): 패스 A/C 사이 원본이 그대로인지 /Width·/Height로 재확인한다. 어긋나면
+        // 조용히 잘못된 그림을 넣는 대신 스킵한다("개수는 맞고 내용은 틀린" 결함을 막는다, §8.2).
+        if (!_hasKey(bindings, qpdf, imgDict, '/Width') || !_hasKey(bindings, qpdf, imgDict, '/Height')) {
+          skipped++;
+          continue;
+        }
+        final curWidth = bindings.qpdf_oh_get_int_value_as_int(qpdf, _getKey(bindings, qpdf, imgDict, '/Width'));
+        final curHeight = bindings.qpdf_oh_get_int_value_as_int(qpdf, _getKey(bindings, qpdf, imgDict, '/Height'));
+        if (curWidth != expectedWidth || curHeight != expectedHeight) {
+          skipped++;
+          continue;
+        }
+
+        final buf = pkg_ffi.malloc<ffi.Uint8>(newBytes.length);
+        buf.asTypedList(newBytes.length).setAll(0, newBytes);
+        final filterOh = _newName(bindings, qpdf, '/DCTDecode');
+        final nullOh = bindings.qpdf_oh_new_null(qpdf);
+        bindings.qpdf_oh_replace_stream_data(qpdf, imgOh, buf, newBytes.length, filterOh, nullOh);
+        pkg_ffi.malloc.free(buf);
+
+        _replaceIntKey(bindings, qpdf, imgDict, '/Width', newWidth);
+        _replaceIntKey(bindings, qpdf, imgDict, '/Height', newHeight);
+        replaced++;
+      }
+
+      final outPathPtr = outputPath.toNativeUtf8();
+      final initRc = bindings.qpdf_init_write(qpdf, outPathPtr.cast());
+      pkg_ffi.malloc.free(outPathPtr);
+      if (initRc != 0) {
+        earlyFailure = {'ok': false, 'error': 'unknown', 'detail': 'qpdf_init_write failed (rc=$initRc)'};
+      } else {
+        final writeRc = bindings.qpdf_write(qpdf);
+        if (writeRc != 0) {
+          earlyFailure = {'ok': false, 'error': 'unknown', 'detail': 'qpdf_write failed (rc=$writeRc)'};
+        }
+      }
+    }
+  } finally {
+    if (dataPtr.value != ffi.nullptr) {
+      bindings.qpdf_oh_release_all(dataPtr.value);
+      bindings.qpdf_cleanup(dataPtr);
+    }
+    pkg_ffi.malloc.free(dataPtr);
+    if (pathPtr != null) pkg_ffi.malloc.free(pathPtr);
+  }
+
+  if (earlyFailure != null) return earlyFailure;
+
+  if (!File(outputPath).existsSync()) {
+    return const {'ok': false, 'error': 'unknown', 'detail': 'qpdf reported success but output file is missing'};
+  }
+  final bytes = File(outputPath).lengthSync();
+  // 치환 후 재오픈 성공 확인(M-E3 완료 판정) -- 별도의 qpdf_data로 다시 연다.
+  final inspectResult = _inspectSync(bindings: bindings, pdfPath: outputPath, password: null);
+  if (inspectResult['ok'] != true) {
+    return {'ok': false, 'error': 'unknown', 'detail': 'post-write reopen failed: ${inspectResult['detail']}'};
+  }
+  return {'ok': true, 'replaced': replaced, 'skipped': skipped, 'bytes': bytes, 'pageCount': inspectResult['pageCount']};
+}
+
+class _ReplaceRequest {
+  const _ReplaceRequest({
+    required this.sendPort,
+    required this.sourcePath,
+    required this.outputPath,
+    required this.replacements,
+    required this.libraryPath,
+  });
+  final SendPort sendPort;
+  final String sourcePath;
+  final String outputPath;
+  final List<Map<String, Object?>> replacements;
+  final String libraryPath;
+}
+
+void _replaceIsolateMain(_ReplaceRequest req) {
+  final library = ffi.DynamicLibrary.open(req.libraryPath);
+  final bindings = QpdfBindings(library);
+  final result = _replaceSync(
+    bindings: bindings,
+    sourcePath: req.sourcePath,
+    outputPath: req.outputPath,
+    replacements: req.replacements,
+  );
+  req.sendPort.send(result);
+}
+
+/// **M-E3** — 패스 C(치환+쓰기). [sourcePath]를 다시 열어(패스 A와 별개의 새 `qpdf_data` 핸들)
+/// 각 [replacements] 항목의 재검증 가드를 통과한 것만 스트림을 교체하고 `/Width`·`/Height`를
+/// 갱신한 뒤 [outputPath]에 쓴다. **개별 이미지 실패는 그 이미지만 스킵**하고 나머지는 계속
+/// 진행한다 -- 전체를 실패시키지 않는다. 반환:
+/// 성공 `{'ok': true, 'replaced': int, 'skipped': int, 'bytes': int, 'pageCount': int}`
+/// 실패 `{'ok': false, 'error': <code>, 'detail': String?}`.
+Future<QpdfJobResult> runImageReplaceJob({
+  required String sourcePath,
+  required String outputPath,
+  required List<ImageReplacement> replacements,
+  CancelToken? cancelToken,
+  String? libraryPathOverride,
+}) async {
+  if (cancelToken?.isCancelled ?? false) return const {'ok': false, 'error': 'cancelled'};
+  final receivePort = ReceivePort();
+  Isolate? isolate;
+  try {
+    isolate = await Isolate.spawn(
+      _replaceIsolateMain,
+      _ReplaceRequest(
+        sendPort: receivePort.sendPort,
+        sourcePath: sourcePath,
+        outputPath: outputPath,
+        replacements: [for (final r in replacements) r._toMap()],
+        libraryPath: libraryPathOverride ?? _defaultLibraryPath(),
+      ),
+    );
+    final raw = await receivePort.first;
+    return (raw as Map).cast<String, Object?>();
+  } finally {
+    receivePort.close();
+    isolate?.kill(priority: Isolate.immediate);
+  }
 }
 
 /// Android에서는 `.so`가 `System.loadLibrary`가 찾는 표준 위치(APK jniLibs → 앱 네이티브 라이브러리

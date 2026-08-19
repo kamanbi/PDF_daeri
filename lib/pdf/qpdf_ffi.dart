@@ -309,7 +309,13 @@ class QpdfBindings {
             ffi.Int32 Function(qpdf_data, ffi.Pointer<ffi.Char>),
             int Function(qpdf_data, ffi.Pointer<ffi.Char>)
           >('qpdf_init_write'),
-      qpdf_write = library.lookupFunction<ffi.Int32 Function(qpdf_data), int Function(qpdf_data)>('qpdf_write');
+      qpdf_write = library.lookupFunction<ffi.Int32 Function(qpdf_data), int Function(qpdf_data)>('qpdf_write'),
+      // ── M-E2 신설: `/ImageMask` 판정에 필요한 boolean 값 조회(qpdf-c.h 708행, 심볼 실검증 완료
+      // -- `test/native/qpdf30.dll`에서 문자열 존재 확인). `QPDF_BOOL`은 `typedef int`(141행)다.
+      qpdf_oh_get_bool_value = library
+          .lookupFunction<ffi.Int32 Function(qpdf_data, qpdf_oh), int Function(qpdf_data, int)>(
+            'qpdf_oh_get_bool_value',
+          );
 
   // FULL INTERFACE (qpdfjob-c.h)
   final qpdfjob_handle Function() qpdfjob_init;
@@ -373,4 +379,5 @@ class QpdfBindings {
   final void Function(qpdf_data) qpdf_oh_release_all;
   final int Function(qpdf_data, ffi.Pointer<ffi.Char> filename) qpdf_init_write;
   final int Function(qpdf_data) qpdf_write;
+  final int Function(qpdf_data, int oh) qpdf_oh_get_bool_value;
 }

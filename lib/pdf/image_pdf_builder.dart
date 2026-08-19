@@ -107,10 +107,30 @@ abstract final class ImagePdfBuilder {
     return (wPx * scale, hPx * scale);
   }
 
+  /// **공개화(M-E4, `_workspace/31_architect_external_compress_l2.md` §2.6).** JPEG SOF 세그먼트에서
+  /// 폭·높이·성분 수(`Nf`, 폭·높이 바로 다음 1바이트)를 함께 읽는다. [_jpegPixelSize]와 같은
+  /// 파싱 로직을 그대로 재사용한다 -- 새 파싱 로직이 아니라 이미 읽고 있는 세그먼트에서 1바이트를
+  /// 더 반환하는 것뿐이다(§2.6). 계산의 단일 소유는 이 파일 그대로다(중복 없음).
+  ///
+  /// L2-ext(qpdf 임베디드 이미지 치환, `pdf_compressor.dart`)가 재인코딩 결과의 성분 수를 원본과
+  /// 대조해 색공간 불일치(R2)를 걸러내는 데 쓴다. 헤더를 못 읽으면(비 JPEG 등) null.
+  static (int width, int height, int components)? jpegPixelSize(Uint8List bytes) => _jpegPixelSizeAndComponents(bytes);
+
   /// JPEG SOF 마커에서 픽셀 폭·높이를 읽는다. `package:image` 전체 디코드 없이 헤더만 파싱한다
   /// (A-4 스킵 판정이 디코드를 하지 않아야 하므로). 이 파일이 이 계산의 유일한 소유자다
   /// -- `pdf_engine_isolate.dart`에 있던 같은 계산은 중복 금지 위반이라 제거하고 여기로 통합했다.
+  /// 기존 호출부(`encodeForEmbed`/`pageBoxFor`)는 그대로 두기 위해 시그니처를 바꾸지 않았다 --
+  /// [_jpegPixelSizeAndComponents]에 위임하고 성분 수만 잘라낸다.
   static (int, int)? _jpegPixelSize(Uint8List bytes) {
+    final full = _jpegPixelSizeAndComponents(bytes);
+    if (full == null) return null;
+    return (full.$1, full.$2);
+  }
+
+  /// [_jpegPixelSize]/[jpegPixelSize]가 공유하는 실제 파싱 로직. SOF 세그먼트 레이아웃(마커 뒤
+  /// `length(2) precision(1) height(2) width(2) Nf(1)`) 중 `height`/`width` 다음 바이트가 `Nf`
+  /// (성분 수)다 -- 마커·바이트 오프셋 전부 기존 로직과 동일, 반환 튜플에 항목 하나만 늘었다.
+  static (int, int, int)? _jpegPixelSizeAndComponents(Uint8List bytes) {
     if (bytes.length < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) return null;
     var i = 2;
     while (i + 9 < bytes.length) {
@@ -124,7 +144,8 @@ abstract final class ImagePdfBuilder {
       if (isSof) {
         final height = (bytes[i + 5] << 8) | bytes[i + 6];
         final width = (bytes[i + 7] << 8) | bytes[i + 8];
-        return (width, height);
+        final components = bytes[i + 9];
+        return (width, height, components);
       }
       final segmentLength = (bytes[i + 2] << 8) | bytes[i + 3];
       i += 2 + segmentLength;

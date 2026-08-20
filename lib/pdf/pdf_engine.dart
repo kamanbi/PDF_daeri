@@ -306,15 +306,21 @@ class QpdfPdfEngine implements PdfEngine {
   }) async {
     onProgress?.call(PdfProgress(phase: PdfPhase.opening, done: 0, total: pages.length));
 
-    final imagePaths = [for (final p in pages) if (p is ImagePageRef) p.imagePath];
+    // (경로, 크롭) 쌍으로 넘긴다 -- 같은 마스터 경로가 서로 다른 크롭으로 두 번 나올 수 있으므로
+    // 경로 기준 dedupe를 하지 않는다(설계 §2.5). 페이지 순서 그대로의 리스트라 원래도 dedupe는
+    // 없었다 -- `ImageEncodeItem` 전환으로 이 사실이 타입 수준에서도 분명해진다.
+    final imageItems = [
+      for (final p in pages)
+        if (p is ImagePageRef) ImageEncodeItem(imagePath: p.imagePath, cropEncoded: p.crop?.encode()),
+    ];
     String? imagesPdfPath;
 
     try {
-      if (imagePaths.isNotEmpty) {
+      if (imageItems.isNotEmpty) {
         // 이미지 인코딩은 순수 Dart CPU 작업이므로 별도 워커 isolate로 보낸다(§5.6 -- `package:image`/
         // `package:pdf/`가 없는 isolate). qpdf가 이 워커를 전혀 쓰지 않는다(2-키 분리 유지).
         final encodeResult = await runImageEncodeBatch(
-          imagePaths: imagePaths,
+          items: imageItems,
           longEdgeMaxPx: longEdgeMaxPx,
           jpegQuality: jpegQuality,
           cancelToken: cancelToken,

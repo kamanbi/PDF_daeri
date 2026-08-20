@@ -180,8 +180,9 @@ class QpdfCompressor implements PdfCompressor {
         }
 
         final (longEdgeMaxPx, jpegQuality) = _presetFor(preset);
+        // 압축 경로는 크롭 개념이 없다 -- 전부 cropEncoded: null(설계 §2.5, ImageEncodeItem 전환).
         final encodeResult = await runImageEncodeBatch(
-          imagePaths: imagePagePaths,
+          items: [for (final p in imagePagePaths) ImageEncodeItem(imagePath: p, cropEncoded: null)],
           longEdgeMaxPx: longEdgeMaxPx,
           jpegQuality: jpegQuality,
           cancelToken: cancelToken,
@@ -273,10 +274,12 @@ class QpdfCompressor implements PdfCompressor {
     }
     if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
 
-    // 패스 B: 기존 image_encode_isolate.dart를 한 글자도 고치지 않고 그대로 재사용한다(§2.2).
+    // 패스 B: image_encode_isolate.dart를 그대로 재사용한다(§2.2). 3주차 T2에서 시그니처가
+    // `List<String>` -> `List<ImageEncodeItem>`으로 바뀌었으나(설계 §2.5), 이 경로는 크롭이 없으므로
+    // 전부 cropEncoded: null로 감싸 넘긴다 -- 로직 자체는 무변경이다.
     final imagePaths = [for (final m in manifest) m['path']! as String];
     final encodeResult = await runImageEncodeBatch(
-      imagePaths: imagePaths,
+      items: [for (final p in imagePaths) ImageEncodeItem(imagePath: p, cropEncoded: null)],
       longEdgeMaxPx: longEdgeMaxPx,
       jpegQuality: jpegQuality,
       cancelToken: cancelToken,

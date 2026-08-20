@@ -155,7 +155,7 @@ class PdfxRenderer implements PdfRenderer {
   }) async {
     switch (page) {
       case ImagePageRef():
-        return _renderImageFileToPng(page.imagePath, targetWidthPx: targetWidthPx);
+        return _renderImageFileToPng(page.imagePath, targetWidthPx: targetWidthPx, crop: page.crop);
       case PdfPageRef():
         try {
           final doc = await _open(page.sourcePath);
@@ -198,19 +198,72 @@ class PdfxRenderer implements PdfRenderer {
     }
   }
 
-  Future<PdfResult<Uint8List>> _renderImageFileToPng(String imagePath, {required int targetWidthPx}) async {
+  /// [crop]이 있으면(설계 §2.5) 원본 해상도로 디코드한 뒤 크롭 영역만 잘라 목표 폭으로
+  /// 리사이즈한다 -- 저장 경로(`image_pdf_builder.dart`)와 달리 여기는 `dart:ui`만 쓴다
+  /// (2-키 분리: `package:image`는 이 파일에 들어오지 않는다). 이 렌더 결과는 화면 표시용
+  /// 메모리 바이트일 뿐 어디에도 쓰이지 않는다(§3.2 타입 봉쇄 -- 저장 경로에 영향 없음).
+  Future<PdfResult<Uint8List>> _renderImageFileToPng(
+    String imagePath, {
+    required int targetWidthPx,
+    CropRect? crop,
+  }) async {
     try {
       final file = await ui.ImmutableBuffer.fromFilePath(imagePath);
       final descriptor = await ui.ImageDescriptor.encoded(file);
-      final codec = await descriptor.instantiateCodec(targetWidth: targetWidthPx);
-      final frame = await codec.getNextFrame();
-      final byteData = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-      frame.image.dispose();
-      codec.dispose();
-      descriptor.dispose();
-      file.dispose();
-      if (byteData == null) return PdfErr(const UnknownFailure('png encode failed'));
-      return PdfOk(byteData.buffer.asUint8List());
+
+      if (crop == null) {
+        final codec = await descriptor.instantiateCodec(targetWidth: targetWidthPx);
+        final frame = await codec.getNextFrame();
+        final byteData = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+        frame.image.dispose();
+        codec.dispose();
+        descriptor.dispose();
+        file.dispose();
+        if (byteData == null) return PdfErr(const UnknownFailure('png encode failed'));
+        return PdfOk(byteData.buffer.asUint8List());
+      }
+
+      final fullCodec = await descriptor.instantiateCodec();
+      final fullFrame = await fullCodec.getNextFrame();
+      final fullImage = fullFrame.image;
+      try {
+        final srcW = fullImage.width.toDouble();
+        final srcH = fullImage.height.toDouble();
+        final srcRect = ui.Rect.fromLTRB(
+          crop.left * srcW,
+          crop.top * srcH,
+          crop.right * srcW,
+          crop.bottom * srcH,
+        );
+        final dstW = targetWidthPx.toDouble();
+        final dstH = srcRect.width <= 0 ? dstW : dstW * srcRect.height / srcRect.width;
+        final dstWInt = dstW.round().clamp(1, 1 << 20);
+        final dstHInt = dstH.round().clamp(1, 1 << 20);
+
+        final recorder = ui.PictureRecorder();
+        final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, dstWInt.toDouble(), dstHInt.toDouble()));
+        canvas.drawImageRect(
+          fullImage,
+          srcRect,
+          ui.Rect.fromLTWH(0, 0, dstWInt.toDouble(), dstHInt.toDouble()),
+          ui.Paint(),
+        );
+        final picture = recorder.endRecording();
+        final croppedImage = await picture.toImage(dstWInt, dstHInt);
+        try {
+          final byteData = await croppedImage.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData == null) return PdfErr(const UnknownFailure('png encode failed'));
+          return PdfOk(byteData.buffer.asUint8List());
+        } finally {
+          croppedImage.dispose();
+          picture.dispose();
+        }
+      } finally {
+        fullImage.dispose();
+        fullCodec.dispose();
+        descriptor.dispose();
+        file.dispose();
+      }
     } catch (e) {
       return PdfErr(SourceCorrupted('$imagePath: $e'));
     }

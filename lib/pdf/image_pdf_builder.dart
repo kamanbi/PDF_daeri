@@ -18,6 +18,8 @@ import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'page_ref.dart' show CropRect;
+
 abstract final class ImagePdfBuilder {
   // 저장 경로 프리셋(A-1 유일 소유). `pdf_engine.dart`는 이 상수를 참조만 한다(§3.4 검사 9).
   static const int highLongEdgeMaxPx = 2480;
@@ -67,37 +69,80 @@ abstract final class ImagePdfBuilder {
   /// 판정 기준은 픽셀 크기 하나뿐이다 -- JPEG 품질값 역산은 하지 않는다(부정확하므로).
   ///
   /// A-5(역효과 방지): 재인코딩 결과가 원본 이상이면 원본을 반환한다.
-  static Uint8List encodeForEmbed(Uint8List jpegBytes, {required int longEdgeMaxPx, required int jpegQuality}) {
-    final dims = _jpegPixelSize(jpegBytes);
-    if (dims == null) {
-      // 헤더를 못 읽으면(비 JPEG 등) 원본을 그대로 반환 -- 이 함수는 실패를 던지지 않는다.
-      return jpegBytes;
-    }
-    final longEdge = dims.$1 >= dims.$2 ? dims.$1 : dims.$2;
-    if (longEdge <= longEdgeMaxPx) {
-      return jpegBytes;
+  ///
+  /// [crop]이 non-null이면(설계 §1.3/§2.4) **디코드 → 크롭 → 축소 → 인코딩을 한 패스**로 수행한다.
+  /// 이 경우 A-4(무손실 스킵)와 A-5(역효과 방지)는 **적용하지 않는다** -- 크롭이 있으면 원본
+  /// 바이트를 그대로 쓸 수도, 폴백할 수도 없다(자르지 않은 그림이 들어가거나 크롭이 사라진다).
+  /// 세대는 여전히 2세대다(A-3 불변식 유지) -- 입력은 항상 마스터 바이트이고, 크롭 결과는
+  /// 어디에도 쓰지 않고 반환만 한다.
+  static Uint8List encodeForEmbed(
+    Uint8List jpegBytes, {
+    required int longEdgeMaxPx,
+    required int jpegQuality,
+    CropRect? crop,
+  }) {
+    if (crop == null) {
+      final dims = _jpegPixelSize(jpegBytes);
+      if (dims == null) {
+        // 헤더를 못 읽으면(비 JPEG 등) 원본을 그대로 반환 -- 이 함수는 실패를 던지지 않는다.
+        return jpegBytes;
+      }
+      final longEdge = dims.$1 >= dims.$2 ? dims.$1 : dims.$2;
+      if (longEdge <= longEdgeMaxPx) {
+        return jpegBytes;
+      }
+
+      final decoded = img.decodeJpg(jpegBytes);
+      if (decoded == null) return jpegBytes;
+
+      final resized = dims.$1 >= dims.$2
+          ? img.copyResize(decoded, width: longEdgeMaxPx)
+          : img.copyResize(decoded, height: longEdgeMaxPx);
+      final reencoded = Uint8List.fromList(img.encodeJpg(resized, quality: jpegQuality));
+
+      return reencoded.length < jpegBytes.length ? reencoded : jpegBytes;
     }
 
+    // 크롭 경로: A-4/A-5 둘 다 적용하지 않는다(§2.4). 디코드 실패 시에만 원본을 반환한다
+    // (이 함수는 실패를 던지지 않는다는 기존 계약을 유지) -- 그 외에는 항상 재인코딩 결과를 쓴다.
     final decoded = img.decodeJpg(jpegBytes);
     if (decoded == null) return jpegBytes;
 
-    final resized = dims.$1 >= dims.$2
-        ? img.copyResize(decoded, width: longEdgeMaxPx)
-        : img.copyResize(decoded, height: longEdgeMaxPx);
-    final reencoded = Uint8List.fromList(img.encodeJpg(resized, quality: jpegQuality));
+    final cropped = _applyCrop(decoded, crop);
+    final longEdge = cropped.width >= cropped.height ? cropped.width : cropped.height;
+    final resized = longEdge > longEdgeMaxPx
+        ? (cropped.width >= cropped.height
+              ? img.copyResize(cropped, width: longEdgeMaxPx)
+              : img.copyResize(cropped, height: longEdgeMaxPx))
+        : cropped;
 
-    return reencoded.length < jpegBytes.length ? reencoded : jpegBytes;
+    return Uint8List.fromList(img.encodeJpg(resized, quality: jpegQuality));
+  }
+
+  /// [crop] 정규화 비율(0..1)을 원본 픽셀 좌표로 변환해 잘라낸다. 결과 폭·높이는 최소 1px로
+  /// 클램프한다(반올림으로 0px가 되는 극단적인 크롭 방지).
+  static img.Image _applyCrop(img.Image image, CropRect crop) {
+    final w = image.width;
+    final h = image.height;
+    final x = (crop.left * w).round().clamp(0, w - 1);
+    final y = (crop.top * h).round().clamp(0, h - 1);
+    final cw = (crop.widthFraction * w).round().clamp(1, w - x);
+    final ch = (crop.heightFraction * h).round().clamp(1, h - y);
+    return img.copyCrop(image, x: x, y: y, width: cw, height: ch);
   }
 
   /// JPEG 픽셀 크기를 A4 박스(내접, 비율 보존) 안의 PDF 포인트(1/72inch) 크기로 변환한다(Q-B).
   /// JFIF density(DPI)는 읽지 않는다 -- 신뢰할 수 없는 메타데이터보다 고정 규칙이 안전하다.
   /// 헤더를 못 읽으면 A4 세로(포트레이트)를 그대로 반환한다.
-  static (double, double) pageBoxFor(Uint8List jpegBytes) {
+  ///
+  /// [crop]이 있으면 **크롭 후** 픽셀 크기로 내접 계산한다(§2.4) -- 크롭 전 크기로 계산하면
+  /// 잘라낸 그림이 원래 종횡비의 박스에 늘어나 들어간다.
+  static (double, double) pageBoxFor(Uint8List jpegBytes, {CropRect? crop}) {
     final dims = _jpegPixelSize(jpegBytes);
     if (dims == null) return (_a4ShortPt, _a4LongPt);
 
-    final wPx = dims.$1.toDouble();
-    final hPx = dims.$2.toDouble();
+    final wPx = crop == null ? dims.$1.toDouble() : dims.$1 * crop.widthFraction;
+    final hPx = crop == null ? dims.$2.toDouble() : dims.$2 * crop.heightFraction;
     final portrait = hPx >= wPx;
     final boxW = portrait ? _a4ShortPt : _a4LongPt;
     final boxH = portrait ? _a4LongPt : _a4ShortPt;

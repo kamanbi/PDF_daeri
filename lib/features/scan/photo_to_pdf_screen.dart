@@ -1,5 +1,6 @@
 /// 사진 → PDF. 스캔 폴백의 도착지이자 홈의 독립 진입점이다.
-/// `file_picker`로 이미지를 선택해 `SaveImagesScreen`(→ `PdfEngine` 경유)으로 넘긴다.
+/// `file_picker`로 이미지를 선택해 `PhotoEditScreen`(순서·회전·삭제·크롭 → 저장
+/// 다이얼로그, 3주차 설계 §2.1)으로 넘긴다.
 library;
 
 import 'package:flutter/material.dart';
@@ -8,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../core/app_error.dart';
 import '../../data/repository/document_repository.dart';
-import 'save_images_flow.dart';
+import 'photo_edit_screen.dart';
 
 class PhotoToPdfScreen extends ConsumerStatefulWidget {
   const PhotoToPdfScreen({super.key});
@@ -24,7 +25,7 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
   String? _errorMessage;
 
   // appBusyProvider(§4.4): 이 화면이 떠 있는 동안(스캔 폴백 진입이든 홈의 독립
-  // 진입점이든) 인텐트 소비를 막는다. `SaveImagesScreen`으로 pushReplacement할
+  // 진입점이든) 인텐트 소비를 막는다. `PhotoEditScreen`으로 pushReplacement할
   // 때는 그 화면이 busy를 이어받으므로 dispose에서 false로 되돌리지 않는다
   // (scan_screen.dart와 동일한 handoff 패턴 — 전환 애니메이션 중 순서 역전 방지).
   late final StateController<bool> _busyNotifier;
@@ -66,7 +67,7 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
         _busyHandedOff = true;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => SaveImagesScreen(
+            builder: (_) => PhotoEditScreen(
               imagePaths: images,
               origin: DocOrigin.photo,
               suggestedTitle: _suggestedTitle(),

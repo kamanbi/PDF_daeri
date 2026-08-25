@@ -17,7 +17,7 @@ import 'package:pdf_daeri/core/cancel_token.dart';
 import 'package:pdf_daeri/core/progress.dart';
 import 'package:pdf_daeri/core/size_guard.dart';
 import 'package:pdf_daeri/data/repository/document_repository.dart';
-import 'package:pdf_daeri/features/scan/save_images_flow.dart';
+import 'package:pdf_daeri/features/edit/save_dialog.dart';
 import 'package:pdf_daeri/features/scan/scan_screen.dart';
 import 'package:pdf_daeri/pdf/page_ref.dart';
 import 'package:pdf_daeri/pdf/pdf_engine.dart';
@@ -116,20 +116,45 @@ void main() {
   });
 
   testWidgets('GuardBlocked(용량 검증 실패)를 삼키지 않고 화면에 노출한다', (tester) async {
+    // 3주차 T4: SaveImagesScreen(전체 화면)이 `showSaveDialog`(save_dialog.dart)로
+    // 대체됐다(설계 §5.1). PhotoEditScreen/EditScreen 대신 저장 다이얼로그를 직접
+    // 여는 최소 하네스로 검증한다 — `PageGridEditor`의 실제 이미지 파일 I/O
+    // (`File.length()`)는 flutter_test의 FakeAsync 존 안에서 완료되지 않아
+    // pumpAndSettle이 멎는다(위젯 테스트 환경의 알려진 제약, dart:io 실 I/O를
+    // 화면 전체를 통해 exercise하지 않는다). 이 테스트의 목적은 어디까지나
+    // `showSaveDialog`가 `GuardBlocked`를 삼키지 않는지 확인하는 것이다.
     await tester.pumpWidget(
       ProviderScope(
         overrides: [documentRepositoryProvider.overrideWithValue(_FakeGuardBlockedRepository())],
-        child: const MaterialApp(
-          home: SaveImagesScreen(
-            imagePaths: [],
-            origin: DocOrigin.photo,
-            suggestedTitle: '테스트 문서',
+        child: MaterialApp(
+          home: Consumer(
+            builder: (context, ref, _) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () => showSaveDialog(
+                    context: context,
+                    ref: ref,
+                    spec: const SaveRequestSpec(
+                      suggestedTitle: '테스트 문서',
+                      origin: DocOrigin.photo,
+                      pages: [],
+                      guardInput: GuardInput(op: SaveOp.merge, baselineBytes: 0),
+                      showQualityPicker: false,
+                    ),
+                  ),
+                  child: const Text('열기'),
+                ),
+              ),
+            ),
           ),
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.check));
+    await tester.tap(find.text('열기'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '저장'));
     await tester.pumpAndSettle();
 
     // 3주차 T1에서 SizeGuardViolation 문구가 op별로 세분화됐다(FailureUi

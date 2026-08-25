@@ -225,6 +225,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await _renderPage(index, target, highRes: true);
   }
 
+  void _openEdit() {
+    // ViewerArgs.docId/recentId는 상호 배타다(§3.3 계약) — 그대로 EditSource 판별에 쓴다.
+    final source = _args.docId != null
+        ? EditSource.myDocument(_args.docId!)
+        : EditSource.externalPdf(pdfPath: _args.pdfPath, title: _args.title, recentId: _args.recentId);
+    Navigator.of(context).pushNamed(AppRoutes.edit, arguments: EditArgs(source: source, title: _args.title));
+  }
+
   void _openCompressSheet() {
     showCompressSheet(
       context: context,
@@ -294,6 +302,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         // 비활성화한다(`ViewerArgs.isEncrypted`, §3.3 Q10). 공유·편집 이동은
         // 3주차(설계 §0.4)에 이 자리에 함께 붙는다 — 지금은 아이콘 1개뿐이다.
         actions: [
+          // 편집 이동(3주차, 설계 §0.4·§1.1) — 암호 PDF는 편집 진입을 차단한다
+          // (1주차 Q10 확정 정책). 비활성화가 아니라 버튼 자체를 없앤다.
+          if (!_args.isEncrypted)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: '편집',
+              onPressed: _openEdit,
+            ),
           IconButton(
             icon: const Icon(Icons.compress),
             tooltip: '압축',

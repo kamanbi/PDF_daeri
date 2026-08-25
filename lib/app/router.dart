@@ -1,13 +1,15 @@
 /// 앱의 **유일한** 화면 전환 지점. (설계 §1.5, 2주차 신설)
 ///
-/// `screens.md`의 5개 화면(S1/S2/S2-b/S4/S5) 외의 라우트를 정의하지 않는다.
+/// `screens.md`의 5개 화면(S1/S2/S2-b/S3/S4/S5) 외의 라우트를 정의하지 않는다.
 /// `features/**` 안에서 `MaterialPageRoute`를 직접 만들지 않는다 — 화면이
 /// 늘어나는 것을 이 파일 하나로 감시하기 위함(§6.4 검사 25). S3(`/edit`)는
-/// 3주차에 추가한다.
+/// 3주차 T4에서 추가한다(설계 §1.1).
 library;
 
 import 'package:flutter/material.dart';
 
+import '../features/edit/edit_controller.dart' show EditMode;
+import '../features/edit/edit_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/scan/photo_to_pdf_screen.dart';
 import '../features/scan/scan_screen.dart';
@@ -20,9 +22,47 @@ abstract final class AppRoutes {
   static const scan = '/scan'; // S2
   static const photoToPdf = '/photo'; // S2 (Play 서비스 폴백)
   static const openPdf = '/open'; // S2-b
+  static const edit = '/edit'; // S3
   static const viewer = '/viewer'; // S4
   static const settings = '/settings'; // S5
-  // S3(/edit)는 3주차에 추가한다. 지금 정의하지 않는다.
+}
+
+/// S3 편집 화면 인자. 편집 대상은 **항상 앱 작업공간 안의 PDF**다. 외부 URI를
+/// 여기 넣지 않는다(2주차 `ViewerArgs`와 동일 규약, 설계 §1.1).
+class EditArgs {
+  const EditArgs({required this.source, required this.title, this.initialMode = EditMode.arrange});
+
+  final EditSource source;
+  final String title;
+
+  /// `EditMode.select`로 진입하면 처음부터 선택 모드다 — S1 `⋮ → 나누기` 진입점이 쓴다.
+  final EditMode initialMode;
+}
+
+/// 편집 대상의 출처. "내 문서"인지 "외부에서 연 PDF"인지의 판별을 화면이 추측하지
+/// 않는다(`CompressSource`와 같은 원리, 설계 §1.1).
+sealed class EditSource {
+  const EditSource();
+
+  /// 내 문서. `DocumentRepository.load(docId)`로 `List<PageRef>`를 복원한다.
+  const factory EditSource.myDocument(String docId) = EditSourceMyDocument;
+
+  /// 외부에서 연 PDF(`recent/<id>.pdf`). `documents` 행이 없으므로 페이지 목록을
+  /// `PdfEngine.inspect`의 pageCount로 합성한다.
+  const factory EditSource.externalPdf({required String pdfPath, required String title, String? recentId}) =
+      EditSourceExternalPdf;
+}
+
+final class EditSourceMyDocument extends EditSource {
+  const EditSourceMyDocument(this.docId);
+  final String docId;
+}
+
+final class EditSourceExternalPdf extends EditSource {
+  const EditSourceExternalPdf({required this.pdfPath, required this.title, this.recentId});
+  final String pdfPath;
+  final String title;
+  final String? recentId;
 }
 
 /// S4 뷰어 화면 인자.
@@ -72,6 +112,12 @@ Route<Object?>? onGenerateRoute(RouteSettings settings) {
       return MaterialPageRoute(builder: (_) => const PhotoToPdfScreen(), settings: settings);
     case AppRoutes.openPdf:
       return MaterialPageRoute(builder: (_) => const OpenPdfScreen(), settings: settings);
+    case AppRoutes.edit:
+      final args = settings.arguments;
+      if (args is! EditArgs) {
+        return MaterialPageRoute(builder: (_) => const HomeScreen());
+      }
+      return MaterialPageRoute(builder: (_) => EditScreen(args: args), settings: settings);
     case AppRoutes.settings:
       return MaterialPageRoute(builder: (_) => const SettingsScreen(), settings: settings);
     case AppRoutes.viewer:

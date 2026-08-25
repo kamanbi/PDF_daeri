@@ -69,6 +69,10 @@ class EditController extends StateNotifier<EditState> {
   /// 원본 페이지 목록. `SaveOp` 판정(§1.6)의 `before`가 된다. 변경되지 않는다.
   final List<PageRef> original;
 
+  /// 현재 상태의 공개 접근자. `StateNotifier.state`는 `@protected`/`@visibleForTesting`라
+  /// 프로덕션 코드(화면·그리드)에서 직접 쓸 수 없다 — 대신 이 게터를 쓴다.
+  EditState get current => state;
+
   int _nextId;
 
   // --- 순서 ---
@@ -156,10 +160,38 @@ class EditController extends StateNotifier<EditState> {
     _apply(pages);
   }
 
+  // --- 크롭(사진→PDF 생성 흐름 전용, 설계 §2.6 — S3는 이 메서드를 쓰지 않는다) ---
+
+  /// [pageId]의 크롭을 교체한다. 대상이 `ImagePageRef`가 아니면 아무 일도 하지 않는다.
+  void setCrop(int pageId, CropRect? crop) {
+    final pages = [
+      for (final page in state.pages)
+        if (page.id == pageId && page.ref is ImagePageRef)
+          page.copyWith(
+            ref: ImagePageRef(
+              imagePath: (page.ref as ImagePageRef).imagePath,
+              rotation: page.ref.rotation,
+              crop: crop,
+            ),
+          )
+        else
+          page,
+    ];
+    _apply(pages);
+  }
+
   // --- 선택 ---
 
   void enterSelectMode(int id) {
     state = state.copyWith(mode: EditMode.select, selected: {id});
+  }
+
+  /// 특정 페이지를 선택하지 않고 선택 모드로만 진입한다. 앱바 "선택" 버튼과 S1
+  /// "나누기" 진입점(`EditArgs.initialMode: EditMode.select`)이 쓴다 — 롱프레스가
+  /// 아니라 명시적 버튼으로만 선택 모드에 들어가므로(설계 §1.4) 특정 페이지 id가
+  /// 없는 경우가 기본이다.
+  void enterSelectModeOnly() {
+    state = state.copyWith(mode: EditMode.select);
   }
 
   void toggleSelect(int id) {

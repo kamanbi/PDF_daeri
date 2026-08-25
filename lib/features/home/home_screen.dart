@@ -18,12 +18,64 @@ import '../../app/router.dart';
 import '../../data/repository/document_repository.dart';
 import '../../data/repository/recent_repository.dart';
 import '../viewer/open_pdf_flow.dart';
+import 'merge_documents_flow.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+/// 다중 선택 상태. **"내 문서" 섹션에만 적용된다** — "최근 연 파일"은 `documents` 행이
+/// 없어 합치기·삭제 대상이 아니다(설계 §3.1, 2주차 §163). 두 섹션을 한 선택 집합에
+/// 섞지 않는다.
+///
+/// [2026-08-25 · 3주차 T5-1 · platform-integration] 여기서는 선택 상태 관리와 합치기
+/// 실행 배선(`mergeDocumentsAndCreate` 호출)만 담당한다. 체크박스·액션바 비주얼은
+/// 최소 형태로만 두었다 — **flutter-ui 확인 필요**: 최종 UI(카드 위 체크마크 오버레이
+/// 스타일, `⋮` 메뉴의 나누기/압축/공유/삭제/이름변경 5항목 배선, "최근 연 파일" 삭제와의
+/// 시각적 구분)는 담당 U가 T4 이후 라운드에서 다듬는다.
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+
+  void _toggleSelection(String docId) {
+    setState(() {
+      if (_selectedIds.contains(docId)) {
+        _selectedIds.remove(docId);
+        if (_selectedIds.isEmpty) _selectionMode = false;
+      } else {
+        _selectedIds.add(docId);
+      }
+    });
+  }
+
+  void _enterSelectionMode(String docId) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(docId);
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _mergeSelected(List<DocumentSummary> documents) async {
+    // 화면에 보이는 순서(= updated_at DESC) 그대로 유지한다 — 선택 순서를 기억하지
+    // 않는다(설계 §3.1 "합치기 순서" 확정 사항).
+    final selected = documents.where((d) => _selectedIds.contains(d.id)).toList();
+    if (selected.length < 2) return;
+    final result = await mergeDocumentsAndCreate(context: context, ref: ref, selected: selected);
+    if (result != null && mounted) _exitSelectionMode();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final repository = ref.watch(documentRepositoryProvider);
     final workspace = ref.watch(workspaceProvider);
     final issues = ref.watch(bootIssuesProvider);
@@ -40,16 +92,28 @@ class HomeScreen extends ConsumerWidget {
     final isEmpty = recentFiles.isEmpty && documents.isEmpty;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('PDF 대리'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: '설정',
-            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.settings),
-          ),
-        ],
-      ),
+      appBar: _selectionMode
+          ? AppBar(
+              leading: IconButton(icon: const Icon(Icons.close), onPressed: _exitSelectionMode),
+              title: Text('${_selectedIds.length}개 선택'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.call_merge),
+                  tooltip: '합치기',
+                  onPressed: _selectedIds.length >= 2 ? () => _mergeSelected(documents) : null,
+                ),
+              ],
+            )
+          : AppBar(
+              title: const Text('PDF 대리'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: '설정',
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.settings),
+                ),
+              ],
+            ),
       body: CustomScrollView(
         slivers: [
           if (issues.isNotEmpty)
@@ -95,7 +159,13 @@ class HomeScreen extends ConsumerWidget {
                     childAspectRatio: 0.72,
                   ),
                   delegate: SliverChildBuilderDelegate(
-                    (context, index) => _DocumentCard(summary: documents[index]),
+                    (context, index) => _DocumentCard(
+                      summary: documents[index],
+                      selectionMode: _selectionMode,
+                      selected: _selectedIds.contains(documents[index].id),
+                      onLongPress: () => _enterSelectionMode(documents[index].id),
+                      onToggleSelected: () => _toggleSelection(documents[index].id),
+                    ),
                     childCount: documents.length,
                   ),
                 ),
@@ -223,13 +293,28 @@ class _RecentFileTile extends ConsumerWidget {
 }
 
 class _DocumentCard extends ConsumerWidget {
-  const _DocumentCard({required this.summary});
+  const _DocumentCard({
+    required this.summary,
+    required this.selectionMode,
+    required this.selected,
+    required this.onLongPress,
+    required this.onToggleSelected,
+  });
   final DocumentSummary summary;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onLongPress;
+  final VoidCallback onToggleSelected;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return InkWell(
+      onLongPress: selectionMode ? null : onLongPress,
       onTap: () {
+        if (selectionMode) {
+          onToggleSelected();
+          return;
+        }
         final workspace = ref.read(workspaceProvider);
         if (workspace == null) return;
         Navigator.of(context).pushNamed(
@@ -242,22 +327,37 @@ class _DocumentCard extends ConsumerWidget {
           ),
         );
       },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: _DocumentThumbnail(summary: summary),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _DocumentThumbnail(summary: summary),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(summary.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(
+                '${summary.pageCount}p · ${_formatBytes(summary.fileSize)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              Text(_formatDate(summary.updatedAt), style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+          if (selectionMode)
+            Positioned(
+              top: 4,
+              left: 4,
+              child: Icon(
+                selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                color: selected
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.surface,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(summary.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          Text(
-            '${summary.pageCount}p · ${_formatBytes(summary.fileSize)}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          Text(_formatDate(summary.updatedAt), style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );

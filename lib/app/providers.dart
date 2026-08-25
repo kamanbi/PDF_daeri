@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/repository/document_repository.dart';
 import '../data/repository/recent_repository.dart';
 import '../data/storage/saf_import.dart';
+import '../data/storage/share_export.dart';
 import '../data/storage/workspace.dart';
 import '../pdf/pdf_engine.dart';
 import '../pdf/pdf_renderer.dart';
@@ -29,6 +30,25 @@ final pdfEngineProvider = Provider<PdfEngine?>((ref) => null);
 /// [2주차 신설] `recent_files` 접근. `documentRepositoryProvider`와 동일한 nullable
 /// 패턴(§1.3) — DB/워크스페이스 초기화가 실패해도 다른 화면은 죽지 않는다.
 final recentRepositoryProvider = Provider<RecentRepository?>((ref) => null);
+
+/// [2026-08-25 · 3주차 T6 신설 · platform-integration] 시스템 공유의 유일한 진입점
+/// (`share_export.dart` §5.2). `workspaceProvider`와 같은 nullable 패턴 —
+/// `Workspace` 초기화가 실패했으면 공유도 쓸 수 없다(`cache/share/` 스테이징이
+/// `Workspace`에 있으므로). `main.dart`가 별도 override를 하지 않아도, 이
+/// provider는 `workspaceProvider`를 그대로 파생하므로 항상 최신 상태를 반영한다
+/// (다른 provider처럼 `main.dart` 부팅 시퀀스에서 만들 필요가 없다).
+///
+/// **flutter-ui 연결 방법**: `compress_sheet.dart`의 `_share`(현재 "공유 기능
+/// 준비 중" 스낵바)에서 `ref.read(shareExportProvider)`로 꺼내
+/// `sharePdf(pdfPath: ..., title: ...)`를 호출하고 결과를 `FailureUi`로
+/// 처리하면 된다(`PdfErr`일 때). 홈 `⋮ → 공유`, 뷰어 `[공유]` 버튼도 동일하게
+/// 이 provider 하나만 읽으면 된다 — 화면마다 `SharePlusExport`를 새로 만들지
+/// 않는다(단일 진입점 원칙, 설계 §5.2).
+final shareExportProvider = Provider<ShareExport?>((ref) {
+  final workspace = ref.watch(workspaceProvider);
+  if (workspace == null) return null;
+  return SharePlusExport(workspace);
+});
 
 /// 부팅 중 발생한 비치명 이슈(한글 폰트 누락 등)를 화면에 알리기 위한 목록.
 final bootIssuesProvider = Provider<List<String>>((ref) => const []);

@@ -11,8 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../core/app_error.dart';
 import '../../data/repository/document_repository.dart';
+import 'photo_edit_screen.dart';
 import 'photo_to_pdf_screen.dart';
-import 'save_images_flow.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
@@ -29,7 +29,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   // appBusyProvider(§4.4·26번 문서 §6 미해결 항목): 스캔 화면이 떠 있는 동안
   // 인텐트 소비가 가로채지 않도록 진입 시 true, 이탈 시 false로 되돌린다.
-  // `SaveImagesScreen`/`PhotoToPdfScreen`으로 pushReplacement하는 경우는 그
+  // `PhotoEditScreen`/`PhotoToPdfScreen`으로 pushReplacement하는 경우는 그
   // 다음 화면이 busy를 이어받으므로(각 화면도 자신의 initState에서 true를
   // 세팅한다) 여기서 false로 되돌리지 않는다 — `_busyHandedOff`로 표시한다.
   // (pushReplacement 전환 애니메이션 중 새 화면이 이미 true를 세팅한 뒤에
@@ -84,7 +84,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         _busyHandedOff = true;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => SaveImagesScreen(
+            builder: (_) => PhotoEditScreen(
               imagePaths: images,
               origin: DocOrigin.scan,
               suggestedTitle: _suggestedTitle(),

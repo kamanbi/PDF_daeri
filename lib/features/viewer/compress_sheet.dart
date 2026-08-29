@@ -16,9 +16,13 @@
 /// 지점을 만들지 않는다.
 library;
 
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ads/ad_gate.dart';
 import '../../app/providers.dart';
 import '../../core/app_error.dart';
 import '../../core/cancel_token.dart';
@@ -26,6 +30,7 @@ import '../../core/progress.dart';
 import '../../data/repository/document_repository.dart';
 import '../../pdf/image_quality.dart';
 import '../common/failure_ui.dart';
+import '../common/share_flow.dart';
 
 /// 압축 시트를 띄운다. [docId]는 "내 문서"(홈 섹션 2)를 열었을 때만, [recentId]는
 /// 외부에서 연 PDF(최근 연 파일 포함)를 열었을 때만 채워진다 — 둘은 상호 배타다
@@ -85,11 +90,30 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
   CancelToken? _cancelToken;
   CompressToNewDocumentResult? _result;
   bool _removed = false; // 원본 삭제/제거 버튼 중복 클릭 방지
+  int? _sourceBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSourceBytes();
+  }
+
+  Future<void> _loadSourceBytes() async {
+    try {
+      final bytes = await File(widget.pdfPath).length();
+      if (mounted) setState(() => _sourceBytes = bytes);
+    } catch (_) {
+      // 예상 용량을 표시하지 못해도 압축 자체는 계속 가능하다.
+    }
+  }
 
   Future<void> _startCompress(ImageQuality preset) async {
     final repo = ref.read(documentRepositoryProvider);
     if (repo == null) {
-      await FailureUi.showDialog(context, const UnknownFailure('저장소를 사용할 수 없습니다.'));
+      await FailureUi.showDialog(
+        context,
+        const UnknownFailure('저장소를 사용할 수 없습니다.'),
+      );
       return;
     }
 
@@ -104,7 +128,10 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     // 명시한다 -- Repository가 recent_files 등 출처를 추측하지 않는다.
     final source = widget.docId != null
         ? CompressSource.myDocument(widget.docId!)
-        : CompressSource.externalPdf(pdfPath: widget.pdfPath, title: widget.title);
+        : CompressSource.externalPdf(
+            pdfPath: widget.pdfPath,
+            title: widget.title,
+          );
 
     final result = await repo.compressToNewDocument(
       source: source,
@@ -128,6 +155,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
           // §4.3 확정: 결과 화면이 뜨는 즉시 배경 교체 — 시트를 닫을 때까지 기다리지 않는다.
           widget.onDocumentReady(value.summary!);
         }
+        unawaited(ref.read(adGateProvider).registerCompletedTask());
       case PdfErr<CompressToNewDocumentResult>(:final failure):
         setState(() => _stage = _Stage.pickPreset);
         if (failure is! Cancelled) {
@@ -153,12 +181,25 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     setState(() => _removed = true);
   }
 
-  void _share() {
-    // TODO(flutter-ui): 공유 메커니즘 미배선. pubspec에 공유용 패키지가 없고
-    // 이번 라운드는 새 패키지 추가가 금지돼 있다 — `_workspace/35_...md` 미해결
-    // 항목으로 기록. 3주차(설계 §4.2 "3주차의 공유·편집 액션") 배선 대상.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('공유 기능은 준비 중입니다.')),
+  Future<void> _share() async {
+    // [W4-T1] `shareExportProvider` 배선(설계 §2.6). 이 버튼은 `!keptOriginal`일
+    // 때만 표시되므로(`_buildResult`) `_result.summary`는 항상 non-null이다
+    // (`document_repository.dart` 계약: keptOriginal false면 summary도 non-null).
+    // 공유 대상은 압축 전 원본이 아니라 새로 만들어진 압축 문서다.
+    final summary = _result!.summary!;
+    final workspace = ref.read(workspaceProvider);
+    if (workspace == null) {
+      await FailureUi.showDialog(
+        context,
+        const UnknownFailure('공유 기능을 사용할 수 없습니다.'),
+      );
+      return;
+    }
+    await shareDocument(
+      context: context,
+      ref: ref,
+      pdfPath: workspace.docPdf(summary.id),
+      title: summary.title,
     );
   }
 
@@ -195,26 +236,23 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
       children: [
         Text('압축', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        // 3개 행, 대등하게 표시(설계 §4.3 — 기본 선택 상태를 강조하지 않는다).
-        // 라디오 버튼·[적용] 버튼 없음: 탭하면 즉시 실행된다.
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('고화질'),
-          subtitle: const Text('도면·작은 글씨'),
+        _CompressionQualityTile(
+          profile: ImageQualityProfile.high,
+          sourceBytes: _sourceBytes,
           onTap: () => _startCompress(ImageQuality.high),
         ),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('기본'),
-          subtitle: const Text('권장'),
+        _CompressionQualityTile(
+          profile: ImageQualityProfile.standard,
+          sourceBytes: _sourceBytes,
           onTap: () => _startCompress(ImageQuality.standard),
         ),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('최소'),
-          subtitle: const Text('메일 첨부'),
+        _CompressionQualityTile(
+          profile: ImageQualityProfile.min,
+          sourceBytes: _sourceBytes,
           onTap: () => _startCompress(ImageQuality.min),
         ),
+        const SizedBox(height: 8),
+        const Text('예상치는 사진 중심 PDF 기준입니다. 텍스트 중심 PDF는 원본 유지 또는 소폭 변화할 수 있습니다.'),
       ],
     );
   }
@@ -268,24 +306,23 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
 
     final fromMb = _formatMb(result.originalBytes);
     final toMb = _formatMb(result.resultBytes);
-    final pct = (1 - result.resultBytes / result.originalBytes).clamp(0, 1) * 100;
+    final pct =
+        (1 - result.resultBytes / result.originalBytes).clamp(0, 1) * 100;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 형식은 `pipeline.md` 압축 절 그대로: "4.2MB → 1.1MB (74% 감소)"
-        Text(
-          '$fromMb → $toMb',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        const SizedBox(height: 4),
+        // 형식은 `pipeline.md` 압축 절 그대로: "4.2MB → 1.1MB (74% 감소)".
+        // 강조 대상은 감소율(%) — headlineSmall(테마 정의)로 표시한다.
         Text(
           '${pct.round()}% 감소',
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            color: Theme.of(context).colorScheme.primary,
+          ),
         ),
+        const SizedBox(height: 4),
+        Text('$fromMb → $toMb', style: Theme.of(context).textTheme.bodyLarge),
         const SizedBox(height: 20),
         // 두 버튼 모두 선택지다 -- 아무것도 누르지 않고 닫아도 압축된 새 문서는
         // 이미 저장돼 있다(swap은 결과 화면 진입 시점에 이미 일어났다).
@@ -307,5 +344,30 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     );
   }
 
-  String _formatMb(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
+  String _formatMb(int bytes) => ImageQualityProfile.formatBytes(bytes);
+}
+
+class _CompressionQualityTile extends StatelessWidget {
+  const _CompressionQualityTile({
+    required this.profile,
+    required this.sourceBytes,
+    required this.onTap,
+  });
+
+  final ImageQualityProfile profile;
+  final int? sourceBytes;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(profile.label),
+      subtitle: Text(
+        '${profile.recommendedFor}\n${profile.processingDescription}\n${profile.estimateFor(sourceBytes ?? 0)}',
+      ),
+      isThreeLine: true,
+      onTap: onTap,
+    );
+  }
 }

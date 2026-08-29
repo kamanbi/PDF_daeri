@@ -18,18 +18,20 @@ import 'package:pdf_daeri/core/progress.dart';
 import 'package:pdf_daeri/core/size_guard.dart';
 import 'package:pdf_daeri/data/repository/document_repository.dart';
 import 'package:pdf_daeri/features/edit/save_dialog.dart';
+import 'package:pdf_daeri/features/scan/local_document_scan_source.dart';
 import 'package:pdf_daeri/features/scan/scan_screen.dart';
 import 'package:pdf_daeri/pdf/page_ref.dart';
 import 'package:pdf_daeri/pdf/pdf_engine.dart';
-import 'package:pdf_daeri/pdf/scan_source.dart';
 
 class _FakeUnsupportedScanSource implements ScanSource {
   @override
   Future<bool> isAvailable() async => false;
 
   @override
-  Future<PdfResult<List<String>>> scan({int pageLimit = 30}) async =>
-      const PdfErr(EngineUnsupported('mlkit_document_scanner'));
+  Future<PdfResult<List<String>>> scan(
+    BuildContext context, {
+    int pageLimit = 30,
+  }) async => const PdfErr(EngineUnsupported('local_document_scanner'));
 }
 
 /// 항상 `SizeGuardViolation`으로 실패하는 저장소. 화면이 이 실패를 조용히
@@ -53,7 +55,9 @@ class _FakeGuardBlockedRepository implements DocumentRepository {
     CancelToken? cancelToken,
   }) async {
     return const PdfErr(
-      SizeGuardViolation(GuardBlocked(resultBytes: 200, limitBytes: 100, op: SaveOp.merge)),
+      SizeGuardViolation(
+        GuardBlocked(resultBytes: 200, limitBytes: 100, op: SaveOp.merge),
+      ),
     );
   }
 
@@ -66,8 +70,10 @@ class _FakeGuardBlockedRepository implements DocumentRepository {
   }) async => const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
 
   @override
-  Future<PdfResult<DocumentSummary>> rename(String docId, String newTitle) async =>
-      const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
+  Future<PdfResult<DocumentSummary>> rename(
+    String docId,
+    String newTitle,
+  ) async => const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
 
   @override
   Future<PdfResult<void>> delete(String docId) async => const PdfOk(null);
@@ -92,21 +98,28 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.textContaining('작업공간 초기화에 실패했습니다.'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('스캔'), 300);
+    await tester.pump(const Duration(milliseconds: 300));
+
     expect(find.text('스캔'), findsOneWidget);
     expect(find.text('PDF 열기'), findsOneWidget);
     expect(find.text('사진 → PDF'), findsOneWidget);
-    expect(find.textContaining('작업공간 초기화에 실패했습니다.'), findsOneWidget);
 
     // workspaceProvider/documentRepositoryProvider가 기본값(null)이므로
     // 3개 진입점 모두 비활성 상태여야 한다(죽지 않되, 쓸 수 없음을 알린다).
-    final scanButton = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '스캔'));
+    final scanButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '스캔'),
+    );
     expect(scanButton.onPressed, isNull);
   });
 
   testWidgets('스캔이 불가능하면 "사진 → PDF"로 유도한다', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [scanSourceProvider.overrideWithValue(_FakeUnsupportedScanSource())],
+        overrides: [
+          scanSourceProvider.overrideWithValue(_FakeUnsupportedScanSource()),
+        ],
         child: const MaterialApp(home: ScanScreen()),
       ),
     );
@@ -125,7 +138,11 @@ void main() {
     // `showSaveDialog`가 `GuardBlocked`를 삼키지 않는지 확인하는 것이다.
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [documentRepositoryProvider.overrideWithValue(_FakeGuardBlockedRepository())],
+        overrides: [
+          documentRepositoryProvider.overrideWithValue(
+            _FakeGuardBlockedRepository(),
+          ),
+        ],
         child: MaterialApp(
           home: Consumer(
             builder: (context, ref, _) => Scaffold(
@@ -138,7 +155,10 @@ void main() {
                       suggestedTitle: '테스트 문서',
                       origin: DocOrigin.photo,
                       pages: [],
-                      guardInput: GuardInput(op: SaveOp.merge, baselineBytes: 0),
+                      guardInput: GuardInput(
+                        op: SaveOp.merge,
+                        baselineBytes: 0,
+                      ),
                       showQualityPicker: false,
                     ),
                   ),

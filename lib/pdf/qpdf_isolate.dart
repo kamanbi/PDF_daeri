@@ -272,18 +272,30 @@ Future<QpdfJobResult> runComposeJob({
 /// 다른 잡과의 일관성 및 대용량 문서에서의 UI 정지 방지를 위해 같은 워커 경로를 탄다.
 Future<QpdfJobResult> runInspect({required String pdfPath, String? password, String? libraryPathOverride}) async {
   final receivePort = ReceivePort();
-  await Isolate.spawn(
-    _inspectIsolateMain,
-    _InspectRequest(
-      sendPort: receivePort.sendPort,
-      pdfPath: pdfPath,
-      password: password,
-      libraryPath: libraryPathOverride ?? _defaultLibraryPath(),
-    ),
-  );
-  final result = await receivePort.first as Map<String, Object?>;
-  receivePort.close();
-  return result;
+  // M-1: catch로도 못 잡는 치명적 오류(OOM 등)로 isolate 자체가 죽는 경우를 대비해 onError/onExit를
+  // errorPort로 묶는다. `receivePort.first`만 기다리면 이런 죽음은 영원히 완료되지 않는다.
+  final errorPort = ReceivePort();
+  Isolate? isolate;
+  try {
+    isolate = await Isolate.spawn(
+      _inspectIsolateMain,
+      _InspectRequest(
+        sendPort: receivePort.sendPort,
+        pdfPath: pdfPath,
+        password: password,
+        libraryPath: libraryPathOverride ?? _defaultLibraryPath(),
+      ),
+      onError: errorPort.sendPort,
+      onExit: errorPort.sendPort,
+    );
+    final raw = await Future.any([receivePort.first, errorPort.first]);
+    if (raw is Map) return raw.cast<String, Object?>();
+    return {'ok': false, 'error': 'unknown', 'detail': 'inspect worker isolate exited unexpectedly: $raw'};
+  } finally {
+    receivePort.close();
+    errorPort.close();
+    isolate?.kill(priority: Isolate.immediate);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -425,7 +437,11 @@ void _visitResourcesForImages({
   b.qpdf_oh_begin_dict_key_iter(qpdf, xobjDict);
   final keys = <String>[];
   while (b.qpdf_oh_dict_more_keys(qpdf) != 0) {
-    keys.add(b.qpdf_oh_dict_next_key(qpdf).cast<pkg_ffi.Utf8>().toDartString());
+    // M-1: 이름 객체는 `#xx` 이스케이프로 임의 바이트열을 담을 수 있어 유효하지 않은 UTF-8
+    // 키가 나타날 수 있다. `:950`의 로거 콜백과 동일하게 allowMalformed로 U+FFFD 치환하고
+    // 딕셔너리 열거는 계속 진행한다(예외로 isolate를 죽이지 않는다).
+    final keyPtr = b.qpdf_oh_dict_next_key(qpdf).cast<pkg_ffi.Utf8>();
+    keys.add(utf8.decode(keyPtr.cast<ffi.Uint8>().asTypedList(keyPtr.length), allowMalformed: true));
   }
 
   for (final key in keys) {
@@ -485,6 +501,16 @@ void _visitResourcesForImages({
       continue; // 이 이미지 1장만 스킵 -- 문서 전체를 실패시키지 않는다.
     }
     final len = lenPtr.value;
+    // L-2: nullptr/과대 스트림 방어. 성공(rc==0)이어도 버퍼가 nullptr이거나 크기가 상한을
+    // 넘으면 이 이미지 1장만 스킵하고 계속 진행한다(거대 스트림으로 인한 OOM 유발 차단).
+    const maxStreamBytes = 64 * 1024 * 1024; // 64MB
+    if (bufPtrPtr.value == ffi.nullptr || len <= 0 || len > maxStreamBytes) {
+      if (bufPtrPtr.value != ffi.nullptr) b.qpdf_oh_free_buffer(bufPtrPtr);
+      pkg_ffi.malloc.free(filteredPtr);
+      pkg_ffi.malloc.free(bufPtrPtr);
+      pkg_ffi.malloc.free(lenPtr);
+      continue;
+    }
     final bytes = Uint8List.fromList(bufPtrPtr.value.asTypedList(len));
     b.qpdf_oh_free_buffer(bufPtrPtr);
     pkg_ffi.malloc.free(filteredPtr);
@@ -578,15 +604,21 @@ class _ExtractRequest {
 }
 
 void _extractIsolateMain(_ExtractRequest req) {
-  final library = ffi.DynamicLibrary.open(req.libraryPath);
-  final bindings = QpdfBindings(library);
-  final result = _extractSync(
-    bindings: bindings,
-    pdfPath: req.pdfPath,
-    stagingDir: req.stagingDir,
-    longEdgeMaxPx: req.longEdgeMaxPx,
-  );
-  req.sendPort.send(result);
+  // M-1: 이 진입점 안의 어떤 예외(FormatException 등)도 isolate를 죽이지 않고 실패 결과로
+  // 환원한다 -- 호출부의 `receivePort.first` 대기가 영원히 끝나지 않는 것을 막는다.
+  try {
+    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final bindings = QpdfBindings(library);
+    final result = _extractSync(
+      bindings: bindings,
+      pdfPath: req.pdfPath,
+      stagingDir: req.stagingDir,
+      longEdgeMaxPx: req.longEdgeMaxPx,
+    );
+    req.sendPort.send(result);
+  } catch (e, st) {
+    req.sendPort.send({'ok': false, 'error': 'unknown', 'detail': '$e\n$st'});
+  }
 }
 
 /// **M-E2** — 패스 A(추출). 페이지 트리(Form XObject 재귀 포함)를 순회해 적격 `/DCTDecode` 이미지의
@@ -603,6 +635,8 @@ Future<QpdfJobResult> runImageExtractJob({
 }) async {
   if (cancelToken?.isCancelled ?? false) return const {'ok': false, 'error': 'cancelled'};
   final receivePort = ReceivePort();
+  // M-1: 아래 참고.
+  final errorPort = ReceivePort();
   Isolate? isolate;
   try {
     isolate = await Isolate.spawn(
@@ -614,11 +648,15 @@ Future<QpdfJobResult> runImageExtractJob({
         longEdgeMaxPx: longEdgeMaxPx,
         libraryPath: libraryPathOverride ?? _defaultLibraryPath(),
       ),
+      onError: errorPort.sendPort,
+      onExit: errorPort.sendPort,
     );
-    final raw = await receivePort.first;
-    return (raw as Map).cast<String, Object?>();
+    final raw = await Future.any([receivePort.first, errorPort.first]);
+    if (raw is Map) return raw.cast<String, Object?>();
+    return {'ok': false, 'error': 'unknown', 'detail': 'extract worker isolate exited unexpectedly: $raw'};
   } finally {
     receivePort.close();
+    errorPort.close();
     isolate?.kill(priority: Isolate.immediate);
   }
 }
@@ -774,15 +812,20 @@ class _ReplaceRequest {
 }
 
 void _replaceIsolateMain(_ReplaceRequest req) {
-  final library = ffi.DynamicLibrary.open(req.libraryPath);
-  final bindings = QpdfBindings(library);
-  final result = _replaceSync(
-    bindings: bindings,
-    sourcePath: req.sourcePath,
-    outputPath: req.outputPath,
-    replacements: req.replacements,
-  );
-  req.sendPort.send(result);
+  // M-1: 아래 참고.
+  try {
+    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final bindings = QpdfBindings(library);
+    final result = _replaceSync(
+      bindings: bindings,
+      sourcePath: req.sourcePath,
+      outputPath: req.outputPath,
+      replacements: req.replacements,
+    );
+    req.sendPort.send(result);
+  } catch (e, st) {
+    req.sendPort.send({'ok': false, 'error': 'unknown', 'detail': '$e\n$st'});
+  }
 }
 
 /// **M-E3** — 패스 C(치환+쓰기). [sourcePath]를 다시 열어(패스 A와 별개의 새 `qpdf_data` 핸들)
@@ -800,6 +843,8 @@ Future<QpdfJobResult> runImageReplaceJob({
 }) async {
   if (cancelToken?.isCancelled ?? false) return const {'ok': false, 'error': 'cancelled'};
   final receivePort = ReceivePort();
+  // M-1: 아래 참고.
+  final errorPort = ReceivePort();
   Isolate? isolate;
   try {
     isolate = await Isolate.spawn(
@@ -811,11 +856,15 @@ Future<QpdfJobResult> runImageReplaceJob({
         replacements: [for (final r in replacements) r._toMap()],
         libraryPath: libraryPathOverride ?? _defaultLibraryPath(),
       ),
+      onError: errorPort.sendPort,
+      onExit: errorPort.sendPort,
     );
-    final raw = await receivePort.first;
-    return (raw as Map).cast<String, Object?>();
+    final raw = await Future.any([receivePort.first, errorPort.first]);
+    if (raw is Map) return raw.cast<String, Object?>();
+    return {'ok': false, 'error': 'unknown', 'detail': 'replace worker isolate exited unexpectedly: $raw'};
   } finally {
     receivePort.close();
+    errorPort.close();
     isolate?.kill(priority: Isolate.immediate);
   }
 }
@@ -869,6 +918,9 @@ Future<QpdfJobResult> _executeJob({
   final spec = Map<String, Object?>.of(jobSpec);
   final resultPort = ReceivePort();
   final progressPort = ReceivePort();
+  // M-1: catch로도 못 잡는 치명적 오류(OOM 등)로 isolate 자체가 죽는 경우를 대비해 onError/onExit를
+  // errorPort로 묶는다. `resultPort.first`만 기다리면 이런 죽음은 영원히 완료되지 않는다.
+  final errorPort = ReceivePort();
   StreamSubscription<Object?>? progressSub;
   if (onProgress != null) {
     spec['progress'] = ''; // qpdfjob은 progress가 명시적으로 요청된 잡에서만 리포터를 호출한다.
@@ -890,12 +942,17 @@ Future<QpdfJobResult> _executeJob({
         jobSpecJson: jsonEncode(spec),
         libraryPath: libraryPathOverride ?? _defaultLibraryPath(),
       ),
+      onError: errorPort.sendPort,
+      onExit: errorPort.sendPort,
     );
-    final raw = await resultPort.first;
-    result = (raw as Map).cast<String, Object?>();
+    final raw = await Future.any([resultPort.first, errorPort.first]);
+    result = raw is Map
+        ? raw.cast<String, Object?>()
+        : {'ok': false, 'error': 'unknown', 'detail': 'job worker isolate exited unexpectedly: $raw'};
   } finally {
     resultPort.close();
     progressPort.close();
+    errorPort.close();
     await progressSub?.cancel();
     isolate?.kill(priority: Isolate.immediate);
   }
@@ -917,10 +974,15 @@ Future<QpdfJobResult> _executeJob({
 /// 워커 isolate 진입점(잡 실행). 이 함수 밖으로 `qpdf_data`/`qpdfjob_handle` 등 네이티브 포인터가
 /// 나가지 않는다 -- 돌려주는 것은 [SendPort.send]로 보낼 수 있는 원시 `Map`뿐이다.
 void _jobIsolateMain(_JobRequest req) {
-  final library = ffi.DynamicLibrary.open(req.libraryPath);
-  final bindings = QpdfBindings(library);
-  final result = _runJobSync(bindings: bindings, jobJson: req.jobSpecJson, progressPort: req.progressPort);
-  req.sendPort.send(result);
+  // M-1: 아래 참고.
+  try {
+    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final bindings = QpdfBindings(library);
+    final result = _runJobSync(bindings: bindings, jobJson: req.jobSpecJson, progressPort: req.progressPort);
+    req.sendPort.send(result);
+  } catch (e, st) {
+    req.sendPort.send({'ok': false, 'error': 'unknown', 'detail': '$e\n$st'});
+  }
 }
 
 QpdfJobResult _runJobSync({required QpdfBindings bindings, required String jobJson, SendPort? progressPort}) {
@@ -1026,10 +1088,16 @@ String? _outputPathFromJson(String jobJson) {
 
 /// inspect isolate 진입점.
 void _inspectIsolateMain(_InspectRequest req) {
-  final library = ffi.DynamicLibrary.open(req.libraryPath);
-  final bindings = QpdfBindings(library);
-  final result = _inspectSync(bindings: bindings, pdfPath: req.pdfPath, password: req.password);
-  req.sendPort.send(result);
+  // M-1: 이 진입점 안의 어떤 예외도 isolate를 죽이지 않고 실패 결과로 환원한다 -- 호출부의
+  // `receivePort.first` 대기가 영원히 끝나지 않는 것을 막는다.
+  try {
+    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final bindings = QpdfBindings(library);
+    final result = _inspectSync(bindings: bindings, pdfPath: req.pdfPath, password: req.password);
+    req.sendPort.send(result);
+  } catch (e, st) {
+    req.sendPort.send({'ok': false, 'error': 'unknown', 'detail': '$e\n$st'});
+  }
 }
 
 /// `qpdf_init` → `qpdf_read` → `qpdf_is_encrypted` → `qpdf_get_num_pages` → `qpdf_cleanup`(§5.2 표).

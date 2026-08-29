@@ -1,12 +1,29 @@
-/// 설정 화면 — 1주차 최소 홈(`home_screen.dart`)에 없던 진입점을 M-Q7에서 신설한다.
+/// 설정 화면. (설계 `_workspace/52_architect_week4_design.md` §6 전체, W4-T9)
 ///
-/// 이 파일이 다루는 범위는 **오픈소스 라이선스 고지 하나뿐**이다(R10, §3.2 위험 등록부).
-/// 다른 설정 항목(테마·정렬 등)은 스펙에 없으므로 선제적으로 만들지 않는다(pdf-core.md 원칙).
+/// 항목 순서는 §6.1 그대로: [1] 광고 제거 → [2] 기본 저장 화질 → [3] 저장 공간 →
+/// [4] 개인정보처리방침 → [5] 오픈소스 라이선스(기존 R10 구현, 그대로 유지) → 배너.
+/// 계정·로그인 항목 없음(`screens.md:96`), `sources/` 정리 항목 없음(사용자 확정 —
+/// §10.1 문서 모순, `screens.md` 3개 항목 채택).
 library;
 
-import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, LicenseRegistry;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart'
+    show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../ads/banner_host.dart';
+import '../../app/providers.dart';
+import '../../billing/billing_service.dart';
+import '../../billing/entitlement.dart';
+import '../../data/repository/recent_repository.dart';
+import '../../data/repository/settings_repository.dart';
+import '../../data/storage/workspace.dart';
+import '../../pdf/image_quality.dart';
 
 /// 앱 부팅 시 1회 호출한다(`main.dart`). `LicenseRegistry.addLicense`에 등록된 항목은
 /// Flutter 표준 `showLicensePage`/`LicensePage`(이 화면이 여는 것과 동일 위젯, 그리고
@@ -21,10 +38,14 @@ import 'package:flutter/services.dart' show rootBundle;
 ///   라이선스 화면에는 아직 반영되지 않았던 것을 이번에 연결한다)
 void registerOpenSourceLicenses() {
   LicenseRegistry.addLicense(() async* {
-    final apache2 = await rootBundle.loadString('assets/licenses/apache-2.0.txt');
+    final apache2 = await rootBundle.loadString(
+      'assets/licenses/apache-2.0.txt',
+    );
     yield LicenseEntryWithLineBreaks(const ['qpdf'], apache2);
 
-    final libjpegTurbo = await rootBundle.loadString('assets/licenses/libjpeg-turbo-LICENSE.md');
+    final libjpegTurbo = await rootBundle.loadString(
+      'assets/licenses/libjpeg-turbo-LICENSE.md',
+    );
     yield LicenseEntryWithLineBreaks(const ['libjpeg-turbo'], libjpegTurbo);
 
     final zlib = await rootBundle.loadString('assets/licenses/zlib.txt');
@@ -35,28 +56,647 @@ void registerOpenSourceLicenses() {
   });
 }
 
-class SettingsScreen extends StatelessWidget {
+/// §6.5: 개인정보처리방침 공개 URL. **[2026-08-26 · 사용자 결정]** 별도 홈페이지가
+/// 아직 없다 — 앱 안에 전문을 담는 §6.5 원안 대신, URL이 생기면 이 상수 하나만
+/// 채우면 되는 구조로 둔다(하드코딩 문자열 분리). 비어 있는 동안 화면은 "준비 중"으로
+/// 대응한다.
+const String kPrivacyPolicyUrl =
+    'https://verdant-pixie-350067.netlify.app/privacy';
+
+const String kSubscriptionManageUrl =
+    'https://play.google.com/store/account/subscriptions?sku=ads_removed&package=com.kamanbi.pdf_daeri';
+
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
+  @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('설정')),
       body: ListView(
+        // 방어 2 — 완충 밴드(§1.3). 마지막 항목(라이선스)이 배너에 가리지 않게 한다.
+        padding: EdgeInsets.only(bottom: BannerHost.contentBottomPadding(ref)),
         children: [
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('오픈소스 라이선스'),
-            subtitle: const Text('qpdf · libjpeg-turbo · zlib · Noto Sans KR'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showLicensePage(
-              context: context,
-              applicationName: 'PDF 대리',
-              applicationLegalese: '이 앱은 오픈소스 소프트웨어를 사용합니다. 각 항목을 눌러 전문을 확인하세요.',
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              _SettingsLayout.screenHorizontalPadding,
+              _SettingsLayout.sectionTopPadding,
+              _SettingsLayout.screenHorizontalPadding,
+              0,
             ),
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: const Column(
+                children: [
+                  _AdRemovalSection(),
+                  _SettingsDivider(),
+                  _DefaultQualityTile(),
+                  _SettingsDivider(),
+                  _StorageTile(),
+                  _SettingsDivider(),
+                  _PrivacyPolicyTile(),
+                  _SettingsDivider(),
+                  _LicenseTile(),
+                ],
+              ),
+            ),
+          ),
+          const _AppVersionFooter(),
+        ],
+      ),
+      // 배너(§1.1) — 항상 bottomNavigationBar에만 놓는다. 이 라운드는 건드리지 않는다.
+      bottomNavigationBar: const BannerHost(slot: BannerSlot.settings),
+    );
+  }
+}
+
+abstract final class _SettingsLayout {
+  static const double screenHorizontalPadding = 16;
+  static const double sectionTopPadding = 12;
+  static const double rowHorizontalPadding = 20;
+  static const double rowVerticalPadding = 16;
+  static const double footerTopPadding = 28;
+  static const double footerBottomPadding = 20;
+}
+
+class _SettingsDivider extends StatelessWidget {
+  const _SettingsDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Divider(
+      height: 1,
+      indent: _SettingsLayout.rowHorizontalPadding,
+      endIndent: _SettingsLayout.rowHorizontalPadding,
+    );
+  }
+}
+
+class _SettingsRow extends StatelessWidget {
+  const _SettingsRow({
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+  });
+
+  final String title;
+  final Widget? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: _SettingsLayout.rowHorizontalPadding,
+        vertical: _SettingsLayout.rowVerticalPadding,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title, style: textTheme.titleMedium),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  DefaultTextStyle.merge(
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    child: subtitle!,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) ...[const SizedBox(width: 16), trailing!],
+        ],
+      ),
+    );
+
+    if (onTap == null) return content;
+    return InkWell(onTap: onTap, child: content);
+  }
+}
+
+class _AppVersionFooter extends StatefulWidget {
+  const _AppVersionFooter();
+
+  @override
+  State<_AppVersionFooter> createState() => _AppVersionFooterState();
+}
+
+class _AppVersionFooterState extends State<_AppVersionFooter> {
+  late final Future<PackageInfo> _packageInfoFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _packageInfoFuture = PackageInfo.fromPlatform();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return FutureBuilder<PackageInfo>(
+      future: _packageInfoFuture,
+      builder: (context, snapshot) {
+        final packageInfo = snapshot.data;
+        final versionText = switch (snapshot) {
+          _ when snapshot.hasError => '버전 정보를 확인할 수 없습니다',
+          _ when packageInfo == null => '버전 정보를 확인하는 중입니다',
+          _ => '버전 ${packageInfo.version} (${packageInfo.buildNumber})',
+        };
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            _SettingsLayout.screenHorizontalPadding,
+            _SettingsLayout.footerTopPadding,
+            _SettingsLayout.screenHorizontalPadding,
+            _SettingsLayout.footerBottomPadding,
+          ),
+          child: Text(
+            versionText,
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: colorScheme.outline),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// §6.1 [5] 오픈소스 라이선스 — 기존 구현(`registerOpenSourceLicenses`) 그대로,
+/// 이번 라운드는 건드리지 않는다. `ListView`의 `const` 자식 목록에 넣기 위해
+/// 위젯으로 뺐을 뿐 동작은 이전과 동일하다.
+class _LicenseTile extends StatelessWidget {
+  const _LicenseTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsRow(
+      title: '오픈소스 라이선스',
+      subtitle: const Text('qpdf · libjpeg-turbo · zlib · Noto Sans KR'),
+      onTap: () => showLicensePage(
+        context: context,
+        applicationName: 'PDF 대리',
+        applicationLegalese: '이 앱은 오픈소스 소프트웨어를 사용합니다. 각 항목을 눌러 전문을 확인하세요.',
+      ),
+    );
+  }
+}
+
+/// §6.2 [1] 광고 제거. `billing_service.dart`(구매/복원 흐름)·`entitlement.dart`
+/// (`adsRemovedProvider`, 신뢰의 최종 상태)를 그대로 소비한다 — 이 위젯은 상태를
+/// 만들지 않는다.
+class _AdRemovalSection extends ConsumerStatefulWidget {
+  const _AdRemovalSection();
+
+  @override
+  ConsumerState<_AdRemovalSection> createState() => _AdRemovalSectionState();
+}
+
+class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
+  late final BillingService _billing;
+  late PurchaseUiState _uiState;
+  StreamSubscription<PurchaseUiState>? _sub;
+  bool _restoring = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _billing = ref.read(billingServiceProvider);
+    _uiState = _billing.state;
+    // §3.3: purchased/restored 이벤트에서 "광고가 제거되었습니다" 스낵바.
+    // 부팅 시 자동 복원(§3.6)처럼 이 화면이 열리기 전에 이미 반영된 상태는
+    // 여기서 다시 알리지 않는다 — 이 구독은 화면이 열려 있는 동안의 이벤트만 본다.
+    _sub = _billing.statusStream.listen((state) {
+      if (!mounted) return;
+      setState(() => _uiState = state);
+      if (state == PurchaseUiState.purchased) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('광고가 제거되었습니다')));
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
+
+  Future<void> _restore() async {
+    setState(() => _restoring = true);
+    final outcome = await _billing.restoreManually();
+    if (!mounted) return;
+    setState(() => _restoring = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          outcome == RestoreOutcome.restored ? '활성 구독을 확인했습니다' : '활성 구독이 없습니다',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final adsRemoved = ref.watch(adsRemovedProvider).valueOrNull ?? false;
+
+    // 활성 구독이면 상태와 관리 진입점만 보여 준다.
+    if (adsRemoved) {
+      return _buildActiveSubscriptionRows();
+    }
+
+    switch (_uiState) {
+      case PurchaseUiState.loading:
+        return const _SettingsRow(title: '광고 제거 구독', subtitle: Text('불러오는 중…'));
+      case PurchaseUiState.unavailable:
+        // §3.6: 구매·복원 항목을 비활성 + 안내 문구로 둔다. 항목 자체는 숨기지 않는다.
+        return _buildPurchaseRows(
+          subtitle: '이 기기에서는 구독을 사용할 수 없습니다',
+          buyEnabled: false,
+          restoreEnabled: false,
+        );
+      case PurchaseUiState.notFound:
+        return _buildPurchaseRows(
+          subtitle: '지금 구독할 수 없습니다',
+          buyEnabled: false,
+          restoreEnabled: true,
+        );
+      case PurchaseUiState.available:
+        final price = _billing.product?.price;
+        return _buildPurchaseRows(
+          subtitle: price == null ? '연간 자동 갱신' : '$price / 년 · 자동 갱신',
+          buyEnabled: true,
+          restoreEnabled: true,
+        );
+      case PurchaseUiState.purchasePending:
+        // §6.2: 버튼 자리에 16dp 스피너, 재탭 차단.
+        return const _SettingsRow(
+          title: '광고 제거 구독',
+          subtitle: Text('처리 중…'),
+          trailing: SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      case PurchaseUiState.purchased:
+        return _buildActiveSubscriptionRows();
+    }
+  }
+
+  Widget _buildActiveSubscriptionRows() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _SettingsRow(
+          title: '광고 제거 구독',
+          subtitle: Text('구독 중 · 광고가 표시되지 않습니다'),
+        ),
+        const _SettingsDivider(),
+        _SettingsRow(
+          title: '구독 관리',
+          subtitle: const Text('Google Play에서 갱신 또는 취소할 수 있습니다'),
+          trailing: OutlinedButton(
+            onPressed: _openSubscriptionManagement,
+            child: const Text('관리'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openSubscriptionManagement() async {
+    final opened = await launchUrl(
+      Uri.parse(kSubscriptionManageUrl),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Google Play 구독 관리 페이지를 열 수 없습니다')),
+    );
+  }
+
+  Widget _buildPurchaseRows({
+    required String subtitle,
+    required bool buyEnabled,
+    required bool restoreEnabled,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SettingsRow(
+          title: '광고 제거 구독',
+          subtitle: Text(subtitle),
+          trailing: FilledButton(
+            onPressed: buyEnabled ? _billing.buy : null,
+            child: const Text('구독'),
+          ),
+        ),
+        const _SettingsDivider(),
+        _SettingsRow(
+          title: '구독 상태 갱신',
+          subtitle: const Text('Google Play의 활성 구독을 다시 확인합니다'),
+          trailing: OutlinedButton(
+            onPressed: (restoreEnabled && !_restoring) ? _restore : null,
+            child: _restoring
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('갱신'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// §6.4 [2] 기본 저장 화질. `SettingsRepository.default_quality`를 읽고 쓴다.
+/// `ImageQuality` ↔ 문자열 매핑의 단일 소유자는 `settings_repository.dart`다 — 이
+/// 화면은 도메인 값(`ImageQuality`)만 받고 문자열을 직접 다루지 않는다.
+class _DefaultQualityTile extends ConsumerWidget {
+  const _DefaultQualityTile();
+
+  // save_dialog.dart `_QualityTile`과 동일한 라벨(§5.1 문구 통일).
+  static const _labels = {
+    ImageQuality.high: '고화질',
+    ImageQuality.standard: '기본',
+    ImageQuality.min: '최소',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final repo = ref.watch(settingsRepositoryProvider);
+    if (repo == null) {
+      return const _SettingsRow(
+        title: '기본 저장 화질',
+        subtitle: Text('지금 사용할 수 없습니다'),
+      );
+    }
+    return StreamBuilder<Settings>(
+      stream: repo.watch(),
+      builder: (context, snapshot) {
+        final quality = snapshot.data?.defaultQuality ?? ImageQuality.standard;
+        return _SettingsRow(
+          title: '기본 저장 화질',
+          subtitle: Text(_labels[quality]!),
+          onTap: () => _pick(context, repo, quality),
+        );
+      },
+    );
+  }
+
+  Future<void> _pick(
+    BuildContext context,
+    SettingsRepository repo,
+    ImageQuality current,
+  ) async {
+    final selected = await showModalBottomSheet<ImageQuality>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: RadioGroup<ImageQuality>(
+          groupValue: current,
+          onChanged: (value) => Navigator.of(ctx).pop(value),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final q in ImageQuality.values)
+                RadioListTile<ImageQuality>(title: Text(_labels[q]!), value: q),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && selected != current) {
+      await repo.setDefaultQuality(selected);
+    }
+  }
+}
+
+/// §6.3 [3] 저장 공간. 목록 UI를 만들지 않는다는 판정 그대로 — 요약 항목은 진입점
+/// 하나뿐이고, 실제 숫자 4줄 + 버튼 2개는 `_StorageDetailScreen`(별도 화면)에 있다.
+class _StorageTile extends ConsumerWidget {
+  const _StorageTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final workspace = ref.watch(workspaceProvider);
+    if (workspace == null) {
+      return const _SettingsRow(
+        title: '저장 공간',
+        subtitle: Text('지금 사용할 수 없습니다'),
+      );
+    }
+    return _SettingsRow(
+      title: '저장 공간',
+      subtitle: FutureBuilder<StorageUsage>(
+        future: workspace.usage(),
+        builder: (context, snapshot) {
+          final usage = snapshot.data;
+          if (usage == null) return const Text('계산 중…');
+          return Text('사용 중 ${_formatMb(usage.totalBytes)}');
+        },
+      ),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const _StorageDetailScreen())),
+    );
+  }
+}
+
+String _formatMb(int bytes) => '${(bytes / (1024 * 1024)).round()} MB';
+
+/// §6.3 본문 그대로: 숫자 4줄(내 문서/최근 연 파일/캐시/합계) + 버튼 2개.
+/// 두 번째 파일 목록 UI를 만들지 않는다 — 개별 삭제는 홈에 이미 있다(설계 근거 1·2).
+class _StorageDetailScreen extends ConsumerStatefulWidget {
+  const _StorageDetailScreen();
+
+  @override
+  ConsumerState<_StorageDetailScreen> createState() =>
+      _StorageDetailScreenState();
+}
+
+class _StorageDetailScreenState extends ConsumerState<_StorageDetailScreen> {
+  Future<StorageUsage>? _usageFuture;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() {
+    final workspace = ref.read(workspaceProvider);
+    setState(() {
+      _usageFuture = workspace?.usage();
+    });
+  }
+
+  Future<void> _clearCache() async {
+    final workspace = ref.read(workspaceProvider);
+    if (workspace == null) return;
+    setState(() => _busy = true);
+    // §6.3: "항상 삭제해도 안전"이 계약이다 — 확인 창을 두지 않는다.
+    await workspace.clearCache();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _reload();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('캐시를 비웠습니다')));
+  }
+
+  Future<void> _clearRecent() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('최근 파일 전체 정리'),
+        content: const Text('원본 파일은 지워지지 않습니다'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('정리'),
           ),
         ],
       ),
+    );
+    if (confirmed != true) return;
+
+    final repo = ref.read(recentRepositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    await repo.clearAll();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _reload();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('최근 연 파일을 정리했습니다')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('저장 공간')),
+      body: FutureBuilder<StorageUsage>(
+        future: _usageFuture,
+        builder: (context, snapshot) {
+          if (_usageFuture == null ||
+              snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final usage = snapshot.data;
+          if (usage == null) {
+            return const Center(child: Text('지금 사용할 수 없습니다'));
+          }
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _UsageRow(label: '내 문서', bytes: usage.docsBytes),
+              _UsageRow(
+                label: '최근 연 파일',
+                bytes: usage.recentBytes,
+                trailing:
+                    '${DriftRecentRepository.quotaCount}개 중 ${usage.recentCount}개',
+              ),
+              _UsageRow(
+                label: '캐시',
+                bytes: usage.cacheBytes + usage.thumbsBytes,
+              ),
+              const Divider(height: 24),
+              _UsageRow(label: '합계', bytes: usage.totalBytes, emphasize: true),
+              const SizedBox(height: 24),
+              FilledButton.tonal(
+                onPressed: _busy ? null : _clearCache,
+                child: const Text('캐시 비우기'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: _busy ? null : _clearRecent,
+                child: const Text('최근 파일 전체 정리'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _UsageRow extends StatelessWidget {
+  const _UsageRow({
+    required this.label,
+    required this.bytes,
+    this.trailing,
+    this.emphasize = false,
+  });
+
+  final String label;
+  final int bytes;
+  final String? trailing;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = emphasize
+        ? Theme.of(context).textTheme.titleMedium
+        : Theme.of(context).textTheme.bodyLarge;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: style)),
+          Text(_formatMb(bytes), style: style),
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            Text(trailing!, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// §6.5 [4] 개인정보처리방침. **[2026-08-26 · 사용자 결정]** URL이 아직 없어
+/// [kPrivacyPolicyUrl]이 비어 있는 동안은 "준비 중"으로 대응한다 — 크래시 없이,
+/// 외부 링크를 여는 새 의존성도 추가하지 않는다. URL이 채워지면 여기 문구·동작만
+/// 갈아끼우면 된다.
+class _PrivacyPolicyTile extends StatelessWidget {
+  const _PrivacyPolicyTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = kPrivacyPolicyUrl.isNotEmpty;
+    return _SettingsRow(
+      title: '개인정보처리방침',
+      subtitle: Text(ready ? kPrivacyPolicyUrl : '준비 중'),
+      onTap: () {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ready ? '곧 지원합니다' : '준비 중입니다')));
+      },
     );
   }
 }

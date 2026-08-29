@@ -55,16 +55,25 @@ void main() {
 
   group('파생 제목', () {
     test('mergedTitle: 합치기 결과 제목', () {
-      expect(FileName.mergedTitle('2026년 8월 보고서 (최종)', 3), '2026년 8월 보고서 (최종) 외 2건');
+      expect(
+        FileName.mergedTitle('2026년 8월 보고서 (최종)', 3),
+        '2026년 8월 보고서 (최종) 외 2건',
+      );
       expect(FileName.mergedTitle('단독 문서', 1), '단독 문서');
     });
 
     test('splitTitle: 나누기(발췌) 결과 제목', () {
-      expect(FileName.splitTitle('2026년 8월 보고서 (최종)'), '2026년 8월 보고서 (최종) (발췌)');
+      expect(
+        FileName.splitTitle('2026년 8월 보고서 (최종)'),
+        '2026년 8월 보고서 (최종) (발췌)',
+      );
     });
 
     test('editedTitle: 편집 저장 결과 제목', () {
-      expect(FileName.editedTitle('2026년 8월 보고서 (최종)'), '2026년 8월 보고서 (최종) (편집본)');
+      expect(
+        FileName.editedTitle('2026년 8월 보고서 (최종)'),
+        '2026년 8월 보고서 (최종) (편집본)',
+      );
     });
   });
 
@@ -90,6 +99,13 @@ void main() {
     test('이미 .pdf로 끝나면 중복 부착하지 않는다', () {
       expect(FileName.toFileName('보고서.pdf'), '보고서.pdf');
       expect(FileName.toFileName('보고서.PDF'), '보고서.pdf');
+    });
+  });
+
+  group('FileName.toJpegFileName', () {
+    test('JPEG 확장자를 한 번만 붙인다', () {
+      expect(FileName.toJpegFileName('스캔 문서'), '스캔 문서.jpg');
+      expect(FileName.toJpegFileName('스캔 문서.jpeg'), '스캔 문서.jpg');
     });
   });
 }

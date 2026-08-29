@@ -1,0 +1,10 @@
+[build]
+  command = "node -e \"require('fs').cpSync('assets', 'website/assets', { recursive: true })\""
+  publish = "website"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "20"

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  4주차 보안점검 H-1 조치(_workspace/64_security_review_full_app.md).
+  이 앱은 "서버 전송 없음·기기 안에서만 처리"를 약속하는데, allowBackup 기본값(true)과
+  API 31+ 기본 dataExtractionRules는 filesDir 전체(문서·최근파일·DB)를 구글 클라우드
+  백업/기기 간 전송(D2D) 대상에 포함시킨다. 둘 다 명시적으로 제외한다.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+    </device-transfer>
+</data-extraction-rules>

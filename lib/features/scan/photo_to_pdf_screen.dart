@@ -104,7 +104,7 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.photo_library_outlined, size: 40),
+                  Icon(Icons.photo_library_outlined, size: 40, color: Theme.of(context).colorScheme.primary),
                   const SizedBox(height: 12),
                   const Text('PDF로 만들 사진을 선택하세요.', textAlign: TextAlign.center),
                   const SizedBox(height: 20),
@@ -125,7 +125,7 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.error_outline, size: 40),
+                  Icon(Icons.error_outline, size: 40, color: Theme.of(context).colorScheme.error),
                   const SizedBox(height: 12),
                   Text(_errorMessage ?? '알 수 없는 오류', textAlign: TextAlign.center),
                   const SizedBox(height: 20),

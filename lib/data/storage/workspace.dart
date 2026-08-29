@@ -23,11 +23,38 @@
 library;
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/services.dart'
     show MethodChannel, MissingPluginException, PlatformException;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+
+/// S5 "저장 공간 관리" 숫자 4줄(설계 §6.3)에 쓰는 사용량 스냅샷.
+/// `usage()`가 isolate에서 계산해 돌려준다 — 화면은 이 값만 읽고 표시하며
+/// `Directory`를 직접 훑지 않는다(경로 소유자가 계산도 소유한다는 원칙).
+class StorageUsage {
+  const StorageUsage({
+    required this.docsBytes,
+    required this.recentBytes,
+    required this.cacheBytes,
+    required this.thumbsBytes,
+    required this.recentCount,
+    this.nativeCacheBytes = 0,
+  });
+
+  final int docsBytes; // docs/ (내 문서)
+  final int recentBytes; // recent/ (최근 연 파일)
+  final int cacheBytes; // cache/ (cache/share/ 포함)
+  final int thumbsBytes; // thumbs/
+  final int recentCount; // recent/ 안의 파일 개수. quotaCount(20) 대비 표시용
+  /// [M-3 대응] 네이티브 `cacheDir`의 `fnds_*`(doclens 스캔 캐시) +
+  /// `share_plus/` 합계. Flutter `cache/`와 별개 디렉터리라 따로 집계한다.
+  final int nativeCacheBytes;
+
+  int get totalBytes =>
+      docsBytes + recentBytes + cacheBytes + thumbsBytes + nativeCacheBytes;
+}
 
 abstract interface class Workspace {
   /// 저장 전 여유 공간 확인(§7.3)에 쓰는 고정 안전 버퍼. SQLite WAL 저널·
@@ -87,6 +114,19 @@ abstract interface class Workspace {
   Future<int> freeSpaceBytes();
   Future<void> clearCache();
 
+  /// [M-3 대응 · `_workspace/64_security_review_full_app.md`] `third_party/doclens`가
+  /// 앱 `cacheDir`(Flutter의 `cache/`와는 다른 디렉터리)에 남기는 `fnds_*`
+  /// 스캔 원본/보정 JPEG과 `share_plus`의 공유 스테이징을 정리한다. 네이티브
+  /// 전용 캐시라 실패해도 앱 동작에 영향이 없어야 한다("항상 삭제해도 안전"
+  /// 원칙, `clearShareStaging`과 동일한 계약).
+  Future<void> clearNativeCache();
+
+  /// `docs/`·`recent/`·`cache/`·`thumbs/` 4개 디렉터리의 사용량 합산(설계 §6.3).
+  /// **isolate에서 실행한다** — 수백 MB/수천 파일에서 메인 스레드가 멈추는 것을
+  /// 막기 위함(CLAUDE.md "무거운 작업 isolate 필수"). 화면은 진입 시 1회 호출하고
+  /// 스피너를 보여준다.
+  Future<StorageUsage> usage();
+
   /// [2026-08-20 · 3주차 T5] `<root>/cache/share/<fileName>`. `cache/` 아래이므로
   /// 언제 지워져도 기능에 영향이 없다(`clearShareStaging`이 존재하는 이유).
   /// [fileName]은 이미 `FileName.toFileName(title)`을 거친 값이어야 한다 — 이
@@ -135,6 +175,9 @@ class AppWorkspace implements Workspace {
     // [2026-08-20 · 3주차 T5] 공유 스테이징도 앱 시작 시 1회 정리한다
     // (`clearShareStaging` 문서 주석의 "앱 시작 시 1회" 계약).
     await clearShareStaging();
+    // [M-3 대응] 이전 실행에서 남은 doclens 스캔 캐시(`fnds_*`)도 부팅 시
+    // 정리한다. 네이티브 채널 실패는 앱 기동을 막지 않는다.
+    await clearNativeCache();
   }
 
   Future<void> _cleanupStaleStaging() async {
@@ -292,6 +335,54 @@ class AppWorkspace implements Workspace {
     // 곧바로 다시 만들어 shareFile()이 반환한 경로의 부모가 항상 존재하도록
     // 보장하지는 않는다(그 책임은 ShareExport 구현체가 쓰기 직전에 진다 — 다른
     // 경로 조립 메서드와 동일한 계약).
+    // [M-3 대응] Flutter cache/와는 별개인 네이티브 cacheDir(doclens `fnds_*`,
+    // share_plus)도 "정리하기" 한 번으로 함께 지운다.
+    await clearNativeCache();
+  }
+
+  @override
+  Future<void> clearNativeCache() async {
+    try {
+      await _storageChannel.invokeMethod<int>('clearNativeCache');
+    } catch (_) {
+      // "항상 삭제해도 안전" 원칙 — 실패해도 앱 동작을 막지 않는다.
+      // PlatformException/MissingPluginException뿐 아니라, 순수 Dart 테스트처럼
+      // ServicesBinding 자체가 초기화되지 않은 환경에서 던지는 FlutterError도
+      // 여기서 흡수한다(`ensureLayout()`이 이 메서드를 부팅 경로에서 호출하므로
+      // 널리 존재하는 실패 모드를 전부 조용히 삼켜야 한다).
+    }
+  }
+
+  @override
+  Future<StorageUsage> usage() async {
+    final base = await Isolate.run(
+      () => _computeUsage(
+        _UsageRoots(
+          docsRoot: _docsRoot,
+          recentRoot: _recentRoot,
+          cacheRoot: _cacheRoot,
+          thumbsRoot: _thumbsRoot,
+        ),
+      ),
+    );
+    // [M-3 대응] 네이티브 cacheDir 집계는 MethodChannel 왕복이라 isolate로
+    // 넘기지 않는다(플랫폼 채널은 메인 isolate에서만 호출 가능). 실패 시
+    // 0으로 취급 — S5 숫자가 부정확해질 뿐 화면이 죽지 않는다.
+    var nativeBytes = 0;
+    try {
+      nativeBytes =
+          await _storageChannel.invokeMethod<int>('nativeCacheBytes') ?? 0;
+    } catch (_) {
+      // 무시 — 0으로 취급(바인딩 미초기화 환경 포함, clearNativeCache와 동일 사유).
+    }
+    return StorageUsage(
+      docsBytes: base.docsBytes,
+      recentBytes: base.recentBytes,
+      cacheBytes: base.cacheBytes,
+      thumbsBytes: base.thumbsBytes,
+      recentCount: base.recentCount,
+      nativeCacheBytes: nativeBytes,
+    );
   }
 
   @override
@@ -309,4 +400,60 @@ class AppWorkspace implements Workspace {
       }
     }
   }
+}
+
+/// [Isolate.run]에 넘길 클로저가 캡처하는 경로 4개. `Directory`/`Workspace`
+/// 인스턴스가 아니라 문자열만 캡처해야 isolate 경계를 안전하게 넘는다.
+class _UsageRoots {
+  const _UsageRoots({
+    required this.docsRoot,
+    required this.recentRoot,
+    required this.cacheRoot,
+    required this.thumbsRoot,
+  });
+
+  final String docsRoot;
+  final String recentRoot;
+  final String cacheRoot;
+  final String thumbsRoot;
+}
+
+class _DirStats {
+  const _DirStats(this.bytes, this.fileCount);
+  final int bytes;
+  final int fileCount;
+}
+
+Future<StorageUsage> _computeUsage(_UsageRoots roots) async {
+  final docs = await _dirStats(roots.docsRoot, recursive: true);
+  final cache = await _dirStats(roots.cacheRoot, recursive: true);
+  final thumbs = await _dirStats(roots.thumbsRoot, recursive: true);
+  // recent/ 는 <id>.pdf 파일만 담는 평탄한 디렉터리다(하위 디렉터리 없음) —
+  // recursive:false로도 정확하고, recentCount(파일 개수)를 그대로 표시용으로 쓴다.
+  final recent = await _dirStats(roots.recentRoot, recursive: false);
+  return StorageUsage(
+    docsBytes: docs.bytes,
+    recentBytes: recent.bytes,
+    cacheBytes: cache.bytes,
+    thumbsBytes: thumbs.bytes,
+    recentCount: recent.fileCount,
+  );
+}
+
+Future<_DirStats> _dirStats(String path, {required bool recursive}) async {
+  final dir = Directory(path);
+  if (!await dir.exists()) return const _DirStats(0, 0);
+  var bytes = 0;
+  var fileCount = 0;
+  await for (final entity in dir.list(recursive: recursive, followLinks: false)) {
+    if (entity is! File) continue;
+    fileCount++;
+    try {
+      bytes += await entity.length();
+    } catch (_) {
+      // 집계 도중 파일이 사라지는 경합은 무시하고 계속 합산한다(§6.3 숫자
+      // 표시가 목적이며 완벽한 스냅샷 원자성은 요구되지 않는다).
+    }
+  }
+  return _DirStats(bytes, fileCount);
 }

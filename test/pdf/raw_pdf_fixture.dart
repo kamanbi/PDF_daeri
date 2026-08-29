@@ -111,6 +111,49 @@ Uint8List buildSinglePageImagePdf({
   return _fixPageParentAndBuild(b, pageId: pageId, pagesId: pagesId, catalogId: catalogId);
 }
 
+/// M-1 회귀 픽스처: `/Resources/XObject` 딕셔너리 키 중 하나가 **유효하지 않은 UTF-8 바이트**를
+/// 담은 PDF. PDF 이름 객체는 `#xx` 이스케이프뿐 아니라 원시 바이트도 그대로 담을 수 있어(구분자·
+/// 공백만 금지), qpdf는 이를 그대로 읽어들인다. [rawInvalidKeyBytes]는 `/` 뒤에 이어붙는 원시
+/// 바이트열(예: `[0xFF, 0xFE]`)이다. `Im0`(정상 키)과 이 잘못된 키, 두 개의 적격 이미지를 같은
+/// 페이지에 넣어 "깨진 키를 만나도 딕셔너리 열거가 계속 진행되는지"(정상 키 이미지도 함께
+/// 발견되는지)까지 함께 검증한다.
+Uint8List buildSinglePageImagePdfWithInvalidUtf8XObjectKey({
+  required List<int> jpegBytesGood,
+  required List<int> jpegBytesBad,
+  required int width,
+  required int height,
+  required List<int> rawInvalidKeyBytes,
+}) {
+  final b = RawPdfBuilder();
+  final goodImgId = b.addStream(
+    '/Type /XObject /Subtype /Image /Width $width /Height $height '
+    '/BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /DCTDecode',
+    jpegBytesGood,
+  );
+  final badImgId = b.addStream(
+    '/Type /XObject /Subtype /Image /Width $width /Height $height '
+    '/BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /DCTDecode',
+    jpegBytesBad,
+  );
+  final contentId = b.addStream('', utf8.encode(_emptyContent));
+
+  // 페이지 딕셔너리는 문자열로 조립할 수 없다(잘못된 키가 유효 Dart 문자열이 아니므로) --
+  // ASCII 조각과 원시 바이트를 직접 이어붙인다.
+  final pageId = b.allocId();
+  b._ids.add(pageId);
+  final pageBody = <int>[
+    ...utf8.encode('$pageId 0 obj\n<< /Type /Page /Parent 0 0 R /MediaBox [0 0 200 200] '
+        '/Resources << /XObject << /Im0 $goodImgId 0 R /Im'),
+    ...rawInvalidKeyBytes,
+    ...utf8.encode(' $badImgId 0 R >> >> /Contents $contentId 0 R >>\nendobj\n'),
+  ];
+  b._bodies[pageId] = pageBody;
+
+  final pagesId = b.addDict('/Type /Pages /Kids [$pageId 0 R] /Count 1');
+  final catalogId = b.addDict('/Type /Catalog /Pages $pagesId 0 R');
+  return _fixPageParentAndBuild(b, pageId: pageId, pagesId: pagesId, catalogId: catalogId);
+}
+
 /// 같은 이미지 오브젝트를 2개 페이지가 함께 참조하는 PDF(§2.3 dedup 검증: "반복 참조되는 같은
 /// 이미지 오브젝트는 1회만 처리").
 Uint8List buildTwoPageSharedImagePdf({required List<int> jpegBytes, required int width, required int height}) {

@@ -47,6 +47,8 @@ void main() {
     final sharedFile = captured!.files!.single;
     expect(p.basename(sharedFile.path), '2026년 8월 보고서 (최종).pdf');
     expect(p.dirname(sharedFile.path), p.join(tempRoot.path, 'cache', 'share'));
+    expect(captured!.title, '2026년 8월 보고서 (최종).pdf 공유');
+    expect(captured!.text, 'PDF 대리에서 보낸 PDF입니다.');
   });
 
   test('공유 완료 후 cache/share/ 스테이징이 정리된다', () async {
@@ -56,12 +58,16 @@ void main() {
 
     final export = SharePlusExport(
       workspace,
-      share: (params) async => const ShareResult('ok', ShareResultStatus.success),
+      share: (params) async =>
+          const ShareResult('ok', ShareResultStatus.success),
     );
 
     await export.sharePdf(pdfPath: srcPath, title: '문서');
 
-    expect(await Directory(p.join(tempRoot.path, 'cache', 'share')).exists(), isFalse);
+    expect(
+      await Directory(p.join(tempRoot.path, 'cache', 'share')).exists(),
+      isFalse,
+    );
   });
 
   test('공유 시트가 예외를 던져도(취소 포함) cache/share/가 정리된다', () async {
@@ -77,13 +83,17 @@ void main() {
     final result = await export.sharePdf(pdfPath: srcPath, title: '문서');
 
     expect(result, isA<PdfErr<void>>());
-    expect(await Directory(p.join(tempRoot.path, 'cache', 'share')).exists(), isFalse);
+    expect(
+      await Directory(p.join(tempRoot.path, 'cache', 'share')).exists(),
+      isFalse,
+    );
   });
 
   test('원본 파일이 없으면 SourceMissing으로 실패한다', () async {
     final export = SharePlusExport(
       workspace,
-      share: (params) async => const ShareResult('ok', ShareResultStatus.success),
+      share: (params) async =>
+          const ShareResult('ok', ShareResultStatus.success),
     );
 
     final result = await export.sharePdf(

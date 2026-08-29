@@ -14,8 +14,12 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String relativePath) => File(relativePath).readAsStringSync();
 
 /// 주석(`///`, `//`)을 제외한 코드 라인만 남긴다. "코드에 없다"를 검사할 때 쓴다.
-String _codeOnly(String source) =>
-    source.split('\n').where((line) => !line.trim().startsWith('///') && !line.trim().startsWith('//')).join('\n');
+String _codeOnly(String source) => source
+    .split('\n')
+    .where(
+      (line) => !line.trim().startsWith('///') && !line.trim().startsWith('//'),
+    )
+    .join('\n');
 
 /// `lib/` 아래 `.dart` 파일 전체를 재귀 수집한다. 아직 없는 디렉터리는 빈 목록을 낸다.
 List<File> _dartFilesUnder(String dirPath) {
@@ -73,14 +77,22 @@ void main() {
     ];
     for (final sample in knownViolationSamples) {
       test('"$sample" 은(는) rasterIdentifierPattern에 매치된다', () {
-        expect(rasterIdentifierPattern.hasMatch(sample), isTrue, reason: '사각지대 재발: "$sample"이 검출되지 않는다');
+        expect(
+          rasterIdentifierPattern.hasMatch(sample),
+          isTrue,
+          reason: '사각지대 재발: "$sample"이 검출되지 않는다',
+        );
       });
     }
 
     test('무해한 코드는 오탐하지 않는다(참고용 — 실패해도 빌드를 막지 않지만 과오탐 감시)', () {
       const benign = ['final x = 1;', 'class Foo {}', 'void save() {}'];
       for (final s in benign) {
-        expect(rasterIdentifierPattern.hasMatch(s), isFalse, reason: '무해한 코드 "$s"가 오탐됨');
+        expect(
+          rasterIdentifierPattern.hasMatch(s),
+          isFalse,
+          reason: '무해한 코드 "$s"가 오탐됨',
+        );
       }
     });
   });
@@ -89,19 +101,37 @@ void main() {
     for (final file in rasterCoreFiles) {
       test('${file.path}에 금지 import 문자열이 없다', () {
         final source = file.readAsStringSync();
-        expect(source.contains("import 'package:flutter/"), isFalse, reason: '${file.path}: flutter SDK import 금지');
-        expect(source.contains("import 'dart:ui'"), isFalse, reason: '${file.path}: dart:ui import 금지');
-        expect(source.contains('pdf_renderer.dart'), isFalse, reason: '${file.path}: pdf_renderer.dart import 금지');
+        expect(
+          source.contains("import 'package:flutter/"),
+          isFalse,
+          reason: '${file.path}: flutter SDK import 금지',
+        );
+        expect(
+          source.contains("import 'dart:ui'"),
+          isFalse,
+          reason: '${file.path}: dart:ui import 금지',
+        );
+        expect(
+          source.contains('pdf_renderer.dart'),
+          isFalse,
+          reason: '${file.path}: pdf_renderer.dart import 금지',
+        );
       });
     }
   });
 
   group('§3.4-2 : 저장 경로 파일에 래스터화 관련 식별자가 없다(접두·접미 포함)', () {
     for (final file in rasterCoreFiles) {
-      test('${file.path}에 render/toImage/toByteData/Canvas/PictureRecorder/Bitmap/Picture가 없다', () {
-        final matches = rasterIdentifierPattern.allMatches(file.readAsStringSync()).map((m) => m.group(0)).toList();
-        expect(matches, isEmpty, reason: '${file.path} 위반: $matches');
-      });
+      test(
+        '${file.path}에 render/toImage/toByteData/Canvas/PictureRecorder/Bitmap/Picture가 없다',
+        () {
+          final matches = rasterIdentifierPattern
+              .allMatches(file.readAsStringSync())
+              .map((m) => m.group(0))
+              .toList();
+          expect(matches, isEmpty, reason: '${file.path} 위반: $matches');
+        },
+      );
     }
   });
 
@@ -116,7 +146,11 @@ void main() {
           violations.add(file.path);
         }
       }
-      expect(violations, isEmpty, reason: 'features가 PDF 라이브러리를 직접 import함: $violations');
+      expect(
+        violations,
+        isEmpty,
+        reason: 'features가 PDF 라이브러리를 직접 import함: $violations',
+      );
     });
   });
 
@@ -130,14 +164,22 @@ void main() {
           violations.add(file.path);
         }
       }
-      expect(violations, isEmpty, reason: 'banner_host.dart 밖에서 AdWidget 생성: $violations');
+      expect(
+        violations,
+        isEmpty,
+        reason: 'banner_host.dart 밖에서 AdWidget 생성: $violations',
+      );
     });
   });
 
   group('§3.4-5 : PdfEngine 인터페이스에 incremental 식별자가 없다', () {
     test("'incremental' 이 코드(주석 제외)에 없다", () {
       final codeOnly = _codeOnly(_read('lib/pdf/pdf_engine.dart'));
-      expect(RegExp(r'\bincremental\b').hasMatch(codeOnly), isFalse, reason: 'pdf_engine.dart 코드에 incremental 식별자 존재');
+      expect(
+        RegExp(r'\bincremental\b').hasMatch(codeOnly),
+        isFalse,
+        reason: 'pdf_engine.dart 코드에 incremental 식별자 존재',
+      );
     });
   });
 
@@ -150,61 +192,108 @@ void main() {
   group('§3.4-6 : pdf_engine.dart는 이미지 인코딩 API를 직접 쥐지 않는다(2-키 분리)', () {
     test("코드(주석 제외)에 'package:image', 'package:pdf/' 문자열이 0회다", () {
       final codeOnly = _codeOnly(_read('lib/pdf/pdf_engine.dart'));
-      expect(codeOnly.contains('package:image'), isFalse, reason: 'pdf_engine.dart가 package:image를 참조함');
-      expect(codeOnly.contains('package:pdf/'), isFalse, reason: 'pdf_engine.dart가 package:pdf/를 참조함');
+      expect(
+        codeOnly.contains('package:image'),
+        isFalse,
+        reason: 'pdf_engine.dart가 package:image를 참조함',
+      );
+      expect(
+        codeOnly.contains('package:pdf/'),
+        isFalse,
+        reason: 'pdf_engine.dart가 package:pdf/를 참조함',
+      );
     });
   });
 
-  group('§3.4-7 : image_pdf_builder.dart는 PDF 문서·페이지 객체·파일 접근을 쥐지 않는다(2-키 분리)', () {
-    test("코드(주석 제외)에 'pdfrx', PdfDocument, PdfPage, 'dart:io', 'File(' 이 없다", () {
-      final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
-      // 부분 문자열 토큰(파일 접근 관련) — 오탐 위험이 낮다.
-      for (final token in const ['pdfrx', 'dart:io', 'File(']) {
-        expect(codeOnly.contains(token), isFalse, reason: 'image_pdf_builder.dart에 금지 토큰 "$token" 존재');
-      }
-      // 식별자 토큰(pdfrx 타입명) — 단어 경계로 검사한다. `package:pdf`의 자체 타입인
-      // `PdfPageFormat`/`PdfDocument`(package:pdf에는 이 이름의 클래스가 없다) 같은 합성
-      // 식별자를 오탐하지 않게 하면서, 실제 pdfrx `PdfPage`/`PdfDocument` 타입 사용은 잡는다.
-      for (final identifier in const ['PdfDocument', 'PdfPage']) {
-        final matched = RegExp('\\b$identifier\\b').hasMatch(codeOnly);
-        expect(matched, isFalse, reason: 'image_pdf_builder.dart에 금지 식별자 "$identifier" 존재');
-      }
-    });
-  });
+  group(
+    '§3.4-7 : image_pdf_builder.dart는 PDF 문서·페이지 객체·파일 접근을 쥐지 않는다(2-키 분리)',
+    () {
+      test(
+        "코드(주석 제외)에 'pdfrx', PdfDocument, PdfPage, 'dart:io', 'File(' 이 없다",
+        () {
+          final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
+          // 부분 문자열 토큰(파일 접근 관련) — 오탐 위험이 낮다.
+          for (final token in const ['pdfrx', 'dart:io', 'File(']) {
+            expect(
+              codeOnly.contains(token),
+              isFalse,
+              reason: 'image_pdf_builder.dart에 금지 토큰 "$token" 존재',
+            );
+          }
+          // 식별자 토큰(pdfrx 타입명) — 단어 경계로 검사한다. `package:pdf`의 자체 타입인
+          // `PdfPageFormat`/`PdfDocument`(package:pdf에는 이 이름의 클래스가 없다) 같은 합성
+          // 식별자를 오탐하지 않게 하면서, 실제 pdfrx `PdfPage`/`PdfDocument` 타입 사용은 잡는다.
+          for (final identifier in const ['PdfDocument', 'PdfPage']) {
+            final matched = RegExp('\\b$identifier\\b').hasMatch(codeOnly);
+            expect(
+              matched,
+              isFalse,
+              reason: 'image_pdf_builder.dart에 금지 식별자 "$identifier" 존재',
+            );
+          }
+        },
+      );
+    },
+  );
 
-  group('§3.4-8 : image_pdf_builder.dart의 public 시그니처는 경로(String path류)를 받지 않는다', () {
-    test("파일 경로로 보이는 'String ...[Pp]ath...' 파라미터가 코드에 없다", () {
-      final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
-      final matches = RegExp(r'String\??\s+\w*[Pp]ath\w*').allMatches(codeOnly).map((m) => m.group(0)).toList();
-      expect(matches, isEmpty, reason: 'image_pdf_builder.dart가 경로 문자열 파라미터를 받음: $matches (바이트만 주고받아야 한다)');
-    });
-  });
+  group(
+    '§3.4-8 : image_pdf_builder.dart의 public 시그니처는 경로(String path류)를 받지 않는다',
+    () {
+      test("파일 경로로 보이는 'String ...[Pp]ath...' 파라미터가 코드에 없다", () {
+        final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
+        final matches = RegExp(
+          r'String\??\s+\w*[Pp]ath\w*',
+        ).allMatches(codeOnly).map((m) => m.group(0)).toList();
+        expect(
+          matches,
+          isEmpty,
+          reason:
+              'image_pdf_builder.dart가 경로 문자열 파라미터를 받음: $matches (바이트만 주고받아야 한다)',
+        );
+      });
+    },
+  );
 
-  group('§3.4-9 : 저장 경로 프리셋 상수는 image_pdf_builder.dart에만 있다', () {
+  group('§3.4-9 : 저장·압축 화질 프리셋 상수는 image_quality.dart에만 있다', () {
     test('프리셋 리터럴이 다른 lib/ 파일에 나타나지 않는다', () {
       final presetLiterals = RegExp(r'\b(2480|1754|1240|85|75|60)\b');
       final violations = <String>[];
       for (final file in _dartFilesUnder('lib')) {
         final normalized = file.path.replaceAll('\\', '/');
-        if (normalized.endsWith('lib/pdf/image_pdf_builder.dart')) continue;
+        if (normalized.endsWith('lib/pdf/image_quality.dart')) continue;
         final codeOnly = _codeOnly(file.readAsStringSync());
         if (presetLiterals.hasMatch(codeOnly)) {
           violations.add(file.path);
         }
       }
-      expect(violations, isEmpty, reason: 'image_pdf_builder.dart 밖에서 프리셋 리터럴 발견(상수 참조로 바꿀 것): $violations');
+      expect(
+        violations,
+        isEmpty,
+        reason: 'image_quality.dart 밖에서 프리셋 리터럴 발견(프로필 참조로 바꿀 것): $violations',
+      );
     });
   });
 
   group('§3.4-10 : 엔진 파일은 Directory API를 쓰지 않는다(Q-D)', () {
     const engineFiles = ['lib/pdf/pdf_engine.dart'];
     for (final path in engineFiles) {
-      test("$path에 'Directory(', 'delete(recursive', 'deleteSync(recursive'가 없다", () {
-        final source = _read(path);
-        for (final token in const ['Directory(', 'delete(recursive', 'deleteSync(recursive']) {
-          expect(source.contains(token), isFalse, reason: '$path가 디렉터리 삭제 API "$token"를 사용함 — Workspace의 단독 책임이다');
-        }
-      });
+      test(
+        "$path에 'Directory(', 'delete(recursive', 'deleteSync(recursive'가 없다",
+        () {
+          final source = _read(path);
+          for (final token in const [
+            'Directory(',
+            'delete(recursive',
+            'deleteSync(recursive',
+          ]) {
+            expect(
+              source.contains(token),
+              isFalse,
+              reason: '$path가 디렉터리 삭제 API "$token"를 사용함 — Workspace의 단독 책임이다',
+            );
+          }
+        },
+      );
     }
   });
 
@@ -229,7 +318,8 @@ void main() {
       expect(
         violations,
         isEmpty,
-        reason: 'lib/pdf/** 밖에서 ImagePdfBuilder.build( 호출: $violations -- SizeGuard를 우회하는 두 번째 저장 경로다',
+        reason:
+            'lib/pdf/** 밖에서 ImagePdfBuilder.build( 호출: $violations -- SizeGuard를 우회하는 두 번째 저장 경로다',
       );
     });
   });
@@ -245,7 +335,12 @@ void main() {
           violations.add(file.path);
         }
       }
-      expect(violations, isEmpty, reason: 'dart:isolate와 pdfrx를 함께 import한 파일: $violations -- 같은 프로세스에서 pdfrx를 건드는 isolate가 둘이 되면 VM이 죽는다');
+      expect(
+        violations,
+        isEmpty,
+        reason:
+            'dart:isolate와 pdfrx를 함께 import한 파일: $violations -- 같은 프로세스에서 pdfrx를 건드는 isolate가 둘이 되면 VM이 죽는다',
+      );
     });
   });
 
@@ -254,22 +349,31 @@ void main() {
   // 동기 블로킹 FFI라 워커 isolate로 옮겨야 한다). §3.4-12(dart:isolate ∩ pdfrx = ∅)는 그대로
   // 유효하다 -- qpdf_isolate.dart는 pdfrx를 import하지 않는다(§3.4-15에서 별도 확인).
   group('§3.4-13 : Isolate.spawn( 호출부는 정해진 워커 파일에만 있다', () {
-    test('lib/pdf/**에서 Isolate.spawn(이 image_encode_isolate.dart·qpdf_isolate.dart에만 있다', () {
-      const allowed = {'image_encode_isolate.dart', 'qpdf_isolate.dart'};
-      final callers = <String>[];
-      for (final file in _dartFilesUnder('lib/pdf')) {
-        if (file.readAsStringSync().contains('Isolate.spawn(')) {
-          callers.add(file.path.replaceAll('\\', '/'));
+    test(
+      'lib/pdf/**에서 Isolate.spawn(이 image_encode_isolate.dart·qpdf_isolate.dart에만 있다',
+      () {
+        const allowed = {'image_encode_isolate.dart', 'qpdf_isolate.dart'};
+        final callers = <String>[];
+        for (final file in _dartFilesUnder('lib/pdf')) {
+          if (file.readAsStringSync().contains('Isolate.spawn(')) {
+            callers.add(file.path.replaceAll('\\', '/'));
+          }
         }
-      }
-      final unexpected = callers.where((c) => !allowed.any(c.endsWith)).toList();
-      expect(unexpected, isEmpty, reason: 'Isolate.spawn(이 허용 목록 밖에서 호출됨: $unexpected');
-      expect(
-        callers.map((c) => c.split('/').last).toSet(),
-        allowed,
-        reason: '허용된 2개 워커 파일이 실제로 전부 Isolate.spawn(을 쓰는지 확인(실측: $callers)',
-      );
-    });
+        final unexpected = callers
+            .where((c) => !allowed.any(c.endsWith))
+            .toList();
+        expect(
+          unexpected,
+          isEmpty,
+          reason: 'Isolate.spawn(이 허용 목록 밖에서 호출됨: $unexpected',
+        );
+        expect(
+          callers.map((c) => c.split('/').last).toSet(),
+          allowed,
+          reason: '허용된 2개 워커 파일이 실제로 전부 Isolate.spawn(을 쓰는지 확인(실측: $callers)',
+        );
+      },
+    );
   });
 
   group('§3.4-14 : stopBackgroundWorker를 호출하지 않는다', () {
@@ -280,35 +384,56 @@ void main() {
           violations.add(file.path);
         }
       }
-      expect(violations, isEmpty, reason: 'stopBackgroundWorker 호출 발견: $violations -- 살아있는 문서 핸들이 있으면 UB다(FPDF_DestroyLibrary)');
+      expect(
+        violations,
+        isEmpty,
+        reason:
+            'stopBackgroundWorker 호출 발견: $violations -- 살아있는 문서 핸들이 있으면 UB다(FPDF_DestroyLibrary)',
+      );
     });
   });
 
   // ── §15(`_workspace/15_architect_qpdf_migration.md`) §5.7 "§3.4 자동 검사 추가분"(검사 14~18) ──
   // 문서의 번호(14~18)를 그대로 쓰면 위 §3.4-14(stopBackgroundWorker)와 충돌하므로, 이 파일
   // 내에서는 "§15 §5.7 검사 N" 이름으로 구분한다.
-  group('§15 §5.7 검사14 : dart:ffi import는 qpdf_ffi.dart·qpdf_isolate.dart에만 있다', () {
-    test("lib/**에서 \"import 'dart:ffi'\"가 이 2개 파일에만 있다", () {
-      const allowed = {'qpdf_ffi.dart', 'qpdf_isolate.dart'};
-      final callers = <String>[];
-      for (final file in _dartFilesUnder('lib')) {
-        if (file.readAsStringSync().contains("import 'dart:ffi'")) {
-          callers.add(file.path.replaceAll('\\', '/'));
+  group(
+    '§15 §5.7 검사14 : dart:ffi import는 qpdf_ffi.dart·qpdf_isolate.dart에만 있다',
+    () {
+      test("lib/**에서 \"import 'dart:ffi'\"가 이 2개 파일에만 있다", () {
+        const allowed = {'qpdf_ffi.dart', 'qpdf_isolate.dart'};
+        final callers = <String>[];
+        for (final file in _dartFilesUnder('lib')) {
+          if (file.readAsStringSync().contains("import 'dart:ffi'")) {
+            callers.add(file.path.replaceAll('\\', '/'));
+          }
         }
-      }
-      final unexpected = callers.where((c) => !allowed.any(c.endsWith)).toList();
-      expect(unexpected, isEmpty, reason: "dart:ffi import가 허용 목록 밖에서 발견됨: $unexpected");
-    });
-  });
+        final unexpected = callers
+            .where((c) => !allowed.any(c.endsWith))
+            .toList();
+        expect(
+          unexpected,
+          isEmpty,
+          reason: "dart:ffi import가 허용 목록 밖에서 발견됨: $unexpected",
+        );
+      });
+    },
+  );
 
-  group('§15 §5.7 검사15 : qpdf_isolate.dart는 pdfrx·이미지 인코딩 API를 쥐지 않는다(2-키 분리)', () {
-    test("코드(주석 제외)에 'pdfrx', 'package:image', 'package:pdf/' 문자열이 0회다", () {
-      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
-      for (final token in const ['pdfrx', 'package:image', 'package:pdf/']) {
-        expect(codeOnly.contains(token), isFalse, reason: 'qpdf_isolate.dart가 금지 토큰 "$token"을 참조함');
-      }
-    });
-  });
+  group(
+    '§15 §5.7 검사15 : qpdf_isolate.dart는 pdfrx·이미지 인코딩 API를 쥐지 않는다(2-키 분리)',
+    () {
+      test("코드(주석 제외)에 'pdfrx', 'package:image', 'package:pdf/' 문자열이 0회다", () {
+        final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+        for (final token in const ['pdfrx', 'package:image', 'package:pdf/']) {
+          expect(
+            codeOnly.contains(token),
+            isFalse,
+            reason: 'qpdf_isolate.dart가 금지 토큰 "$token"을 참조함',
+          );
+        }
+      });
+    },
+  );
 
   group('§15 §5.7 검사16 : qpdf_isolate.dart의 잡 스펙에 금지 키가 없다(§5.3 화이트리스트)', () {
     test("코드(주석 제외)에 금지 키가 Map 키/값 리터럴로 등장하지 않는다", () {
@@ -318,10 +443,21 @@ void main() {
       // 에러 텍스트 휴리스틱(text.contains('encrypt'))까지 오탐해 이 잡 자체를 구현 불가능하게
       // 만든다 -- inspect가 암호화 PDF를 판별하려면 "encrypt"라는 글자 자체는 불가피하게 코드에
       // 등장한다. 화이트리스트가 실제로 막아야 하는 것은 "이 단어를 job 스펙의 키로 쓰는 것"이다.
-      final bannedKeyPattern = RegExp(r"""['"](replaceInput|splitPages|qdf|encrypt|linearize)['"]\s*:""");
+      final bannedKeyPattern = RegExp(
+        r"""['"](replaceInput|splitPages|qdf|encrypt|linearize)['"]\s*:""",
+      );
       final bannedValuePattern = RegExp(r"""[:]\s*['"]uncompress['"]""");
-      expect(bannedKeyPattern.hasMatch(codeOnly), isFalse, reason: '금지 키가 Map 리터럴로 등장함: ${bannedKeyPattern.allMatches(codeOnly).map((m) => m.group(0)).toList()}');
-      expect(bannedValuePattern.hasMatch(codeOnly), isFalse, reason: 'streamData: uncompress 패턴 등장');
+      expect(
+        bannedKeyPattern.hasMatch(codeOnly),
+        isFalse,
+        reason:
+            '금지 키가 Map 리터럴로 등장함: ${bannedKeyPattern.allMatches(codeOnly).map((m) => m.group(0)).toList()}',
+      );
+      expect(
+        bannedValuePattern.hasMatch(codeOnly),
+        isFalse,
+        reason: 'streamData: uncompress 패턴 등장',
+      );
     });
   });
 
@@ -330,72 +466,104 @@ void main() {
       final violations = <String>[];
       for (final file in _dartFilesUnder('lib')) {
         final source = file.readAsStringSync();
-        if (source.contains('Process.run(') || source.contains('Process.start(')) {
+        if (source.contains('Process.run(') ||
+            source.contains('Process.start(')) {
           violations.add(file.path.replaceAll('\\', '/'));
         }
       }
-      expect(violations, isEmpty, reason: 'Process.run/Process.start 호출 발견: $violations');
+      expect(
+        violations,
+        isEmpty,
+        reason: 'Process.run/Process.start 호출 발견: $violations',
+      );
     });
   });
 
-  group('§15 §5.7 검사18 : qpdf_isolate.dart가 노출하는 공개 함수는 임의 JSON/argv 문자열을 받지 않는다', () {
-    test('공개 함수 시그니처에 String 타입의 잡스펙/JSON/argv 파라미터가 없다', () {
-      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
-      // "jobSpec"/"jobJson"/"argv" 류 이름의 String 파라미터가 톱레벨(비-`_` 접두) 함수 시그니처에
-      // 있는지 본다. 내부(`_` 접두) 헬퍼는 제외 -- 그건 공개 API가 아니다.
-      final publicFnPattern = RegExp(r'^(Future<[^>]+>|Map<[^>]+>|String|void)\s+([a-zA-Z][a-zA-Z0-9]*)\s*\(', multiLine: true);
-      final suspiciousParamPattern = RegExp(r'String\??\s+(jobSpec|jobJson|argv)\w*', caseSensitive: false);
-      for (final match in publicFnPattern.allMatches(codeOnly)) {
-        final name = match.group(2)!;
-        if (name.startsWith('_')) continue;
-        // 함수 시그니처(파라미터 목록) 전체를 스캔한다. 이 코드베이스는 named parameter
-        // (`{required ...}`)가 표준 스타일이다 -- 예전 구현은 "다음 '{' 또는 '=>' 까지"를
-        // 시그니처로 잘랐는데, named parameter 블록 자체가 '{'로 시작하므로 파라미터 목록을
-        // 전혀 못 보고 항상 빈 문자열만 검사하는 사각지대가 있었다(M-Q3 감사에서 실측: 위반을
-        // 주입해도 이 검사가 통과했다). `(`부터 괄호 짝이 맞는 `)`까지 깊이 추적으로 정확히
-        // 파라미터 목록 구간만 뽑는다.
-        final start = match.start;
-        final openParenIndex = match.end - 1; // publicFnPattern 자체가 '\(' 로 끝나므로 그 위치.
-        var depth = 0;
-        var closeParenIndex = -1;
-        for (var i = openParenIndex; i < codeOnly.length; i++) {
-          final ch = codeOnly[i];
-          if (ch == '(') depth++;
-          if (ch == ')') {
-            depth--;
-            if (depth == 0) {
-              closeParenIndex = i;
-              break;
+  group(
+    '§15 §5.7 검사18 : qpdf_isolate.dart가 노출하는 공개 함수는 임의 JSON/argv 문자열을 받지 않는다',
+    () {
+      test('공개 함수 시그니처에 String 타입의 잡스펙/JSON/argv 파라미터가 없다', () {
+        final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+        // "jobSpec"/"jobJson"/"argv" 류 이름의 String 파라미터가 톱레벨(비-`_` 접두) 함수 시그니처에
+        // 있는지 본다. 내부(`_` 접두) 헬퍼는 제외 -- 그건 공개 API가 아니다.
+        final publicFnPattern = RegExp(
+          r'^(Future<[^>]+>|Map<[^>]+>|String|void)\s+([a-zA-Z][a-zA-Z0-9]*)\s*\(',
+          multiLine: true,
+        );
+        final suspiciousParamPattern = RegExp(
+          r'String\??\s+(jobSpec|jobJson|argv)\w*',
+          caseSensitive: false,
+        );
+        for (final match in publicFnPattern.allMatches(codeOnly)) {
+          final name = match.group(2)!;
+          if (name.startsWith('_')) continue;
+          // 함수 시그니처(파라미터 목록) 전체를 스캔한다. 이 코드베이스는 named parameter
+          // (`{required ...}`)가 표준 스타일이다 -- 예전 구현은 "다음 '{' 또는 '=>' 까지"를
+          // 시그니처로 잘랐는데, named parameter 블록 자체가 '{'로 시작하므로 파라미터 목록을
+          // 전혀 못 보고 항상 빈 문자열만 검사하는 사각지대가 있었다(M-Q3 감사에서 실측: 위반을
+          // 주입해도 이 검사가 통과했다). `(`부터 괄호 짝이 맞는 `)`까지 깊이 추적으로 정확히
+          // 파라미터 목록 구간만 뽑는다.
+          final start = match.start;
+          final openParenIndex =
+              match.end - 1; // publicFnPattern 자체가 '\(' 로 끝나므로 그 위치.
+          var depth = 0;
+          var closeParenIndex = -1;
+          for (var i = openParenIndex; i < codeOnly.length; i++) {
+            final ch = codeOnly[i];
+            if (ch == '(') depth++;
+            if (ch == ')') {
+              depth--;
+              if (depth == 0) {
+                closeParenIndex = i;
+                break;
+              }
             }
           }
+          final signature = closeParenIndex == -1
+              ? codeOnly.substring(start)
+              : codeOnly.substring(start, closeParenIndex + 1);
+          expect(
+            suspiciousParamPattern.hasMatch(signature),
+            isFalse,
+            reason: '공개 함수 "$name"가 임의 JSON/argv 문자열을 받는 것으로 보임: $signature',
+          );
         }
-        final signature = closeParenIndex == -1 ? codeOnly.substring(start) : codeOnly.substring(start, closeParenIndex + 1);
-        expect(
-          suspiciousParamPattern.hasMatch(signature),
-          isFalse,
-          reason: '공개 함수 "$name"가 임의 JSON/argv 문자열을 받는 것으로 보임: $signature',
-        );
-      }
-    });
-  });
+      });
+    },
+  );
 
   // ── §15 §6.4 "자동 검사 추가분"(검사 19~21) — pdf_compressor.dart(M-Q6) 경계 강제 ──────────
-  group('§15 §6.4 검사19 : pdf_compressor.dart ↔ pdf_engine.dart 상호 import가 0회다', () {
-    test('pdf_compressor.dart가 pdf_engine.dart를 import하지 않는다', () {
-      final source = _read('lib/pdf/pdf_compressor.dart');
-      expect(source.contains("import 'pdf_engine.dart'"), isFalse, reason: 'pdf_compressor.dart가 pdf_engine.dart를 import함');
-    });
-    test('pdf_engine.dart가 pdf_compressor.dart를 import하지 않는다', () {
-      final source = _read('lib/pdf/pdf_engine.dart');
-      expect(source.contains("import 'pdf_compressor.dart'"), isFalse, reason: 'pdf_engine.dart가 pdf_compressor.dart를 import함');
-    });
-  });
+  group(
+    '§15 §6.4 검사19 : pdf_compressor.dart ↔ pdf_engine.dart 상호 import가 0회다',
+    () {
+      test('pdf_compressor.dart가 pdf_engine.dart를 import하지 않는다', () {
+        final source = _read('lib/pdf/pdf_compressor.dart');
+        expect(
+          source.contains("import 'pdf_engine.dart'"),
+          isFalse,
+          reason: 'pdf_compressor.dart가 pdf_engine.dart를 import함',
+        );
+      });
+      test('pdf_engine.dart가 pdf_compressor.dart를 import하지 않는다', () {
+        final source = _read('lib/pdf/pdf_engine.dart');
+        expect(
+          source.contains("import 'pdf_compressor.dart'"),
+          isFalse,
+          reason: 'pdf_engine.dart가 pdf_compressor.dart를 import함',
+        );
+      });
+    },
+  );
 
   group('§15 §6.4 검사20 : 저장 경로 프리셋 리터럴이 pdf_compressor.dart에 없다', () {
     test('pdf_compressor.dart에 2480/1754/1240/85/75/60 리터럴이 0회다', () {
       final presetLiterals = RegExp(r'\b(2480|1754|1240|85|75|60)\b');
       final codeOnly = _codeOnly(_read('lib/pdf/pdf_compressor.dart'));
-      expect(presetLiterals.hasMatch(codeOnly), isFalse, reason: 'pdf_compressor.dart에 프리셋 리터럴 발견 -- ImagePdfBuilder 상수를 참조할 것');
+      expect(
+        presetLiterals.hasMatch(codeOnly),
+        isFalse,
+        reason: 'pdf_compressor.dart에 프리셋 리터럴 발견 -- ImagePdfBuilder 상수를 참조할 것',
+      );
     });
   });
 
@@ -407,7 +575,12 @@ void main() {
           violations.add(file.path);
         }
       }
-      expect(violations, isEmpty, reason: 'SaveOp.compress 식별자 발견: $violations -- 압축 결과를 저장 경로로 우회시키는 유인이 된다(§6.3)');
+      expect(
+        violations,
+        isEmpty,
+        reason:
+            'SaveOp.compress 식별자 발견: $violations -- 압축 결과를 저장 경로로 우회시키는 유인이 된다(§6.3)',
+      );
     });
   });
 
@@ -416,53 +589,261 @@ void main() {
   // §2.6 L2-app/L2-ext 상호 배타 경계를 코드 수준에서 유지하는지 검증한다. 이 4종 전부 실효성을
   // "위반 코드 주입 → 실패 확인 → 원복" 절차로 확인했다(`_workspace/33_pdf-core_l2ext_impl.md` 기록,
   // 이 파일 자체는 정상 상태만 담는다).
-  group('§31 §2.7 검사22 : qpdf_isolate.dart에 package:image/decodeJpg/encodeJpg가 0회다(검사15의 명시적 확장)', () {
-    test("코드(주석 제외)에 'package:image', 'decodeJpg', 'encodeJpg' 문자열이 0회다", () {
-      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
-      for (final token in const ['package:image', 'decodeJpg', 'encodeJpg']) {
-        expect(codeOnly.contains(token), isFalse, reason: 'qpdf_isolate.dart가 이미지 코덱 토큰 "$token"을 참조함 -- §5.7 2-키 분리 위반');
-      }
-    });
-  });
+  group(
+    '§31 §2.7 검사22 : qpdf_isolate.dart에 package:image/decodeJpg/encodeJpg가 0회다(검사15의 명시적 확장)',
+    () {
+      test("코드(주석 제외)에 'package:image', 'decodeJpg', 'encodeJpg' 문자열이 0회다", () {
+        final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+        for (final token in const ['package:image', 'decodeJpg', 'encodeJpg']) {
+          expect(
+            codeOnly.contains(token),
+            isFalse,
+            reason:
+                'qpdf_isolate.dart가 이미지 코덱 토큰 "$token"을 참조함 -- §5.7 2-키 분리 위반',
+          );
+        }
+      });
+    },
+  );
 
   group('§31 §2.7 검사23 : qpdf_isolate.dart에 JPEG 마커 리터럴·픽셀 크기 계산이 0회다', () {
     test("코드(주석 제외)에 '0xFFD8', 'SOF' 문자열이 0회다(코덱 지식이 이 파일로 새는 첫 증상)", () {
       final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
       for (final token in const ['0xFFD8', 'SOF']) {
-        expect(codeOnly.contains(token), isFalse, reason: 'qpdf_isolate.dart에 JPEG 헤더 파싱 토큰 "$token" 발견 -- 픽셀 크기 계산은 image_pdf_builder.dart의 단일 소유다');
+        expect(
+          codeOnly.contains(token),
+          isFalse,
+          reason:
+              'qpdf_isolate.dart에 JPEG 헤더 파싱 토큰 "$token" 발견 -- 픽셀 크기 계산은 image_pdf_builder.dart의 단일 소유다',
+        );
       }
     });
   });
 
-  group('§31 §2.7 검사24 : imagePagePaths·embeddedImageStagingDir 동시 지정 시 런타임 거부 가드가 존재한다', () {
-    test('pdf_compressor.dart의 compress()가 두 파라미터를 함께 검사하는 코드를 포함한다', () {
-      final codeOnly = _codeOnly(_read('lib/pdf/pdf_compressor.dart'));
-      // 두 식별자가 하나의 조건식(&&)으로 함께 등장하는지 -- 이 패턴이 사라지면 상호 배타 가드가
-      // 삭제된 것이다. 실제 거부 동작 자체는 test/pdf/pdf_compressor_test.dart의 런타임 테스트가
-      // 단언한다(이 검사는 그 가드가 소스에서 조용히 사라지는 것을 막는 정적 안전망이다).
-      final guardPattern = RegExp(r'imagePagePaths\s*!=\s*null\s*&&\s*embeddedImageStagingDir\s*!=\s*null');
-      expect(guardPattern.hasMatch(codeOnly), isTrue, reason: 'pdf_compressor.dart에서 imagePagePaths/embeddedImageStagingDir 상호 배타 가드를 찾지 못함(§2.6)');
+  group(
+    '§31 §2.7 검사24 : imagePagePaths·embeddedImageStagingDir 동시 지정 시 런타임 거부 가드가 존재한다',
+    () {
+      test('pdf_compressor.dart의 compress()가 두 파라미터를 함께 검사하는 코드를 포함한다', () {
+        final codeOnly = _codeOnly(_read('lib/pdf/pdf_compressor.dart'));
+        // 두 식별자가 하나의 조건식(&&)으로 함께 등장하는지 -- 이 패턴이 사라지면 상호 배타 가드가
+        // 삭제된 것이다. 실제 거부 동작 자체는 test/pdf/pdf_compressor_test.dart의 런타임 테스트가
+        // 단언한다(이 검사는 그 가드가 소스에서 조용히 사라지는 것을 막는 정적 안전망이다).
+        final guardPattern = RegExp(
+          r'imagePagePaths\s*!=\s*null\s*&&\s*embeddedImageStagingDir\s*!=\s*null',
+        );
+        expect(
+          guardPattern.hasMatch(codeOnly),
+          isTrue,
+          reason:
+              'pdf_compressor.dart에서 imagePagePaths/embeddedImageStagingDir 상호 배타 가드를 찾지 못함(§2.6)',
+        );
+      });
+    },
+  );
+
+  group(
+    '§31 §2.7 검사25 : L2-ext 경로에 qpdf_oh_get_page_content_data가 없고, normalizeContent가 켜지지 않는다(절대 규칙2 봉쇄)',
+    () {
+      test(
+        "qpdf_isolate.dart·pdf_compressor.dart 코드(주석 제외)에 콘텐츠 스트림 접근 API가 없다",
+        () {
+          // qpdf_oh_get_page_content_data는 실제 콘텐츠 스트림(텍스트·벡터·연산자)을 읽는 API다 --
+          // L2-ext는 이미지 XObject 스트림만 다루므로 이 심볼이 등장할 이유가 없다(§2.5).
+          for (final path in const [
+            'lib/pdf/qpdf_isolate.dart',
+            'lib/pdf/pdf_compressor.dart',
+          ]) {
+            final codeOnly = _codeOnly(_read(path));
+            expect(
+              codeOnly.contains('qpdf_oh_get_page_content_data'),
+              isFalse,
+              reason: '$path가 콘텐츠 스트림 접근 API를 참조함 -- 절대 규칙2(래스터화 금지) 봉쇄선 위반 소지',
+            );
+          }
+        },
+      );
+
+      test("_commonWriteOptions의 normalizeContent 값이 켜지지 않는다('y' 리터럴이 없다)", () {
+        // normalizeContent는 §5.2부터 이미 존재하는 정당한 L1 쓰기 옵션 키이며 항상 'n'(끔)으로
+        // 고정돼 있다(qpdf_isolate.dart:45) -- 토큰 자체를 금지하면 그 기존 정당한 사용과 충돌한다.
+        // 이 검사가 실제로 막아야 하는 것은 "L2-ext가 콘텐츠 정규화를 켜는 것"이므로 값이 'y'로
+        // 바뀌는 것만 잡는다.
+        final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
+        final enabledPattern = RegExp(
+          r"""['"]normalizeContent['"]\s*:\s*['"]y['"]""",
+        );
+        expect(
+          enabledPattern.hasMatch(codeOnly),
+          isFalse,
+          reason:
+              'qpdf_isolate.dart가 normalizeContent를 켬(y) -- 콘텐츠 스트림 재작성은 절대 규칙2 위반',
+        );
+      });
+    },
+  );
+
+  // ── §49(`_workspace/49_architect_split_merge_verdict_and_week3_final.md`) "기준 ② 중복 점검"
+  // (179~210줄) — W3-R1 잔여 작업. T6(문서 36 §7.2)이 요구한 자동 검사 2종을 여기서 신설한다.
+  // 검사②는 문서 49가 정정한 명세를 그대로 따른다: `.inspect(`는 읽기 전용 호출이라 예외다
+  // (open_pdf_flow.dart:92, edit_screen.dart:90가 정당하게 이 메서드를 쓴다).
+  group('§49 검사26 : image_pdf_builder.dart에 PdfPageRef 식별자가 없다(2-키 분리의 연장)', () {
+    test("코드(주석 제외)에 'PdfPageRef' 문자열이 0회다", () {
+      final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
+      expect(
+        codeOnly.contains('PdfPageRef'),
+        isFalse,
+        reason:
+            'image_pdf_builder.dart가 qpdf의 PageRef 개념(PdfPageRef)을 참조함 -- 이미지 인코딩 전용 파일은 이를 몰라야 한다',
+      );
     });
   });
 
-  group('§31 §2.7 검사25 : L2-ext 경로에 qpdf_oh_get_page_content_data가 없고, normalizeContent가 켜지지 않는다(절대 규칙2 봉쇄)', () {
-    test("qpdf_isolate.dart·pdf_compressor.dart 코드(주석 제외)에 콘텐츠 스트림 접근 API가 없다", () {
-      // qpdf_oh_get_page_content_data는 실제 콘텐츠 스트림(텍스트·벡터·연산자)을 읽는 API다 --
-      // L2-ext는 이미지 XObject 스트림만 다루므로 이 심볼이 등장할 이유가 없다(§2.5).
-      for (final path in const ['lib/pdf/qpdf_isolate.dart', 'lib/pdf/pdf_compressor.dart']) {
+  group(
+    '§49 검사27 : lib/features/**에서 PdfEngine의 save(/merge(/split( 호출이 0회다(.inspect(는 예외)',
+    () {
+      test(
+        "'engine' 계열 수신자의 .save(/.merge(/.split( 호출이 없다 -- 화면이 저장 파이프라인을 직접 조립하지 못한다",
+        () {
+          // PdfEngine 타입 변수는 현재 코드베이스 전체에서 `engine`이라는 이름으로만 쓰인다(전수
+          // grep 확인: lib/features/viewer/open_pdf_flow.dart:92 `required PdfEngine engine`). 수신자
+          // 이름에 'engine'을 포함하는 호출로 좁혀 무관한 .save(/.merge(/.split( 호출(다른 클래스의
+          // 동명 메서드)을 오탐하지 않는다. `.inspect(`는 검사 대상에서 아예 제외한다(문서 49 정정).
+          final violationPattern = RegExp(
+            r'\b\w*[Ee]ngine\w*\.(save|merge|split)\(',
+          );
+          final violations = <String>[];
+          for (final file in _dartFilesUnder('lib/features')) {
+            final codeOnly = _codeOnly(file.readAsStringSync());
+            if (violationPattern.hasMatch(codeOnly)) {
+              violations.add(file.path.replaceAll('\\', '/'));
+            }
+          }
+          expect(
+            violations,
+            isEmpty,
+            reason:
+                'lib/features/**에서 PdfEngine의 save/merge/split 직접 호출 발견: $violations -- 저장 파이프라인은 화면에서 조립하지 않는다(inspect만 허용)',
+          );
+        },
+      );
+    },
+  );
+
+  // ── §52(`_workspace/52_architect_week4_design.md`) §4.3 "자동 검사"(검사28~30) — 4주차
+  // 광고·인앱결제 단일 게이트 계약(§4.1)을 고정하는 회귀 방지 검사. 문서 60(R3 중간 판정)의
+  // 소스 전수 실사가 이미 준수 상태를 확인했으므로, 그 상태를 여기서 고정한다.
+  group(
+    '§52 검사28 : adsRemoved 판단 로직은 lib/ads/ad_gate.dart 등 지정 파일 밖에 있으면 안 된다(단일 게이트)',
+    () {
+      test(
+        "'adsRemoved' 식별자가 허용 목록(lib/ads/**·lib/billing/**·settings_screen.dart·데이터 계층) 밖에 없다",
+        () {
+          // 데이터 계층(Drift 컬럼/생성 코드/설정 리포지토리)은 판단 로직이 아니라 컬럼·필드
+          // 정의이므로 예외다(문서 60 §4 F-5 인접 지적, 문서 56 §3.3이 먼저 제기) — 여기서 판단
+          // 로직과 데이터 계층을 구분하지 않으면 tables.dart/app_database.g.dart(drift 생성 코드)/
+          // settings_repository.dart의 정당한 컬럼 정의까지 위반으로 오탐한다(실측: 3파일 모두
+          // 코드 레벨에서 'adsRemoved'를 갖고 있다).
+          const allowedDataLayerFiles = {
+            'lib/data/db/tables.dart',
+            'lib/data/db/app_database.g.dart',
+            'lib/data/repository/settings_repository.dart',
+          };
+          final violations = <String>[];
+          for (final file in _dartFilesUnder('lib')) {
+            final normalized = file.path.replaceAll('\\', '/');
+            if (normalized.contains('lib/ads/')) continue;
+            if (normalized.contains('lib/billing/')) continue;
+            if (normalized.endsWith(
+              'lib/features/settings/settings_screen.dart',
+            ))
+              continue;
+            if (allowedDataLayerFiles.any(normalized.endsWith)) continue;
+            // main.dart는 §3.6 부팅 게이트(구매 시 MobileAds.instance.initialize()조차 호출하지
+            // 않는다, §4.2)를 위해 부팅 1회만 adsRemoved를 읽는다 -- 화면 코드가 아니라 부팅
+            // 배선이므로 단일 게이트 원칙의 예외로 명시한다(§3.6-2).
+            if (normalized.endsWith('lib/main.dart')) continue;
+            final codeOnly = _codeOnly(file.readAsStringSync());
+            if (codeOnly.contains('adsRemoved')) {
+              violations.add(normalized);
+            }
+          }
+          expect(
+            violations,
+            isEmpty,
+            reason:
+                '허용 목록 밖에서 adsRemoved 식별자 발견: $violations -- 광고 판단은 ad_gate.dart 하나로 끝나야 한다(§4.1)',
+          );
+        },
+      );
+    },
+  );
+
+  group(
+    '§52 검사29 : 배너 위젯(AdWidget/BannerAd/AdSize)은 lib/ads/** 밖에서 쓰지 않는다(단일 구현)',
+    () {
+      test("'AdWidget'/'BannerAd'/'AdSize' 식별자가 lib/ads/** 밖에 없다", () {
+        final violations = <String>[];
+        for (final file in _dartFilesUnder('lib')) {
+          final normalized = file.path.replaceAll('\\', '/');
+          if (normalized.contains('lib/ads/')) continue;
+          final codeOnly = _codeOnly(file.readAsStringSync());
+          for (final token in const ['AdWidget', 'BannerAd', 'AdSize']) {
+            if (codeOnly.contains(token)) {
+              violations.add('$normalized ($token)');
+            }
+          }
+        }
+        expect(
+          violations,
+          isEmpty,
+          reason:
+              'lib/ads/** 밖에서 배너 관련 식별자 발견: $violations -- 배너 배치의 단일 소유는 banner_host.dart다(§1.0)',
+        );
+      });
+    },
+  );
+
+  group('§52 검사30 : 전면광고 실제 노출은 앱 페이지 전환 한 곳에서만 이뤄진다', () {
+    test('페이지 전환 소비 호출부가 app.dart 밖에 없다', () {
+      const allowed = {'lib/app/app.dart'};
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        final normalized = file.path.replaceAll('\\', '/');
+        // ad_gate.dart(showIfEligible의 유일한 구현부)·interstitial_controller.dart(정의부)는
+        // 노출 "호출"이 아니라 정의/내부 위임이므로 대상에서 제외한다.
+        if (normalized.contains('lib/ads/')) continue;
+        final codeOnly = _codeOnly(file.readAsStringSync());
+        final hasCall = codeOnly.contains('consumePendingOnPageTransition(');
+        if (!hasCall) continue;
+        if (allowed.contains(normalized)) continue;
+        violations.add(normalized);
+      }
+      expect(
+        violations,
+        isEmpty,
+        reason: 'app.dart 밖에서 전면광고 전환 소비 호출 발견: $violations',
+      );
+    });
+
+    test('작업 흐름은 광고 대기만 등록하고 직접 표시하지 않는다', () {
+      const taskFlows = {
+        'lib/features/edit/save_dialog.dart',
+        'lib/features/viewer/compress_sheet.dart',
+        'lib/features/common/share_flow.dart',
+      };
+      for (final path in taskFlows) {
         final codeOnly = _codeOnly(_read(path));
-        expect(codeOnly.contains('qpdf_oh_get_page_content_data'), isFalse, reason: '$path가 콘텐츠 스트림 접근 API를 참조함 -- 절대 규칙2(래스터화 금지) 봉쇄선 위반 소지');
+        expect(
+          codeOnly.contains('registerCompletedTask('),
+          isTrue,
+          reason: '$path에 광고 대기 등록이 없다',
+        );
+        expect(
+          codeOnly.contains('showIfEligible('),
+          isFalse,
+          reason: '$path가 전면광고를 직접 표시한다',
+        );
       }
-    });
-
-    test("_commonWriteOptions의 normalizeContent 값이 켜지지 않는다('y' 리터럴이 없다)", () {
-      // normalizeContent는 §5.2부터 이미 존재하는 정당한 L1 쓰기 옵션 키이며 항상 'n'(끔)으로
-      // 고정돼 있다(qpdf_isolate.dart:45) -- 토큰 자체를 금지하면 그 기존 정당한 사용과 충돌한다.
-      // 이 검사가 실제로 막아야 하는 것은 "L2-ext가 콘텐츠 정규화를 켜는 것"이므로 값이 'y'로
-      // 바뀌는 것만 잡는다.
-      final codeOnly = _codeOnly(_read('lib/pdf/qpdf_isolate.dart'));
-      final enabledPattern = RegExp(r"""['"]normalizeContent['"]\s*:\s*['"]y['"]""");
-      expect(enabledPattern.hasMatch(codeOnly), isFalse, reason: 'qpdf_isolate.dart가 normalizeContent를 켬(y) -- 콘텐츠 스트림 재작성은 절대 규칙2 위반');
     });
   });
 }

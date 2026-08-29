@@ -16,11 +16,15 @@ import '../data/repository/document_repository.dart';
 import '../data/repository/recent_repository.dart';
 import '../data/storage/saf_import.dart';
 import '../data/storage/share_export.dart';
+import '../data/storage/public_pdf_exporter.dart';
+import '../data/storage/public_image_exporter.dart';
 import '../data/storage/workspace.dart';
+import '../features/scan/local_document_scan_source.dart';
 import '../pdf/pdf_engine.dart';
 import '../pdf/pdf_renderer.dart';
 import '../pdf/scan_source.dart';
 import 'incoming_intent.dart';
+import 'play_update_service.dart';
 
 /// 부팅 성공 시에만 값이 채워진다. `null`이면 해당 계층 초기화가 실패한 것이다.
 final workspaceProvider = Provider<Workspace?>((ref) => null);
@@ -50,12 +54,30 @@ final shareExportProvider = Provider<ShareExport?>((ref) {
   return SharePlusExport(workspace);
 });
 
+final publicPdfExporterProvider = Provider<PublicPdfExporter>(
+  (ref) => MethodChannelPublicPdfExporter(),
+);
+
+final publicImageExporterProvider = Provider<PublicImageExporter>(
+  (ref) => MethodChannelPublicImageExporter(),
+);
+
+final playUpdateServiceProvider = Provider<PlayUpdateService>(
+  (ref) => PlayUpdateService(),
+);
+
 /// 부팅 중 발생한 비치명 이슈(한글 폰트 누락 등)를 화면에 알리기 위한 목록.
 final bootIssuesProvider = Provider<List<String>>((ref) => const []);
 
-final scanSourceProvider = Provider<ScanSource>((ref) => MlKitScanSource());
-final photoSourceProvider = Provider<PhotoSource>((ref) => FilePickerPhotoSource());
-final safImporterProvider = Provider<SafImporter>((ref) => MethodChannelSafImporter());
+final scanSourceProvider = Provider<ScanSource>(
+  (ref) => LocalDocumentScanSource(),
+);
+final photoSourceProvider = Provider<PhotoSource>(
+  (ref) => FilePickerPhotoSource(),
+);
+final safImporterProvider = Provider<SafImporter>(
+  (ref) => MethodChannelSafImporter(),
+);
 
 /// [2주차 신설] 뷰어·홈 그리드가 공유하는 렌더러. `PdfxRenderer()` 생성 자체는
 /// 실패 여지가 없다(문서를 열 때 실패하는 것과는 별개) — nullable로 두지 않는다.

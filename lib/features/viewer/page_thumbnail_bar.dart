@@ -132,9 +132,9 @@ class _PageThumbnailBarState extends State<PageThumbnailBar> {
                 ),
               ),
               child: bytes == null
-                  ? const ColoredBox(
-                      color: Color(0x11000000),
-                      child: Center(
+                  ? ColoredBox(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      child: const Center(
                         child: SizedBox(
                           width: 14,
                           height: 14,

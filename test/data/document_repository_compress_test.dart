@@ -213,6 +213,10 @@ class _FixedFreeSpaceWorkspace implements Workspace {
   String shareFile(String fileName) => _inner.shareFile(fileName);
   @override
   Future<void> clearShareStaging() => _inner.clearShareStaging();
+  @override
+  Future<void> clearNativeCache() => _inner.clearNativeCache();
+  @override
+  Future<StorageUsage> usage() => _inner.usage();
 }
 
 void main() {

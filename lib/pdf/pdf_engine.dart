@@ -69,7 +69,12 @@ abstract interface class PdfEngine {
 }
 
 class SaveOutcome {
-  const SaveOutcome({required this.outputPath, required this.bytes, required this.pageCount, required this.guard});
+  const SaveOutcome({
+    required this.outputPath,
+    required this.bytes,
+    required this.pageCount,
+    required this.guard,
+  });
   final String outputPath;
   final int bytes;
   final int pageCount;
@@ -77,7 +82,11 @@ class SaveOutcome {
 }
 
 class PdfDocInfo {
-  const PdfDocInfo({required this.pageCount, required this.bytes, required this.isEncrypted});
+  const PdfDocInfo({
+    required this.pageCount,
+    required this.bytes,
+    required this.isEncrypted,
+  });
   final int pageCount;
   final int bytes;
   final bool isEncrypted;
@@ -111,7 +120,8 @@ class QpdfPdfEngine implements PdfEngine {
   }) async {
     final pathError = _validateStagingPath(outputPath, appRoot);
     if (pathError != null) return PdfErr(pathError);
-    if (pages.isEmpty) return const PdfErr(UnknownFailure('pages must not be empty'));
+    if (pages.isEmpty)
+      return const PdfErr(UnknownFailure('pages must not be empty'));
 
     // §5 #2: ImagePageRef -> 화이트리스트+파일 존재, PdfPageRef -> 파일 존재+sourceIndex 범위.
     // sealed switch로 두 케이스를 전부 명시한다(B1 -- is 분기로 우회하지 않는다, default/_ 금지).
@@ -119,7 +129,11 @@ class QpdfPdfEngine implements PdfEngine {
     for (final page in pages) {
       switch (page) {
         case ImagePageRef():
-          final wl = _validateImageWhitelist(imagePath: page.imagePath, outputPath: outputPath, appRoot: appRoot);
+          final wl = _validateImageWhitelist(
+            imagePath: page.imagePath,
+            outputPath: outputPath,
+            appRoot: appRoot,
+          );
           if (wl != null) return PdfErr(wl);
           if (!File(page.imagePath).existsSync()) {
             return PdfErr(SourceMissing(page.imagePath));
@@ -135,13 +149,18 @@ class QpdfPdfEngine implements PdfEngine {
               case PdfErr<PdfDocInfo>():
                 return PdfErr(infoResult.failure);
               case PdfOk<PdfDocInfo>():
-                if (infoResult.value.isEncrypted) return PdfErr(SourceEncrypted(page.sourcePath));
+                if (infoResult.value.isEncrypted)
+                  return PdfErr(SourceEncrypted(page.sourcePath));
                 count = infoResult.value.pageCount;
                 inspectedCounts[page.sourcePath] = count;
             }
           }
           if (page.sourceIndex < 0 || page.sourceIndex >= count) {
-            return PdfErr(UnknownFailure('sourceIndex out of range: ${page.sourcePath}[${page.sourceIndex}]'));
+            return PdfErr(
+              UnknownFailure(
+                'sourceIndex out of range: ${page.sourcePath}[${page.sourceIndex}]',
+              ),
+            );
           }
       }
     }
@@ -149,7 +168,10 @@ class QpdfPdfEngine implements PdfEngine {
     if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
 
     final hasImages = pages.any((p) => p is ImagePageRef);
-    final pdfSources = pages.whereType<PdfPageRef>().map((p) => p.sourcePath).toSet();
+    final pdfSources = pages
+        .whereType<PdfPageRef>()
+        .map((p) => p.sourcePath)
+        .toSet();
 
     // §5.2 표 행 1&2: 전부 동일 소스의 PdfPageRef(회전 포함/미포함) -- `inputFile` 경로가 원본
     // 메타데이터를 보존하므로 더 저렴하다. `buildRotateJob`은 회전이 없을 때도 그대로 쓸 수 있다
@@ -158,7 +180,10 @@ class QpdfPdfEngine implements PdfEngine {
       final sourcePath = pdfSources.first;
       final entries = pages
           .cast<PdfPageRef>()
-          .map((p) => QpdfPageEntry(sourceIndex: p.sourceIndex, rotation: p.rotation))
+          .map(
+            (p) =>
+                QpdfPageEntry(sourceIndex: p.sourceIndex, rotation: p.rotation),
+          )
           .toList(growable: false);
       final resultMap = await runRotateJob(
         sourcePath: sourcePath,
@@ -193,7 +218,8 @@ class QpdfPdfEngine implements PdfEngine {
   }) async {
     final pathError = _validateStagingPath(outputPath, appRoot);
     if (pathError != null) return PdfErr(pathError);
-    if (sourcePdfPaths.isEmpty) return const PdfErr(UnknownFailure('sourcePdfPaths must not be empty'));
+    if (sourcePdfPaths.isEmpty)
+      return const PdfErr(UnknownFailure('sourcePdfPaths must not be empty'));
 
     var baselineBytes = 0;
     for (final sourcePath in sourcePdfPaths) {
@@ -221,7 +247,11 @@ class QpdfPdfEngine implements PdfEngine {
       cancelToken: cancelToken,
       libraryPathOverride: libraryPathOverride,
     );
-    return _finishFromJobResult(resultMap, GuardInput(op: SaveOp.merge, baselineBytes: baselineBytes), outputPath);
+    return _finishFromJobResult(
+      resultMap,
+      GuardInput(op: SaveOp.merge, baselineBytes: baselineBytes),
+      outputPath,
+    );
   }
 
   @override
@@ -247,8 +277,11 @@ class QpdfPdfEngine implements PdfEngine {
         info = infoResult.value;
     }
     if (info.isEncrypted) return PdfErr(SourceEncrypted(sourcePdfPath));
-    if (pageIndices.isEmpty || pageIndices.any((i) => i < 0 || i >= info.pageCount)) {
-      return PdfErr(UnknownFailure('pageIndices out of range for $sourcePdfPath'));
+    if (pageIndices.isEmpty ||
+        pageIndices.any((i) => i < 0 || i >= info.pageCount)) {
+      return PdfErr(
+        UnknownFailure('pageIndices out of range for $sourcePdfPath'),
+      );
     }
 
     if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
@@ -272,8 +305,15 @@ class QpdfPdfEngine implements PdfEngine {
   }
 
   @override
-  Future<PdfResult<PdfDocInfo>> inspect(String pdfPath, {String? password}) async {
-    final map = await runInspect(pdfPath: pdfPath, password: password, libraryPathOverride: libraryPathOverride);
+  Future<PdfResult<PdfDocInfo>> inspect(
+    String pdfPath, {
+    String? password,
+  }) async {
+    final map = await runInspect(
+      pdfPath: pdfPath,
+      password: password,
+      libraryPathOverride: libraryPathOverride,
+    );
     if (map['ok'] == true) {
       return PdfOk(
         PdfDocInfo(
@@ -286,13 +326,12 @@ class QpdfPdfEngine implements PdfEngine {
     return PdfErr(_failureFromErrorMap(map));
   }
 
-  /// [quality] -> (longEdgeMaxPx, jpegQuality). 리터럴 숫자는 여기 없다 -- `image_pdf_builder.dart`의
-  /// 프리셋 상수를 참조만 한다(A-1, §3.4 검사 9).
-  (int, int) _presetFor(ImageQuality quality) => switch (quality) {
-    ImageQuality.high => (ImagePdfBuilder.highLongEdgeMaxPx, ImagePdfBuilder.highJpegQuality),
-    ImageQuality.standard => (ImagePdfBuilder.standardLongEdgeMaxPx, ImagePdfBuilder.standardJpegQuality),
-    ImageQuality.min => (ImagePdfBuilder.minLongEdgeMaxPx, ImagePdfBuilder.minJpegQuality),
-  };
+  /// [quality] -> (longEdgeMaxPx, jpegQuality). 리터럴 숫자는 여기 없다 --
+  /// `image_quality.dart`의 프로필을 참조만 한다.
+  (int, int) _presetFor(ImageQuality quality) {
+    final profile = ImageQualityProfile.of(quality);
+    return (profile.longEdgeMaxPx, profile.jpegQuality);
+  }
 
   /// §5.6 저장 조립 구조의 (b)/(c) 분기 -- 이미지 전용 또는 혼합(이미지+PDF, 다중 PDF 소스 인터리브).
   Future<PdfResult<SaveOutcome>> _saveCompose({
@@ -304,14 +343,20 @@ class QpdfPdfEngine implements PdfEngine {
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
-    onProgress?.call(PdfProgress(phase: PdfPhase.opening, done: 0, total: pages.length));
+    onProgress?.call(
+      PdfProgress(phase: PdfPhase.opening, done: 0, total: pages.length),
+    );
 
     // (경로, 크롭) 쌍으로 넘긴다 -- 같은 마스터 경로가 서로 다른 크롭으로 두 번 나올 수 있으므로
     // 경로 기준 dedupe를 하지 않는다(설계 §2.5). 페이지 순서 그대로의 리스트라 원래도 dedupe는
     // 없었다 -- `ImageEncodeItem` 전환으로 이 사실이 타입 수준에서도 분명해진다.
     final imageItems = [
       for (final p in pages)
-        if (p is ImagePageRef) ImageEncodeItem(imagePath: p.imagePath, cropEncoded: p.crop?.encode()),
+        if (p is ImagePageRef)
+          ImageEncodeItem(
+            imagePath: p.imagePath,
+            cropEncoded: p.crop?.encode(),
+          ),
     ];
     String? imagesPdfPath;
 
@@ -325,11 +370,19 @@ class QpdfPdfEngine implements PdfEngine {
           jpegQuality: jpegQuality,
           cancelToken: cancelToken,
         );
-        if (encodeResult['ok'] != true) return PdfErr(_failureFromErrorMap(encodeResult));
+        if (encodeResult['ok'] != true)
+          return PdfErr(_failureFromErrorMap(encodeResult));
         if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
 
-        final encodedImages = (encodeResult['images']! as List).cast<EncodedImage>();
-        onProgress?.call(PdfProgress(phase: PdfPhase.composing, done: encodedImages.length, total: pages.length));
+        final encodedImages = (encodeResult['images']! as List)
+            .cast<EncodedImage>();
+        onProgress?.call(
+          PdfProgress(
+            phase: PdfPhase.composing,
+            done: encodedImages.length,
+            total: pages.length,
+          ),
+        );
 
         final builtBytes = await ImagePdfBuilder.build(
           jpegPages: [for (final e in encodedImages) e.bytes],
@@ -340,8 +393,15 @@ class QpdfPdfEngine implements PdfEngine {
         final anyRotation = pages.any((p) => p.rotation != 0);
         if (allImages && !anyRotation) {
           // §5.2 표 행 3: qpdf 미사용 -- ImagePdfBuilder의 결과가 그대로 최종 산출물이다.
-          if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
-          onProgress?.call(PdfProgress(phase: PdfPhase.writing, done: pages.length, total: pages.length));
+          if (cancelToken?.isCancelled ?? false)
+            return const PdfErr(Cancelled());
+          onProgress?.call(
+            PdfProgress(
+              phase: PdfPhase.writing,
+              done: pages.length,
+              total: pages.length,
+            ),
+          );
           await File(outputPath).writeAsBytes(builtBytes, flush: true);
           final inspectResult = await inspect(outputPath);
           switch (inspectResult) {
@@ -354,7 +414,11 @@ class QpdfPdfEngine implements PdfEngine {
               return PdfErr(inspectResult.failure);
             case PdfOk<PdfDocInfo>():
               return _finishFromJobResult(
-                {'ok': true, 'bytes': inspectResult.value.bytes, 'pageCount': inspectResult.value.pageCount},
+                {
+                  'ok': true,
+                  'bytes': inspectResult.value.bytes,
+                  'pageCount': inspectResult.value.pageCount,
+                },
                 guardInput,
                 outputPath,
               );
@@ -362,7 +426,8 @@ class QpdfPdfEngine implements PdfEngine {
         }
 
         // qpdf 입력으로 쓸 임시 이미지 PDF. `<staging>/_images.pdf` (§5.6).
-        imagesPdfPath = '${File(outputPath).parent.path}${Platform.pathSeparator}_images.pdf';
+        imagesPdfPath =
+            '${File(outputPath).parent.path}${Platform.pathSeparator}_images.pdf';
         await File(imagesPdfPath).writeAsBytes(builtBytes, flush: true);
       }
 
@@ -374,9 +439,21 @@ class QpdfPdfEngine implements PdfEngine {
       for (final page in pages) {
         switch (page) {
           case PdfPageRef():
-            sources.add(QpdfPageSource(sourcePath: page.sourcePath, sourceIndex: page.sourceIndex, rotation: page.rotation));
+            sources.add(
+              QpdfPageSource(
+                sourcePath: page.sourcePath,
+                sourceIndex: page.sourceIndex,
+                rotation: page.rotation,
+              ),
+            );
           case ImagePageRef():
-            sources.add(QpdfPageSource(sourcePath: imagesPdfPath!, sourceIndex: imageCursor, rotation: page.rotation));
+            sources.add(
+              QpdfPageSource(
+                sourcePath: imagesPdfPath!,
+                sourceIndex: imageCursor,
+                rotation: page.rotation,
+              ),
+            );
             imageCursor++;
         }
       }
@@ -416,7 +493,10 @@ class QpdfPdfEngine implements PdfEngine {
     final resultBytes = resultMap['bytes']! as int;
     final pageCount = resultMap['pageCount']! as int;
 
-    final guardResult = SizeGuard.check(input: guardInput, resultBytes: resultBytes);
+    final guardResult = SizeGuard.check(
+      input: guardInput,
+      resultBytes: resultBytes,
+    );
     switch (guardResult) {
       case GuardBlocked():
         // 엔진은 자기가 쓴 출력 파일만 지운다. 디렉터리 삭제는 Workspace.rollbackStaging 단독 책임이다(Q-D).
@@ -428,7 +508,12 @@ class QpdfPdfEngine implements PdfEngine {
         return PdfErr(SizeGuardViolation(guardResult));
       case GuardPass():
         return PdfOk(
-          SaveOutcome(outputPath: outputPath, bytes: resultBytes, pageCount: pageCount, guard: guardResult),
+          SaveOutcome(
+            outputPath: outputPath,
+            bytes: resultBytes,
+            pageCount: pageCount,
+            guard: guardResult,
+          ),
         );
     }
   }
@@ -462,7 +547,8 @@ String _collapseDotSegments(String slashPath) {
   return (isAbsolute ? '/' : '') + out.join('/');
 }
 
-String _normalize(String path) => _collapseDotSegments(path.replaceAll('\\', '/'));
+String _normalize(String path) =>
+    _collapseDotSegments(path.replaceAll('\\', '/'));
 
 /// outputPath가 정확히 `<appRoot>/docs/<docId>.tmp/document.pdf` 형태인지 검증하고 `docId`를
 /// 뽑는다. 형태가 아니면(루트 불일치·파일명 불일치 포함) null.
@@ -486,7 +572,9 @@ String _normalize(String path) => _collapseDotSegments(path.replaceAll('\\', '/'
 /// outputPath가 `<appRoot>/docs/<docId>.tmp/document.pdf` 형태인지 검증한다(§2.3 계약 불변식 1).
 PdfFailure? _validateStagingPath(String outputPath, String appRoot) {
   if (_stagingScope(outputPath, appRoot) == null) {
-    return const UnknownFailure('outputPath must be <appRoot>/docs/<docId>.tmp/document.pdf');
+    return const UnknownFailure(
+      'outputPath must be <appRoot>/docs/<docId>.tmp/document.pdf',
+    );
   }
   return null;
 }
@@ -494,7 +582,11 @@ PdfFailure? _validateStagingPath(String outputPath, String appRoot) {
 /// `ImagePageRef.imagePath`가 §3.3 화이트리스트 안인지 검증한다.
 /// 허용: `<appRoot>/docs/<docId>/sources/pages/` 또는 `<appRoot>/docs/<docId>.tmp/sources/pages/`
 /// 하위뿐(같은 저장 요청의 outputPath에서 유도한 docId + 주입된 appRoot에 바인딩 -- V2 + C4).
-PdfFailure? _validateImageWhitelist({required String imagePath, required String outputPath, required String appRoot}) {
+PdfFailure? _validateImageWhitelist({
+  required String imagePath,
+  required String outputPath,
+  required String appRoot,
+}) {
   final scope = _stagingScope(outputPath, appRoot);
   if (scope == null) {
     return const UnknownFailure('image path outside sources');
@@ -502,7 +594,8 @@ PdfFailure? _validateImageWhitelist({required String imagePath, required String 
   final normalizedImg = _normalize(imagePath);
   final normalizedRoot = _normalize(appRoot);
   final committedPrefix = '$normalizedRoot/docs/${scope.docId}/sources/pages/';
-  final stagingPrefix = '$normalizedRoot/docs/${scope.docId}.tmp/sources/pages/';
+  final stagingPrefix =
+      '$normalizedRoot/docs/${scope.docId}.tmp/sources/pages/';
 
   String? matchedPrefix;
   if (normalizedImg.startsWith(committedPrefix)) {

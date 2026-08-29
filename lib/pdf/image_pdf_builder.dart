@@ -18,16 +18,19 @@ import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'image_quality.dart';
 import 'page_ref.dart' show CropRect;
 
 abstract final class ImagePdfBuilder {
-  // 저장 경로 프리셋(A-1 유일 소유). `pdf_engine.dart`는 이 상수를 참조만 한다(§3.4 검사 9).
-  static const int highLongEdgeMaxPx = 2480;
-  static const int highJpegQuality = 85;
-  static const int standardLongEdgeMaxPx = 1754;
-  static const int standardJpegQuality = 75;
-  static const int minLongEdgeMaxPx = 1240;
-  static const int minJpegQuality = 60;
+  // 하위 호환용 프리셋 접근자. 실제 정책 소유자는 `image_quality.dart`다.
+  static int get highLongEdgeMaxPx => ImageQualityProfile.high.longEdgeMaxPx;
+  static int get highJpegQuality => ImageQualityProfile.high.jpegQuality;
+  static int get standardLongEdgeMaxPx =>
+      ImageQualityProfile.standard.longEdgeMaxPx;
+  static int get standardJpegQuality =>
+      ImageQualityProfile.standard.jpegQuality;
+  static int get minLongEdgeMaxPx => ImageQualityProfile.min.longEdgeMaxPx;
+  static int get minJpegQuality => ImageQualityProfile.min.jpegQuality;
 
   // A4 포인트(1/72inch) 상수. Q-B 판정 — 이 파일 1곳에만 존재.
   static const double _a4ShortPt = 595.276;
@@ -53,7 +56,12 @@ abstract final class ImagePdfBuilder {
       final image = pw.MemoryImage(jpeg);
       final box = pageBoxFor(jpeg);
       final format = PdfPageFormat(box.$1, box.$2, marginAll: 0);
-      doc.addPage(pw.Page(pageFormat: format, build: (context) => pw.Image(image, fit: pw.BoxFit.fill)));
+      doc.addPage(
+        pw.Page(
+          pageFormat: format,
+          build: (context) => pw.Image(image, fit: pw.BoxFit.fill),
+        ),
+      );
     }
 
     return doc.save();
@@ -98,7 +106,9 @@ abstract final class ImagePdfBuilder {
       final resized = dims.$1 >= dims.$2
           ? img.copyResize(decoded, width: longEdgeMaxPx)
           : img.copyResize(decoded, height: longEdgeMaxPx);
-      final reencoded = Uint8List.fromList(img.encodeJpg(resized, quality: jpegQuality));
+      final reencoded = Uint8List.fromList(
+        img.encodeJpg(resized, quality: jpegQuality),
+      );
 
       return reencoded.length < jpegBytes.length ? reencoded : jpegBytes;
     }
@@ -109,7 +119,9 @@ abstract final class ImagePdfBuilder {
     if (decoded == null) return jpegBytes;
 
     final cropped = _applyCrop(decoded, crop);
-    final longEdge = cropped.width >= cropped.height ? cropped.width : cropped.height;
+    final longEdge = cropped.width >= cropped.height
+        ? cropped.width
+        : cropped.height;
     final resized = longEdge > longEdgeMaxPx
         ? (cropped.width >= cropped.height
               ? img.copyResize(cropped, width: longEdgeMaxPx)
@@ -141,8 +153,12 @@ abstract final class ImagePdfBuilder {
     final dims = _jpegPixelSize(jpegBytes);
     if (dims == null) return (_a4ShortPt, _a4LongPt);
 
-    final wPx = crop == null ? dims.$1.toDouble() : dims.$1 * crop.widthFraction;
-    final hPx = crop == null ? dims.$2.toDouble() : dims.$2 * crop.heightFraction;
+    final wPx = crop == null
+        ? dims.$1.toDouble()
+        : dims.$1 * crop.widthFraction;
+    final hPx = crop == null
+        ? dims.$2.toDouble()
+        : dims.$2 * crop.heightFraction;
     final portrait = hPx >= wPx;
     final boxW = portrait ? _a4ShortPt : _a4LongPt;
     final boxH = portrait ? _a4LongPt : _a4ShortPt;
@@ -159,7 +175,9 @@ abstract final class ImagePdfBuilder {
   ///
   /// L2-ext(qpdf 임베디드 이미지 치환, `pdf_compressor.dart`)가 재인코딩 결과의 성분 수를 원본과
   /// 대조해 색공간 불일치(R2)를 걸러내는 데 쓴다. 헤더를 못 읽으면(비 JPEG 등) null.
-  static (int width, int height, int components)? jpegPixelSize(Uint8List bytes) => _jpegPixelSizeAndComponents(bytes);
+  static (int width, int height, int components)? jpegPixelSize(
+    Uint8List bytes,
+  ) => _jpegPixelSizeAndComponents(bytes);
 
   /// JPEG SOF 마커에서 픽셀 폭·높이를 읽는다. `package:image` 전체 디코드 없이 헤더만 파싱한다
   /// (A-4 스킵 판정이 디코드를 하지 않아야 하므로). 이 파일이 이 계산의 유일한 소유자다
@@ -185,7 +203,12 @@ abstract final class ImagePdfBuilder {
       }
       final marker = bytes[i + 1];
       // SOF0..SOF15, DHT(0xC4)/JPG(0xC8)/DAC(0xCC) 제외.
-      final isSof = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
+      final isSof =
+          marker >= 0xC0 &&
+          marker <= 0xCF &&
+          marker != 0xC4 &&
+          marker != 0xC8 &&
+          marker != 0xCC;
       if (isSof) {
         final height = (bytes[i + 5] << 8) | bytes[i + 6];
         final width = (bytes[i + 7] << 8) | bytes[i + 8];

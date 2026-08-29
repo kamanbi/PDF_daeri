@@ -1,4 +1,4 @@
-/// S1 홈 — 2주차: 2섹션(최근 연 파일 / 내 문서) + 기존 하단 3진입점.
+/// S1 홈 — 제품 소개, 빠른 시작, 최근 연 파일, 내 문서를 한 화면에 둔다.
 /// (설계 §1.0~§1.5)
 ///
 /// **두 섹션을 한 그리드에 섞지 않는다.** 섹션 1은 `RecentRepository.watchRecent()`
@@ -12,11 +12,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
+import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../app/router.dart';
 import '../../data/repository/document_repository.dart';
 import '../../data/repository/recent_repository.dart';
+import '../common/share_flow.dart';
 import '../viewer/open_pdf_flow.dart';
 import 'merge_documents_flow.dart';
 
@@ -38,6 +41,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 /// 시각적 구분)는 담당 U가 T4 이후 라운드에서 다듬는다.
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _selectionMode = false;
+  bool _exitDialogOpen = false;
   final Set<String> _selectedIds = {};
 
   void _toggleSelection(String docId) {
@@ -68,10 +72,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _mergeSelected(List<DocumentSummary> documents) async {
     // 화면에 보이는 순서(= updated_at DESC) 그대로 유지한다 — 선택 순서를 기억하지
     // 않는다(설계 §3.1 "합치기 순서" 확정 사항).
-    final selected = documents.where((d) => _selectedIds.contains(d.id)).toList();
+    final selected = documents
+        .where((d) => _selectedIds.contains(d.id))
+        .toList();
     if (selected.length < 2) return;
-    final result = await mergeDocumentsAndCreate(context: context, ref: ref, selected: selected);
+    final result = await mergeDocumentsAndCreate(
+      context: context,
+      ref: ref,
+      selected: selected,
+    );
     if (result != null && mounted) _exitSelectionMode();
+  }
+
+  Future<void> _handleHomeBack(bool didPop, Object? _) async {
+    if (didPop) return;
+    if (_selectionMode) {
+      _exitSelectionMode();
+      return;
+    }
+    if (_exitDialogOpen) return;
+
+    _exitDialogOpen = true;
+    try {
+      final shouldExit = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('앱을 종료할까요?'),
+          content: const Text('진행 중인 작업이 없으면 앱을 종료합니다.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('종료'),
+            ),
+          ],
+        ),
+      );
+      if (shouldExit == true) {
+        await SystemNavigator.pop();
+      }
+    } finally {
+      if (mounted) _exitDialogOpen = false;
+    }
   }
 
   @override
@@ -91,94 +136,108 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final documents = docsAsync.asData?.value ?? const <DocumentSummary>[];
     final isEmpty = recentFiles.isEmpty && documents.isEmpty;
 
-    return Scaffold(
-      appBar: _selectionMode
-          ? AppBar(
-              leading: IconButton(icon: const Icon(Icons.close), onPressed: _exitSelectionMode),
-              title: Text('${_selectedIds.length}개 선택'),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.call_merge),
-                  tooltip: '합치기',
-                  onPressed: _selectedIds.length >= 2 ? () => _mergeSelected(documents) : null,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: _handleHomeBack,
+      child: Scaffold(
+        appBar: _selectionMode
+            ? AppBar(
+                leading: TextButton(
+                  onPressed: _exitSelectionMode,
+                  child: const Text('취소'),
                 ),
-              ],
-            )
-          : AppBar(
-              title: const Text('PDF 대리'),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  tooltip: '설정',
-                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.settings),
-                ),
-              ],
-            ),
-      body: CustomScrollView(
-        slivers: [
-          if (issues.isNotEmpty)
-            SliverToBoxAdapter(
-              child: MaterialBanner(
-                content: Text(issues.join('\n')),
-                leading: const Icon(Icons.warning_amber_rounded),
+                title: Text('${_selectedIds.length}개 선택'),
                 actions: [
                   TextButton(
-                    onPressed: () => ScaffoldMessenger.of(context).clearMaterialBanners(),
-                    child: const Text('확인'),
+                    onPressed: _selectedIds.length >= 2
+                        ? () => _mergeSelected(documents)
+                        : null,
+                    child: const Text('합치기'),
+                  ),
+                ],
+              )
+            : AppBar(
+                title: const Text('PDF 대리'),
+                actions: [
+                  TextButton(
+                    onPressed: () =>
+                        Navigator.of(context).pushNamed(AppRoutes.settings),
+                    child: const Text('설정'),
                   ),
                 ],
               ),
-            ),
-          if (isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _EmptyHomeBody(
+        body: CustomScrollView(
+          slivers: [
+            if (issues.isNotEmpty)
+              SliverToBoxAdapter(
+                child: MaterialBanner(
+                  content: Text(issues.join('\n')),
+                  leading: const Icon(Icons.warning_amber_rounded),
+                  actions: [
+                    TextButton(
+                      onPressed: () =>
+                          ScaffoldMessenger.of(context).clearMaterialBanners(),
+                      child: const Text('확인'),
+                    ),
+                  ],
+                ),
+              ),
+            const SliverToBoxAdapter(child: _HomeIntro()),
+            SliverToBoxAdapter(
+              child: _EntryPoints(
                 canCreateDocuments: canCreateDocuments,
                 canOpenPdf: canOpenPdf,
               ),
-            )
-          else ...[
-            if (recentFiles.isNotEmpty) ...[
-              const _SectionHeader('최근 연 파일'),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) => _RecentFileTile(file: recentFiles[index]),
-                  childCount: recentFiles.length,
-                ),
-              ),
-            ],
-            if (documents.isNotEmpty) ...[
-              const _SectionHeader('내 문서'),
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.72,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => _DocumentCard(
-                      summary: documents[index],
-                      selectionMode: _selectionMode,
-                      selected: _selectedIds.contains(documents[index].id),
-                      onLongPress: () => _enterSelectionMode(documents[index].id),
-                      onToggleSelected: () => _toggleSelection(documents[index].id),
-                    ),
-                    childCount: documents.length,
-                  ),
-                ),
-              ),
-            ],
-            SliverToBoxAdapter(
-              child: _EntryPoints(canCreateDocuments: canCreateDocuments, canOpenPdf: canOpenPdf),
             ),
-            // 4주차 배너 삽입 지점. 지금은 하단 패딩 0(`AdReserve.bottomPadding`
-            // 상수가 생기기 전까지, 설계 §0.4).
-            const SliverToBoxAdapter(child: SizedBox(height: 0)),
+            if (isEmpty)
+              const SliverToBoxAdapter(child: _EmptyDocumentsNotice())
+            else ...[
+              if (recentFiles.isNotEmpty) ...[
+                const _SectionHeader('최근 연 파일'),
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) =>
+                        _RecentFileTile(file: recentFiles[index]),
+                    childCount: recentFiles.length,
+                  ),
+                ),
+              ],
+              if (documents.isNotEmpty) ...[
+                const _SectionHeader('내 문서'),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 0.72,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _DocumentCard(
+                        summary: documents[index],
+                        selectionMode: _selectionMode,
+                        selected: _selectedIds.contains(documents[index].id),
+                        onLongPress: () =>
+                            _enterSelectionMode(documents[index].id),
+                        onToggleSelected: () =>
+                            _toggleSelection(documents[index].id),
+                      ),
+                      childCount: documents.length,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+            // W4-T6: 배너 완충 밴드(§1.3) — BannerHost.contentBottomPadding이
+            // 광고 제거 구매 시 0을 돌려주므로 여기 분기가 생기지 않는다.
+            SliverToBoxAdapter(
+              child: SizedBox(height: BannerHost.contentBottomPadding(ref)),
+            ),
           ],
-        ],
+        ),
+        bottomNavigationBar: const BannerHost(slot: BannerSlot.home),
       ),
     );
   }
@@ -199,22 +258,51 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _EmptyHomeBody extends StatelessWidget {
-  const _EmptyHomeBody({required this.canCreateDocuments, required this.canOpenPdf});
-  final bool canCreateDocuments;
-  final bool canOpenPdf;
+class _HomeIntro extends StatelessWidget {
+  const _HomeIntro();
+
+  static const double _imageAspectRatio = 4 / 3;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Padding(
-          padding: EdgeInsets.all(24),
-          child: Text('아직 문서가 없습니다. 스캔하거나 PDF를 열어보세요.', textAlign: TextAlign.center),
-        ),
-        _EntryPoints(canCreateDocuments: canCreateDocuments, canOpenPdf: canOpenPdf),
-      ],
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: AspectRatio(
+              aspectRatio: _imageAspectRatio,
+              child: Image.asset(
+                'assets/images/home_document_workspace.png',
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text('PDF 작업, 필요한 순간에 바로.', style: textTheme.headlineSmall),
+          const SizedBox(height: 8),
+          Text(
+            '서류를 스캔하고, 받은 PDF를 열고, 사진을 하나의 문서로 정리하세요.',
+            style: textTheme.bodyLarge,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyDocumentsNotice extends StatelessWidget {
+  const _EmptyDocumentsNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(24, 12, 24, 24),
+      child: Text('저장된 문서가 아직 없습니다.'),
     );
   }
 }
@@ -222,37 +310,53 @@ class _EmptyHomeBody extends StatelessWidget {
 /// 하단 3진입점(스캔·PDF 열기·사진→PDF). 1주차부터 유지, 스크롤 콘텐츠 하단에
 /// 둔다(고정 하단 바가 아니다, §1.0).
 class _EntryPoints extends StatelessWidget {
-  const _EntryPoints({required this.canCreateDocuments, required this.canOpenPdf});
+  const _EntryPoints({
+    required this.canCreateDocuments,
+    required this.canOpenPdf,
+  });
   final bool canCreateDocuments;
   final bool canOpenPdf;
+
+  static const double _buttonHeight = 52;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          FilledButton.icon(
-            icon: const Icon(Icons.document_scanner_outlined),
-            label: const Text('스캔'),
-            onPressed: canCreateDocuments
-                ? () => Navigator.of(context).pushNamed(AppRoutes.scan)
-                : null,
+          SizedBox(
+            width: double.infinity,
+            height: _buttonHeight,
+            child: FilledButton(
+              onPressed: canCreateDocuments
+                  ? () => Navigator.of(context).pushNamed(AppRoutes.scan)
+                  : null,
+              child: const Text('스캔'),
+            ),
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.folder_open_outlined),
-            label: const Text('PDF 열기'),
-            onPressed: canOpenPdf ? () => Navigator.of(context).pushNamed(AppRoutes.openPdf) : null,
+          SizedBox(
+            width: double.infinity,
+            height: _buttonHeight,
+            child: OutlinedButton(
+              onPressed: canOpenPdf
+                  ? () => Navigator.of(context).pushNamed(AppRoutes.openPdf)
+                  : null,
+              child: const Text('PDF 열기'),
+            ),
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.photo_library_outlined),
-            label: const Text('사진 → PDF'),
-            onPressed: canCreateDocuments
-                ? () => Navigator.of(context).pushNamed(AppRoutes.photoToPdf)
-                : null,
+          SizedBox(
+            width: double.infinity,
+            height: _buttonHeight,
+            child: OutlinedButton(
+              onPressed: canCreateDocuments
+                  ? () => Navigator.of(context).pushNamed(AppRoutes.photoToPdf)
+                  : null,
+              child: const Text('사진 → PDF'),
+            ),
           ),
         ],
       ),
@@ -266,31 +370,55 @@ class _RecentFileTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ListTile(
-      leading: const Icon(Icons.picture_as_pdf_outlined),
-      title: Text(file.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text('${_formatBytes(file.size)} · ${_formatOpenedAt(file.openedAt)}'),
-      trailing: IconButton(
-        icon: const Icon(Icons.close),
-        tooltip: '목록에서 제거',
-        onPressed: () async {
-          final repo = ref.read(recentRepositoryProvider);
-          await repo?.removeFromList(file.id);
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('목록에서 제거했습니다')),
-            );
-          }
-        },
-      ),
-      onTap: () => openPdfAndGoToViewer(
-        context: context,
-        ref: ref,
-        source: ExistingRecentSource(file),
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
+          leading: CircleAvatar(
+            backgroundColor: colorScheme.primaryContainer,
+            child: Icon(
+              Icons.picture_as_pdf_outlined,
+              color: colorScheme.onPrimaryContainer,
+            ),
+          ),
+          title: Text(
+            file.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            '${_formatBytes(file.size)} · ${_formatOpenedAt(file.openedAt)}',
+          ),
+          trailing: TextButton(
+            onPressed: () async {
+              final repo = ref.read(recentRepositoryProvider);
+              await repo?.removeFromList(file.id);
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('목록에서 제거했습니다')));
+              }
+            },
+            child: const Text('제거'),
+          ),
+          onTap: () => openPdfAndGoToViewer(
+            context: context,
+            ref: ref,
+            source: ExistingRecentSource(file),
+          ),
+        ),
       ),
     );
   }
 }
+
+enum _DocumentCardAction { share }
 
 class _DocumentCard extends ConsumerWidget {
   const _DocumentCard({
@@ -327,38 +455,83 @@ class _DocumentCard extends ConsumerWidget {
           ),
         );
       },
-      child: Stack(
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: _DocumentThumbnail(summary: summary),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _DocumentThumbnail(summary: summary)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        summary.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${summary.pageCount}p · ${_formatBytes(summary.fileSize)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        _formatDate(summary.updatedAt),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (selectionMode)
+              Positioned(
+                top: 4,
+                left: 4,
+                child: Icon(
+                  selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.surface,
+                ),
+              )
+            else
+              // [W4-T1] `shareExportProvider` 배선(설계 §2.6·§11 W4-T1). 항목은
+              // "공유" 1개뿐이다 — 나누기/삭제/이름변경은 스펙 밖 선제 추가라
+              // 이번 라운드에 넣지 않는다(다음 라운드 flutter-ui가 확장).
+              Positioned(
+                top: 0,
+                right: 0,
+                child: PopupMenuButton<_DocumentCardAction>(
+                  icon: const Icon(Icons.more_vert),
+                  tooltip: '더보기',
+                  onSelected: (action) {
+                    switch (action) {
+                      case _DocumentCardAction.share:
+                        final workspace = ref.read(workspaceProvider);
+                        if (workspace == null) return;
+                        shareDocument(
+                          context: context,
+                          ref: ref,
+                          pdfPath: workspace.docPdf(summary.id),
+                          title: summary.title,
+                        );
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _DocumentCardAction.share,
+                      child: Text('공유'),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(summary.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              Text(
-                '${summary.pageCount}p · ${_formatBytes(summary.fileSize)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              Text(_formatDate(summary.updatedAt), style: Theme.of(context).textTheme.bodySmall),
-            ],
-          ),
-          if (selectionMode)
-            Positioned(
-              top: 4,
-              left: 4,
-              child: Icon(
-                selected ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: selected
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.surface,
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

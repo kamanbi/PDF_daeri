@@ -1,0 +1,10 @@
+[build]
+  command = "cp -R assets website/assets"
+  publish = "website"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "20"

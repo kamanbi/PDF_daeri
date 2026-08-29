@@ -91,4 +91,16 @@ abstract final class FileName {
     }
     return '$normalized.pdf';
   }
+
+  /// 사진 보관함에 저장할 JPEG 파일명. 기존 확장자는 제거해 이중 확장자를 막는다.
+  static String toJpegFileName(String title) {
+    var normalized = normalize(title);
+    final lower = normalized.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+      final extensionLength = lower.endsWith('.jpeg') ? 5 : 4;
+      normalized = normalized.substring(0, normalized.length - extensionLength);
+      if (normalized.isEmpty) normalized = normalize('');
+    }
+    return '$normalized.jpg';
+  }
 }

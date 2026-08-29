@@ -1,11 +1,22 @@
 package com.kamanbi.pdf_daeri
 
 import android.content.Intent
+import android.content.ContentValues
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.StatFs
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -40,8 +51,13 @@ import java.io.FileNotFoundException
  * `_workspace/28_build-runner_intent_device.md`). 그래서 명시적으로 끈다.
  */
 class MainActivity : FlutterActivity() {
+    companion object {
+        private const val IMMEDIATE_UPDATE_REQUEST_CODE = 4102
+    }
+
     override fun shouldHandleDeeplinking(): Boolean = false
     private val storageChannel = "com.kamanbi.pdf_daeri/storage"
+    private val updateChannel = "com.kamanbi.pdf_daeri/update"
     private val safChannel = "com.kamanbi.pdf_daeri/saf"
     private val intentMethodChannel = "com.kamanbi.pdf_daeri/intent"
     private val intentEventChannel = "com.kamanbi.pdf_daeri/intent/stream"
@@ -50,6 +66,7 @@ class MainActivity : FlutterActivity() {
     // (그 이후 재조회하면 null — 화면 재구성 시 같은 문서를 중복 임포트하지 않기 위함).
     private var pendingInitialUri: String? = null
     private var intentEventSink: EventChannel.EventSink? = null
+    private lateinit var appUpdateManager: AppUpdateManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,6 +91,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        appUpdateManager = AppUpdateManagerFactory.create(this)
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -88,6 +106,52 @@ class MainActivity : FlutterActivity() {
                         result.error("STATFS_FAILED", e.message, null)
                     }
                 }
+                "exportPdf" -> {
+                    val sourcePdfPath = call.argument<String>("sourcePdfPath")
+                    val displayName = call.argument<String>("displayName")
+                    val folder = call.argument<String>("folder")
+                    if (sourcePdfPath == null || displayName == null || folder == null) {
+                        result.error("INVALID_ARGS", "sourcePdfPath/displayName/folder required", null)
+                        return@setMethodCallHandler
+                    }
+                    exportPdfToDocuments(sourcePdfPath, displayName, folder, result)
+                }
+                "exportImage" -> {
+                    val sourceImagePath = call.argument<String>("sourceImagePath")
+                    val displayName = call.argument<String>("displayName")
+                    val rotationDegrees = call.argument<Int>("rotationDegrees")
+                    val jpegQuality = call.argument<Int>("jpegQuality")
+                    if (sourceImagePath == null || displayName == null || rotationDegrees == null || jpegQuality == null) {
+                        result.error("INVALID_ARGS", "sourceImagePath/displayName/rotationDegrees/jpegQuality required", null)
+                        return@setMethodCallHandler
+                    }
+                    exportImageToPictures(sourceImagePath, displayName, rotationDegrees, jpegQuality, result)
+                }
+                "clearNativeCache" -> {
+                    try {
+                        result.success(clearNativeCache())
+                    } catch (e: Exception) {
+                        result.error("CLEAR_FAILED", e.message, null)
+                    }
+                }
+                "nativeCacheBytes" -> {
+                    try {
+                        result.success(nativeCacheBytes())
+                    } catch (e: Exception) {
+                        result.error("USAGE_FAILED", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            updateChannel,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isImmediateUpdateAvailable" -> checkImmediateUpdate(result)
+                "startImmediateUpdate" -> startImmediateUpdate(result)
                 else -> result.notImplemented()
             }
         }
@@ -143,12 +207,186 @@ class MainActivity : FlutterActivity() {
     private fun extractViewUri(intent: Intent?): String? {
         if (intent == null) return null
         if (intent.action != Intent.ACTION_VIEW) return null
-        return intent.data?.toString()
+        val uri = intent.data ?: return null
+        if (!isAcceptableContentUri(uri)) return null
+        return uri.toString()
+    }
+
+    /**
+     * M-2 대응(`_workspace/64_security_review_full_app.md`): `content://`가
+     * 아닌 스킴(`file://` 등)은 같은 기기의 악성 앱이 자기 UID 권한으로 열리는
+     * 임의 경로를 넘겨 앱이 스스로 내부 파일을 복사하게 만들 수 있어 거부한다.
+     * 자기 자신의 authority를 되받는 경우도 방어적으로 거부한다.
+     */
+    private fun isAcceptableContentUri(uri: Uri): Boolean {
+        if (uri.scheme != android.content.ContentResolver.SCHEME_CONTENT) return false
+        if (uri.authority?.startsWith(packageName) == true) return false
+        return true
+    }
+
+    private fun checkImmediateUpdate(result: MethodChannel.Result) {
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                val available = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                    info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
+                result.success(available)
+            }
+            .addOnFailureListener { result.success(false) }
+    }
+
+    private fun startImmediateUpdate(result: MethodChannel.Result) {
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                val available = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                    info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
+                if (!available) {
+                    result.success(false)
+                    return@addOnSuccessListener
+                }
+                @Suppress("DEPRECATION")
+                val started = appUpdateManager.startUpdateFlowForResult(
+                    info,
+                    AppUpdateType.IMMEDIATE,
+                    this,
+                    IMMEDIATE_UPDATE_REQUEST_CODE,
+                )
+                result.success(started)
+            }
+            .addOnFailureListener { result.success(false) }
+    }
+
+    private fun exportPdfToDocuments(
+        sourcePdfPath: String,
+        displayName: String,
+        folder: String,
+        result: MethodChannel.Result,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.error("UNSUPPORTED", "Android 10 이상이 필요합니다.", null)
+            return
+        }
+        val source = File(sourcePdfPath)
+        if (!source.exists()) {
+            result.error("NOT_FOUND", "저장한 PDF를 찾을 수 없습니다.", null)
+            return
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+            put(
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                "${Environment.DIRECTORY_DOWNLOADS}/PDF 대리/$folder",
+            )
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val resolver = contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        if (uri == null) {
+            result.error("CREATE_FAILED", "기본 폴더를 만들 수 없습니다.", null)
+            return
+        }
+        try {
+            resolver.openOutputStream(uri)?.use { output ->
+                source.inputStream().use { input -> input.copyTo(output) }
+            } ?: throw FileNotFoundException("공용 PDF 출력 스트림을 열 수 없습니다.")
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            result.success(uri.toString())
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            result.error("EXPORT_FAILED", e.message, null)
+        }
+    }
+
+    private fun exportImageToPictures(
+        sourceImagePath: String,
+        displayName: String,
+        rotationDegrees: Int,
+        jpegQuality: Int,
+        result: MethodChannel.Result,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.error("UNSUPPORTED", "Android 10 이상이 필요합니다.", null)
+            return
+        }
+        val source = File(sourceImagePath)
+        if (!source.exists()) {
+            result.error("NOT_FOUND", "저장할 사진을 찾을 수 없습니다.", null)
+            return
+        }
+
+        val resolver = contentResolver
+        var uri: Uri? = null
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_PICTURES}/PDF 대리/스캔 문서",
+                )
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            if (uri == null) {
+                result.error("CREATE_FAILED", "사진 보관함을 만들 수 없습니다.", null)
+                return
+            }
+            resolver.openOutputStream(uri)?.use { output ->
+                writeJpeg(source, rotationDegrees, jpegQuality, output)
+            } ?: throw FileNotFoundException("공용 사진 출력 스트림을 열 수 없습니다.")
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            result.success(uri.toString())
+        } catch (e: Exception) {
+            uri?.let { resolver.delete(it, null, null) }
+            result.error("EXPORT_FAILED", e.message, null)
+        }
+    }
+
+    private fun writeJpeg(
+        source: File,
+        rotationDegrees: Int,
+        jpegQuality: Int,
+        output: java.io.OutputStream,
+    ) {
+        val normalizedRotation = ((rotationDegrees % 360) + 360) % 360
+        if (normalizedRotation == 0) {
+            source.inputStream().use { input -> input.copyTo(output) }
+            return
+        }
+        val decoded = BitmapFactory.decodeFile(source.path)
+            ?: throw FileNotFoundException("저장할 사진을 읽을 수 없습니다.")
+        val rotated = Bitmap.createBitmap(
+            decoded,
+            0,
+            0,
+            decoded.width,
+            decoded.height,
+            Matrix().apply { postRotate(normalizedRotation.toFloat()) },
+            true,
+        )
+        try {
+            if (!rotated.compress(Bitmap.CompressFormat.JPEG, jpegQuality.coerceIn(1, 100), output)) {
+                throw IllegalStateException("사진 JPEG 인코딩에 실패했습니다.")
+            }
+        } finally {
+            if (rotated !== decoded) rotated.recycle()
+            decoded.recycle()
+        }
     }
 
     private fun copyContentUriToPath(uriString: String, destinationPath: String, result: MethodChannel.Result) {
         try {
             val uri = Uri.parse(uriString)
+            // M-2 대응: 진입점 2곳(`extractViewUri`도 검증) 모두 방어한다 — 이
+            // 채널은 SAF 피커에서도 호출되지만 스킴 검증 자체는 항상 유효하다.
+            if (!isAcceptableContentUri(uri)) {
+                result.error("INVALID_SCHEME", "content:// URI만 허용됩니다: $uriString", null)
+                return
+            }
             val displayName = queryDisplayName(uri)
 
             val destFile = File(destinationPath)
@@ -178,6 +416,52 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             result.error("IO_ERROR", e.message, null)
         }
+    }
+
+    /**
+     * M-3 대응(`_workspace/64_security_review_full_app.md`): `third_party/doclens`가
+     * `cacheDir`(및 `File.createTempFile` 기본 임시 디렉터리 — Android에서는
+     * `cacheDir`와 동일)에 `fnds_*` 접두사로 남기는 스캔 원본·보정 JPEG과
+     * `share_plus`의 `cacheDir/share_plus/` 공유 스테이징을 정리한다.
+     * doclens 소스 자체는 벤더링된 외부 코드라 고치지 않고(2026-08-26 확정),
+     * 이 네이티브 채널에서 대신 치운다. Dart 쪽은
+     * `lib/data/storage/workspace.dart`의 `clearCache()`/`ensureLayout()`에서
+     * 이 메서드를 호출한다.
+     */
+    private fun clearNativeCache(): Long {
+        var freed = 0L
+        val cache = cacheDir ?: return 0L
+        cache.listFiles()?.forEach { f ->
+            if (f.isFile && f.name.startsWith("fnds_")) {
+                val len = f.length()
+                if (f.delete()) freed += len
+            }
+        }
+        val sharePlusDir = File(cache, "share_plus")
+        if (sharePlusDir.exists()) {
+            freed += dirBytes(sharePlusDir)
+            sharePlusDir.deleteRecursively()
+        }
+        return freed
+    }
+
+    private fun nativeCacheBytes(): Long {
+        val cache = cacheDir ?: return 0L
+        var bytes = 0L
+        cache.listFiles()?.forEach { f ->
+            if (f.isFile && f.name.startsWith("fnds_")) bytes += f.length()
+        }
+        bytes += dirBytes(File(cache, "share_plus"))
+        return bytes
+    }
+
+    private fun dirBytes(dir: File): Long {
+        if (!dir.exists()) return 0L
+        var bytes = 0L
+        dir.listFiles()?.forEach { f ->
+            bytes += if (f.isDirectory) dirBytes(f) else f.length()
+        }
+        return bytes
     }
 
     private fun queryDisplayName(uri: Uri): String? {

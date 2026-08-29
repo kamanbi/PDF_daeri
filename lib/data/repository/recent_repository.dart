@@ -43,6 +43,13 @@ abstract interface class RecentRepository {
 
   /// 용량 상한 초과 시 `opened_at` 오래된 복사본부터 정리한다.
   Future<void> enforceQuota();
+
+  /// [4주차 D-3 · S5 "최근 파일 전체 정리"] 최근 연 파일 목록을 통째로 비운다.
+  /// `removeFromList`를 반복 호출하지 않는다 — DB 행을 한 번에 지우고
+  /// `recent/` 디렉터리 자체를 통째로 비워, DB 행 없이 남은 고아 파일(`removeFromList`
+  /// 삭제 실패 잔재 등)까지 함께 정리한다(설계 §6.3). 원본 파일(`docs/`)은
+  /// 건드리지 않는다.
+  Future<void> clearAll();
 }
 
 class RecentFile {
@@ -239,6 +246,29 @@ class DriftRecentRepository implements RecentRepository {
     for (final row in toRemove) {
       await (_db.delete(_db.recentFiles)..where((t) => t.id.equals(row.id))).go();
       await _deleteCopyIfExists(row.copiedPath);
+    }
+  }
+
+  @override
+  Future<void> clearAll() async {
+    // DB 행을 한 번에 지운다(§6.3 — removeFromList 반복 호출이 아니다).
+    await _db.delete(_db.recentFiles).go();
+
+    // recent/ 디렉터리 자체를 통째로 비운다. `Workspace`는 recent/ 하위
+    // 파일 경로만 노출하므로(`recentFile(id)`), 임의 id의 dirname으로
+    // recent/ 루트를 얻는다 — 새 인터페이스를 추가하지 않고 기존 단일
+    // 소유 경로 조립을 그대로 재사용한다.
+    final recentRoot = Directory(p.dirname(_workspace.recentFile('_')));
+    if (await recentRoot.exists()) {
+      try {
+        await recentRoot.delete(recursive: true);
+        await recentRoot.create(recursive: true);
+      } catch (_) {
+        // DB 행은 이미 비었으므로 목록은 정상적으로 빈 채 보인다. 디렉터리
+        // 삭제 실패는 "항상 삭제해도 안전" 원칙과 동일하게 무음 처리하고
+        // 사용자 동작을 막지 않는다 — 남은 파일은 다음 clearAll() 시도 때
+        // 다시 정리된다.
+      }
     }
   }
 

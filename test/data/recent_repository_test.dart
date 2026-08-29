@@ -286,4 +286,72 @@ void main() {
       expect(first.map((r) => r.id).toList(), ['b', 'c', 'a']);
     });
   });
+
+  group('clearAll (4주차 D-3 · S5 "최근 파일 전체 정리")', () {
+    test('DB 행을 전부 지운다', () async {
+      final repo = repoWith();
+      await insertRow(id: 'a', openedAt: 1, size: 10);
+      await insertRow(id: 'b', openedAt: 2, size: 10);
+
+      await repo.clearAll();
+
+      final rows = await db.select(db.recentFiles).get();
+      expect(rows, isEmpty);
+    });
+
+    test('recent/ 하위 복사본 파일도 함께 지운다', () async {
+      final repo = repoWith();
+      await insertRow(id: 'a', openedAt: 1, size: 10);
+      expect(File(workspace.recentFile('a')).existsSync(), isTrue);
+
+      await repo.clearAll();
+
+      expect(File(workspace.recentFile('a')).existsSync(), isFalse);
+    });
+
+    test('고아 파일(DB 행 없이 recent/에만 남은 파일)도 함께 지운다(§6.3)', () async {
+      final repo = repoWith();
+      final orphanPath = workspace.recentFile('orphan');
+      await Directory(p.dirname(orphanPath)).create(recursive: true);
+      await File(orphanPath).writeAsBytes([1, 2, 3]);
+      expect(File(orphanPath).existsSync(), isTrue);
+
+      await repo.clearAll();
+
+      expect(File(orphanPath).existsSync(), isFalse);
+    });
+
+    test('원본 문서(docs/)는 건드리지 않는다', () async {
+      final repo = repoWith();
+      await insertRow(id: 'a', openedAt: 1, size: 10);
+      final docPath = workspace.docPdf('unrelated-doc');
+      await File(docPath).create(recursive: true);
+      await File(docPath).writeAsBytes([7]);
+
+      await repo.clearAll();
+
+      expect(File(docPath).existsSync(), isTrue);
+    });
+
+    test('정리 후에도 recent/ 디렉터리 자체는 남아 다음 임포트를 받을 수 있다', () async {
+      final repo = repoWith();
+      await insertRow(id: 'a', openedAt: 1, size: 10);
+
+      await repo.clearAll();
+
+      expect(
+        await Directory(p.dirname(workspace.recentFile('_'))).exists(),
+        isTrue,
+      );
+
+      // 정리 후에도 정상적으로 새 임포트가 가능해야 한다.
+      final result = await repo.importFromUri('content://com.example/doc/after-clear');
+      expect(result, isA<PdfOk<RecentFile>>());
+    });
+
+    test('빈 상태에서 호출해도 예외 없이 성공한다', () async {
+      final repo = repoWith();
+      await expectLater(repo.clearAll(), completes);
+    });
+  });
 }

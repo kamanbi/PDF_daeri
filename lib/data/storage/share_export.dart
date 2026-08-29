@@ -29,7 +29,10 @@ abstract interface class ShareExport {
   /// [pdfPath]는 앱 작업공간 안의 실제 PDF 경로(`docs/<docId>/document.pdf` 또는
   /// `recent/<id>.pdf`)이고, [title]은 표시용 제목(한글 원문, 아직 정규화 전이어도
   /// 된다 — 정규화·확장자 부착은 구현체가 `FileName.toFileName`으로 한다).
-  Future<PdfResult<void>> sharePdf({required String pdfPath, required String title});
+  Future<PdfResult<void>> sharePdf({
+    required String pdfPath,
+    required String title,
+  });
 }
 
 /// [ShareExport]의 `share_plus` 구현체. (T6, 담당 P)
@@ -43,14 +46,19 @@ abstract interface class ShareExport {
 class SharePlusExport implements ShareExport {
   /// [share] 주입 지점은 테스트 전용이다(§ 파일 상단 참조) — 실기기 코드 경로는
   /// 기본값(`SharePlus.instance.share`) 그대로다.
-  SharePlusExport(this._workspace, {Future<ShareResult> Function(ShareParams)? share})
-    : _share = share ?? SharePlus.instance.share;
+  SharePlusExport(
+    this._workspace, {
+    Future<ShareResult> Function(ShareParams)? share,
+  }) : _share = share ?? SharePlus.instance.share;
 
   final Workspace _workspace;
   final Future<ShareResult> Function(ShareParams) _share;
 
   @override
-  Future<PdfResult<void>> sharePdf({required String pdfPath, required String title}) async {
+  Future<PdfResult<void>> sharePdf({
+    required String pdfPath,
+    required String title,
+  }) async {
     final source = File(pdfPath);
     if (!await source.exists()) {
       return PdfErr(SourceMissing(pdfPath));
@@ -70,7 +78,13 @@ class SharePlusExport implements ShareExport {
     }
 
     try {
-      await _share(ShareParams(files: [XFile(stagedPath)]));
+      await _share(
+        ShareParams(
+          files: [XFile(stagedPath)],
+          title: '$fileName 공유',
+          text: 'PDF 대리에서 보낸 PDF입니다.',
+        ),
+      );
       return const PdfOk(null);
     } catch (e) {
       return PdfErr(UnknownFailure('공유하지 못했습니다: $e'));

@@ -85,7 +85,8 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
       }
     }
 
-    final op = _controller.classify(); // before가 비어 있으므로 항상 SaveOp.merge(placeholder).
+    final op = _controller
+        .classify(); // before가 비어 있으므로 항상 SaveOp.merge(placeholder).
     final guardInput = assembleGuardInput(op: op, baselineBytes: baselineBytes);
 
     final spec = SaveRequestSpec(
@@ -98,12 +99,18 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
 
     if (state.pages.isEmpty) return;
 
-    final summary = await showSaveDialog(context: context, ref: ref, spec: spec);
+    final summary = await showSaveDialog(
+      context: context,
+      ref: ref,
+      spec: spec,
+    );
     if (summary == null || !mounted) return;
 
     Navigator.of(context).popUntil((route) => route.isFirst);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('새 파일로 저장됨 — "${summary.title}" (${summary.pageCount}쪽)')),
+      SnackBar(
+        content: Text('새 파일로 저장됨 — "${summary.title}" (${summary.pageCount}쪽)'),
+      ),
     );
   }
 
@@ -113,7 +120,10 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('페이지를 삭제했습니다'),
-        action: SnackBarAction(label: '실행취소', onPressed: () => _controller.undoDelete(removed)),
+        action: SnackBarAction(
+          label: '실행취소',
+          onPressed: () => _controller.undoDelete(removed),
+        ),
       ),
     );
   }
@@ -132,32 +142,37 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
       child: Scaffold(
         appBar: AppBar(
           leading: isSelect
-              ? IconButton(icon: const Icon(Icons.close), tooltip: '선택 해제', onPressed: _controller.clearSelection)
+              ? TextButton(
+                  onPressed: _controller.clearSelection,
+                  child: const Text('취소'),
+                )
               : null,
-          title: Text(isSelect ? '${state.selected.length}개 선택' : '${state.pages.length}장'),
+          title: Text(
+            isSelect
+                ? '${state.selected.length}개 선택'
+                : '${state.pages.length}장',
+          ),
           actions: isSelect
               ? [
-                  IconButton(
-                    icon: const Icon(Icons.rotate_right),
-                    tooltip: '회전',
-                    onPressed: state.selected.isEmpty ? null : _controller.rotateSelected,
+                  TextButton(
+                    onPressed: state.selected.isEmpty
+                        ? null
+                        : _controller.rotateSelected,
+                    child: const Text('회전'),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: '삭제',
+                  TextButton(
                     onPressed: state.selected.isEmpty ? null : _deleteSelected,
+                    child: const Text('삭제'),
                   ),
                 ]
               : [
-                  IconButton(
-                    icon: const Icon(Icons.checklist_outlined),
-                    tooltip: '선택',
+                  TextButton(
                     onPressed: _controller.enterSelectModeOnly,
+                    child: const Text('선택'),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.save_outlined),
-                    tooltip: '저장',
+                  TextButton(
                     onPressed: state.pages.isEmpty ? null : _save,
+                    child: const Text('저장'),
                   ),
                 ],
         ),

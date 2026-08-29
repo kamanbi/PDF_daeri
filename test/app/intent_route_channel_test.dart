@@ -45,6 +45,18 @@ void main() {
   testWidgets(
     '외부 VIEW 인텐트의 원시 파일 경로가 flutter/navigation 채널로 유입돼도 앱이 죽지 않는다',
     (tester) async {
+      // [2026-08-26 · 보안점검 전체 회귀 중 발견] 기본 테스트 뷰포트(논리 800×600,
+      // 실제 폰보다 가로로 훨씬 넓고 세로로 짧다)에서는 3.5주차 디자인 패스로 커진
+      // 홈 화면 상단 소개 문구(_HomeIntro) 때문에 `_EntryPoints`(스캔 버튼)가
+      // CustomScrollView의 기본 cacheExtent 밖으로 밀려나 애초에 빌드되지 않는다
+      // (스크롤 안 한 게 아니라 렌더 트리에 존재 자체를 안 함 — SliverToBoxAdapter
+      // 개수로 확인). 실기기는 세로가 훨씬 길어(예: 360×800dp) 이 문제가 없다.
+      // 실제 폰 비율로 뷰포트를 맞춰 재현 조건을 실사용 환경에 가깝게 만든다.
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       await tester.pumpWidget(const ProviderScope(child: PdfDaeriApp()));
       await tester.pumpAndSettle();
 

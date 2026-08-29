@@ -15,17 +15,21 @@
 /// `SaveOp`와 원본 바이트 크기만 재고, 조립 자체는 항상 이 함수를 거친다.
 library;
 
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ads/ad_gate.dart';
 import '../../app/providers.dart';
 import '../../core/app_error.dart';
 import '../../core/cancel_token.dart';
+import '../../core/file_name.dart';
 import '../../core/progress.dart';
 import '../../core/size_guard.dart';
 import '../../data/repository/document_repository.dart';
+import '../../data/storage/public_pdf_exporter.dart';
 import '../../pdf/image_quality.dart';
 import '../../pdf/page_ref.dart';
 import '../common/failure_ui.dart';
@@ -95,7 +99,9 @@ class _SaveDialog extends ConsumerStatefulWidget {
 }
 
 class _SaveDialogState extends ConsumerState<_SaveDialog> {
-  late final TextEditingController _titleController = TextEditingController(text: widget.spec.suggestedTitle);
+  late final TextEditingController _titleController = TextEditingController(
+    text: widget.spec.suggestedTitle,
+  );
   final FocusNode _titleFocusNode = FocusNode();
 
   _Stage _stage = _Stage.input;
@@ -110,7 +116,10 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
     // 제목 필드는 전체 선택 상태로 포커스(설계 §5.1).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _titleFocusNode.requestFocus();
-      _titleController.selection = TextSelection(baseOffset: 0, extentOffset: _titleController.text.length);
+      _titleController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _titleController.text.length,
+      );
     });
   }
 
@@ -130,11 +139,16 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
   Future<void> _save() async {
     final repo = ref.read(documentRepositoryProvider);
     if (repo == null) {
-      await FailureUi.showDialog(context, const UnknownFailure('저장소를 사용할 수 없습니다.'));
+      await FailureUi.showDialog(
+        context,
+        const UnknownFailure('저장소를 사용할 수 없습니다.'),
+      );
       return;
     }
 
-    final title = _titleController.text.trim().isEmpty ? widget.spec.suggestedTitle : _titleController.text.trim();
+    final title = _titleController.text.trim().isEmpty
+        ? widget.spec.suggestedTitle
+        : _titleController.text.trim();
 
     final token = CancelToken();
     setState(() {
@@ -161,6 +175,9 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
 
     switch (result) {
       case PdfOk<DocumentSummary>(:final value):
+        await _exportPublicCopy(value);
+        if (!mounted) return;
+        unawaited(ref.read(adGateProvider).registerCompletedTask());
         Navigator.of(context).pop(value);
       case PdfErr<DocumentSummary>(:final failure):
         developer.log('저장 실패', name: 'SaveDialog', error: failure);
@@ -168,6 +185,27 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
         if (failure is! Cancelled) {
           await FailureUi.showDialog(context, failure);
         }
+    }
+  }
+
+  Future<void> _exportPublicCopy(DocumentSummary summary) async {
+    final workspace = ref.read(workspaceProvider);
+    if (workspace == null) return;
+    final result = await ref
+        .read(publicPdfExporterProvider)
+        .export(
+          PublicPdfExportRequest(
+            sourcePdfPath: workspace.docPdf(summary.id),
+            fileName: FileName.toFileName(summary.title),
+            category: summary.origin == DocOrigin.scan
+                ? PublicPdfCategory.scanned
+                : PublicPdfCategory.modified,
+          ),
+        );
+    if (result is PdfErr<void> && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('문서는 저장되었지만 기본 폴더로 복사하지 못했습니다.')),
+      );
     }
   }
 
@@ -212,29 +250,36 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
         TextField(
           controller: _titleController,
           focusNode: _titleFocusNode,
-          decoration: const InputDecoration(labelText: '제목', border: OutlineInputBorder()),
+          decoration: InputDecoration(
+            labelText: '제목',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+          ),
         ),
         if (widget.spec.showQualityPicker) ...[
           const SizedBox(height: 16),
           // compress_sheet.dart와 같은 문구·배치(설계 §5.1). 여기서는 탭이 곧 실행은
           // 아니다 — 선택만 갱신하고 [저장] 버튼이 실행한다.
           _QualityTile(
-            title: '고화질',
-            subtitle: '도면·작은 글씨',
-            selected: _quality == ImageQuality.high,
+            profile: ImageQualityProfile.high,
+            inputBytes: widget.spec.guardInput.baselineBytes,
+            selected: _quality == ImageQualityProfile.high.quality,
             onTap: () => setState(() => _quality = ImageQuality.high),
           ),
           _QualityTile(
-            title: '기본',
-            subtitle: '권장',
-            selected: _quality == ImageQuality.standard,
+            profile: ImageQualityProfile.standard,
+            inputBytes: widget.spec.guardInput.baselineBytes,
+            selected: _quality == ImageQualityProfile.standard.quality,
             onTap: () => setState(() => _quality = ImageQuality.standard),
           ),
           _QualityTile(
-            title: '최소',
-            subtitle: '메일 첨부',
-            selected: _quality == ImageQuality.min,
+            profile: ImageQualityProfile.min,
+            inputBytes: widget.spec.guardInput.baselineBytes,
+            selected: _quality == ImageQualityProfile.min.quality,
             onTap: () => setState(() => _quality = ImageQuality.min),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '예상치는 선택한 사진의 크기 기준입니다. 이미 작은 사진·PDF 페이지는 원본과 비슷할 수 있습니다.',
           ),
         ],
         const SizedBox(height: 20),
@@ -274,14 +319,14 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
 
 class _QualityTile extends StatelessWidget {
   const _QualityTile({
-    required this.title,
-    required this.subtitle,
+    required this.profile,
+    required this.inputBytes,
     required this.selected,
     required this.onTap,
   });
 
-  final String title;
-  final String subtitle;
+  final ImageQualityProfile profile;
+  final int inputBytes;
   final bool selected;
   final VoidCallback onTap;
 
@@ -289,9 +334,17 @@ class _QualityTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: selected ? Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary) : null,
+      title: Text(profile.label),
+      subtitle: Text(
+        '${profile.recommendedFor}\n${profile.processingDescription}\n${profile.estimateFor(inputBytes)}',
+      ),
+      isThreeLine: true,
+      trailing: selected
+          ? Text(
+              '선택됨',
+              style: TextStyle(color: Theme.of(context).colorScheme.primary),
+            )
+          : null,
       onTap: onTap,
     );
   }

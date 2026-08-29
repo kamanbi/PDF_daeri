@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.2+3
 
 environment:
   sdk: ^3.12.2
@@ -37,7 +37,8 @@ dependencies:
   pdfrx: ^2.4.7
   pdf: ^3.13.0
   image: ^4.9.1
-  google_mlkit_document_scanner: ^0.5.0
+  doclens:
+    path: third_party/doclens
   drift: ^2.34.3
   sqlite3_flutter_libs: ^0.6.0+eol
   path: ^1.9.1
@@ -48,6 +49,11 @@ dependencies:
   path_provider: ^2.1.6
   ffi: ^2.1.3
   share_plus: ^13.3.0
+  google_mobile_ads: ^9.1.0
+  in_app_purchase: ^3.3.0
+  in_app_purchase_android: ^0.5.2
+  package_info_plus: ^10.2.1
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -64,6 +70,15 @@ dev_dependencies:
   ffigen: ^17.0.0
   integration_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+
+# 4주차 W4-T12: 앱 아이콘 생성 설정. `dart run flutter_launcher_icons`로 실행.
+# 원본: assets/image.png(1254x1254, 사용자 제공 "PDF 대리" 로고 — 라운드 코너·그림자 포함).
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/image.png"
+  adaptive_icon_background: "#14171B"
+  adaptive_icon_foreground: "assets/image.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -79,6 +94,7 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/fonts/
+    - assets/images/
     - assets/licenses/
 
   # An image asset can refer to one or more resolution-specific "variants", see
@@ -87,22 +103,16 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
-  # fonts:
-  #   - family: Schyler
-  #     fonts:
-  #       - asset: fonts/Schyler-Regular.ttf
-  #       - asset: fonts/Schyler-Italic.ttf
-  #         style: italic
-  #   - family: Trajan Pro
-  #     fonts:
-  #       - asset: fonts/TrajanPro.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
-  #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+  # 3.5주차 디자인: 앱 UI 본문 폰트(Pretendard, OFL). PDF 텍스트 임베딩용
+  # NotoSansKR(assets/fonts/NotoSansKR-Regular.ttf)와는 별개 — 그건 pdf/image_pdf_builder.dart가
+  # rootBundle로 직접 읽는 임베딩 전용 폰트이고, 여기 등록하는 건 Flutter 위젯 텍스트용이다.
+  fonts:
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/Pretendard-Regular.ttf
+        - asset: assets/fonts/Pretendard-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Pretendard-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Pretendard-Bold.ttf
+          weight: 700

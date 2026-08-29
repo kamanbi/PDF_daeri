@@ -6,6 +6,7 @@
 *.keystore
 key.properties
 android/key.properties
+android/ads.properties
 .env
 .env.*
 !.env.example
@@ -102,3 +103,6 @@ native/*/build-*/
 native/*/*.tar.gz
 native/*/src-*/
 .qpdf_build_tmp/
+
+# Local Netlify folder
+.netlify

@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../core/app_error.dart';
 import '../../pdf/page_ref.dart';
@@ -31,10 +32,17 @@ class PageGridEditor extends ConsumerStatefulWidget {
     required this.controller,
     required this.actions,
     this.onCropRequested,
+    this.bottomPadding = 0,
   });
 
   final EditController controller;
   final Set<EditAction> actions;
+
+  /// W4-T6/T7: 배너 완충 밴드(§1.3). `edit_screen.dart`가
+  /// `BannerHost.contentBottomPadding(ref)`를 그대로 넘긴다 — 이 위젯이 직접
+  /// `adsRemoved`/배너 provider를 읽지 않는다(§4.3 검사28 — 화면 코드가 그 값을
+  /// 읽지 않는다는 계약을 그리드 위젯도 그대로 지킨다).
+  final double bottomPadding;
 
   /// [actions]에 [EditAction.crop]이 있을 때, 페이지의 크롭 아이콘을 탭하면 호출된다.
   /// 크롭 UI(`crop_editor.dart`)를 여는 것은 화면(사진 흐름 전용)의 책임이다 — 그리드는
@@ -54,7 +62,15 @@ class _PageGridEditorState extends ConsumerState<PageGridEditor> {
   void dispose() {
     _autoScrollTimer?.cancel();
     _scrollController.dispose();
+    // 방어 3(§1.4) 안전장치: 화면이 파괴될 때 드래그 회피 신호를 되돌린다 —
+    // 이 화면을 나가는 도중 신호가 true로 남아 다른 화면의 BannerHost가
+    // 계속 회피 상태로 남는 것을 막는다.
+    ref.read(bannerDragAvoidProvider.notifier).state = false;
     super.dispose();
+  }
+
+  void _setDragAvoid(bool value) {
+    ref.read(bannerDragAvoidProvider.notifier).state = value;
   }
 
   void _maybeAutoScroll(Offset globalPosition, BuildContext context) {
@@ -100,7 +116,7 @@ class _PageGridEditorState extends ConsumerState<PageGridEditor> {
         final state = snapshot.data ?? widget.controller.current;
         return GridView.builder(
           controller: _scrollController,
-          padding: const EdgeInsets.all(8),
+          padding: EdgeInsets.fromLTRB(8, 8, 8, 8 + widget.bottomPadding),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
             mainAxisSpacing: 4,
@@ -157,6 +173,9 @@ class _PageGridEditorState extends ConsumerState<PageGridEditor> {
         widget.controller.reorder(oldIndex, newIndex);
         setState(() => _dragOverId = null);
         _stopAutoScroll();
+        // 방어 3(§1.4): 드롭 완료 → 배너 복귀. onDragEnd도 뒤이어 호출되지만
+        // 값이 같으면 provider가 재알림하지 않으므로 여기서 먼저 되돌려도 안전하다.
+        _setDragAvoid(false);
       },
       onMove: (details) => setState(() => _dragOverId = page.id),
       onLeave: (_) => setState(() => _dragOverId = null),
@@ -168,8 +187,15 @@ class _PageGridEditorState extends ConsumerState<PageGridEditor> {
             child: SizedBox(width: 100, height: 130, child: cell),
           ),
           childWhenDragging: Opacity(opacity: 0.3, child: cell),
+          // 방어 3(§1.4): 드래그 시작 → 배너를 아래로 밀어낸다(가리지 않고
+          // 치운다). 화면이 만지는 것은 이 bool 신호 하나뿐이다.
+          onDragStarted: () => _setDragAvoid(true),
           onDragUpdate: (details) => _maybeAutoScroll(details.globalPosition, context),
-          onDragEnd: (_) => _stopAutoScroll(),
+          onDragEnd: (_) {
+            _stopAutoScroll();
+            _setDragAvoid(false);
+          },
+          onDraggableCanceled: (_, _) => _setDragAvoid(false),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             decoration: highlighted

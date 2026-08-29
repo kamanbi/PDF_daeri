@@ -22,6 +22,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../app/router.dart';
 import '../../core/app_error.dart';
@@ -29,6 +30,7 @@ import '../../core/cancel_token.dart';
 import '../../data/repository/document_repository.dart';
 import '../../pdf/pdf_renderer.dart';
 import '../common/failure_ui.dart';
+import '../common/share_flow.dart';
 import 'compress_sheet.dart';
 import 'page_thumbnail_bar.dart';
 
@@ -94,7 +96,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
     try {
       final renderer = ref.read(pdfRendererProvider);
-      final result = await renderer.pageGeometry(_args.pdfPath, password: _args.password);
+      final result = await renderer.pageGeometry(
+        _args.pdfPath,
+        password: _args.password,
+      );
       if (!mounted) return;
 
       switch (result) {
@@ -112,12 +117,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           });
           _prefetchAround(0);
         case PdfErr<PdfPageGeometry>(:final failure):
-          final mapped = failure is SourceEncrypted ? SourceCorrupted(_args.pdfPath) : failure;
+          final mapped = failure is SourceEncrypted
+              ? SourceCorrupted(_args.pdfPath)
+              : failure;
           setState(() {
             _loading = false;
             _fatalFailure = mapped;
           });
-          WidgetsBinding.instance.addPostFrameCallback((_) => _handleFatalFailure(mapped));
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _handleFatalFailure(mapped),
+          );
       }
     } finally {
       _busyNotifier.state = false;
@@ -135,7 +144,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (!mounted) return;
     // 뷰어가 스택 어디에 있었든(push든 pushReplacement든) 홈 하나로 정리한다 —
     // 실패 직후 사용자를 애매한 중간 화면에 남기지 않는다.
-    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
   }
 
   void _onPageChanged(int index) {
@@ -160,7 +171,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
 
     for (final index in wanted) {
-      if (_bytesCache.containsKey(index) || _loadingPages.contains(index)) continue;
+      if (_bytesCache.containsKey(index) || _loadingPages.contains(index))
+        continue;
       _renderPage(index, _basePxTarget());
     }
   }
@@ -171,7 +183,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     return math.min((width * dpr).round(), _basePxCap);
   }
 
-  Future<void> _renderPage(int index, int targetWidthPx, {bool highRes = false}) async {
+  Future<void> _renderPage(
+    int index,
+    int targetWidthPx, {
+    bool highRes = false,
+  }) async {
     final renderer = ref.read(pdfRendererProvider);
     final token = CancelToken();
     _cancelTokens[index] = token;
@@ -207,10 +223,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (_bytesCache.length <= _pageLruCapacity) return;
     // 현재 페이지에서 가장 먼 인덱스부터 정리한다.
     final indices = _bytesCache.keys.toList()
-      ..sort((a, b) => (b - _currentPage).abs().compareTo((a - _currentPage).abs()));
+      ..sort(
+        (a, b) => (b - _currentPage).abs().compareTo((a - _currentPage).abs()),
+      );
     while (_bytesCache.length > _pageLruCapacity && indices.isNotEmpty) {
       final victim = indices.removeAt(0);
-      if ((victim - _currentPage).abs() <= _preloadRadius) break; // 화면 근접 페이지는 지키지 않는다
+      if ((victim - _currentPage).abs() <= _preloadRadius)
+        break; // 화면 근접 페이지는 지키지 않는다
       _bytesCache.remove(victim);
       _renderedWidthPx.remove(victim);
     }
@@ -229,8 +248,27 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     // ViewerArgs.docId/recentId는 상호 배타다(§3.3 계약) — 그대로 EditSource 판별에 쓴다.
     final source = _args.docId != null
         ? EditSource.myDocument(_args.docId!)
-        : EditSource.externalPdf(pdfPath: _args.pdfPath, title: _args.title, recentId: _args.recentId);
-    Navigator.of(context).pushNamed(AppRoutes.edit, arguments: EditArgs(source: source, title: _args.title));
+        : EditSource.externalPdf(
+            pdfPath: _args.pdfPath,
+            title: _args.title,
+            recentId: _args.recentId,
+          );
+    Navigator.of(context).pushNamed(
+      AppRoutes.edit,
+      arguments: EditArgs(source: source, title: _args.title),
+    );
+  }
+
+  // [W4-T1] `shareExportProvider` 배선(설계 §2.6). 암호 PDF는 편집·압축과 달리
+  // 공유가 차단되지 않는다("암호 PDF는 보기·공유만 허용하고 편집 진입을 차단한다",
+  // 1주차 확정) — 버튼을 `_args.isEncrypted`로 비활성화하지 않는다.
+  Future<void> _share() {
+    return shareDocument(
+      context: context,
+      ref: ref,
+      pdfPath: _args.pdfPath,
+      title: _args.title,
+    );
   }
 
   void _openCompressSheet() {
@@ -287,7 +325,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
     // 뷰어 이탈 — 이 문서의 핸들만 닫는다. evictCache()(전체 해제)는 쓰지 않는다
     // (§2.1 — 홈 그리드의 썸네일 생성용 핸들까지 닫으면 안 된다).
-    ref.read(pdfRendererProvider).evictDocument(_args.pdfPath, password: _args.password);
+    ref
+        .read(pdfRendererProvider)
+        .evictDocument(_args.pdfPath, password: _args.password);
     _pageController.dispose();
     super.dispose();
   }
@@ -305,16 +345,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           // 편집 이동(3주차, 설계 §0.4·§1.1) — 암호 PDF는 편집 진입을 차단한다
           // (1주차 Q10 확정 정책). 비활성화가 아니라 버튼 자체를 없앤다.
           if (!_args.isEncrypted)
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: '편집',
-              onPressed: _openEdit,
-            ),
-          IconButton(
-            icon: const Icon(Icons.compress),
-            tooltip: '압축',
+            TextButton(onPressed: _openEdit, child: const Text('편집')),
+          TextButton(
             onPressed: _args.isEncrypted ? null : _openCompressSheet,
+            child: const Text('압축'),
           ),
+          TextButton(onPressed: _share, child: const Text('공유')),
         ],
       ),
       body: _loading
@@ -350,6 +386,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
               ],
             ),
+      // W4-T6: §1 "뷰어 화면" 절 — 썸네일 바와 배너 사이 완충 밴드는
+      // BannerHost 자신이 항상 그리므로(§1.3) 이 화면이 별도 패딩을 더하지
+      // 않는다(§1.1 표 — S4는 스크롤 패딩 대상 아님).
+      bottomNavigationBar: const BannerHost(slot: BannerSlot.viewer),
     );
   }
 }
@@ -404,9 +444,9 @@ class _ViewerPageState extends State<_ViewerPage> {
           maxScale: 5.0,
           onInteractionEnd: _onInteractionEnd,
           child: widget.bytes == null
-              ? const ColoredBox(
-                  color: Color(0x11000000),
-                  child: Center(
+              ? ColoredBox(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: const Center(
                     child: SizedBox(
                       width: 24,
                       height: 24,

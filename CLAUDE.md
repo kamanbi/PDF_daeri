@@ -14,7 +14,12 @@
 2. **외부 PDF를 절대 래스터화하지 않는다.** 페이지 객체를 그대로 복사한다. `pipeline.md` 참조.
 3. **저장 결과 용량이 원본을 초과하면 저장을 중단한다.** 검증 게이트는 우회 대상이 아니다.
 4. **기존 PDF 텍스트 수정 기능을 만들지 않는다.** 영구 제외.
-5. **자체 카메라 UI와 자체 보정 UI를 만들지 않는다.** 스캔·크롭·필터는 ML Kit 플로우가 유일한 경로.
+5. **스캔·크롭·필터는 문서 스캐너 패키지의 완성된 플로우가 유일한 경로다** — 별도로 임의의
+   카메라/보정 로직을 새로 만들지 않는다. [2026-08-26 개정, `_workspace/64_security_review_full_app.md`
+   M-4 계기] 원래 `google_mlkit_document_scanner`(Play 서비스)로 명시됐던 걸 프로젝트 진행 중
+   `doclens`(자체 Flutter 카메라 UI 패키지, `third_party/doclens`에 벤더링)로 전환한 것이
+   사용자 확인 결과 의도된 결정으로 확정됐다 — 이 규칙은 "특정 패키지 고정"이 아니라 "스캔 UI를
+   산발적으로 새로 만들지 않는다"는 원칙으로 재해석한다.
 6. **원본 외부 파일을 수정하지 않는다.** 항상 앱 작업공간의 복사본을 편집한다.
 7. **광고는 `ads.md`에 정의된 지점 외에 어디에도 넣지 않는다.**
 8. **스펙에 없는 기능을 선제적으로 추가하지 않는다.** 필요해 보이면 구현 전에 묻는다.
@@ -29,7 +34,7 @@
 | 프레임워크 | Flutter (Android only) |
 | PDF 뷰어·페이지 조작·문서 결합 | `pdfrx` (PDFium 기반) — **1주차 무손실 검증 필수** |
 | 대안 | `syncfusion_flutter_pdf` — 대용량 UI 프리징 사례 있음, 라이선스 조건 확인 필요 |
-| 스캔 | `google_mlkit_document_scanner` (베타·Android 전용, Play 서비스 필수) |
+| 스캔 | `doclens`(`third_party/doclens` 벤더링, 자체 Flutter 카메라 UI) — 2026-08-26 확인 결과 `google_mlkit_document_scanner`에서 전환된 의도된 결정 |
 | PDF 생성(이미지 기반) | `pdf` |
 | 이미지 처리 | `image` |
 | 파일 선택 | SAF 기반 (`file_picker` 등), content:// URI 처리 |

@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../app/router.dart';
 import '../../core/app_error.dart';
@@ -24,6 +25,7 @@ import '../../pdf/page_ref.dart';
 import '../../pdf/pdf_engine.dart';
 import '../common/failure_ui.dart';
 import 'edit_controller.dart';
+import 'edit_document_pager.dart';
 import 'page_grid_editor.dart';
 import 'save_dialog.dart';
 
@@ -92,7 +94,8 @@ class _EditScreenState extends ConsumerState<EditScreen> {
         switch (result) {
           case PdfOk<PdfDocInfo>(:final value):
             final pages = [
-              for (var i = 0; i < value.pageCount; i++) PdfPageRef(sourcePath: pdfPath, sourceIndex: i, rotation: 0),
+              for (var i = 0; i < value.pageCount; i++)
+                PdfPageRef(sourcePath: pdfPath, sourceIndex: i, rotation: 0),
             ];
             setState(() {
               _controller = EditController(initial: pages)
@@ -103,7 +106,9 @@ class _EditScreenState extends ConsumerState<EditScreen> {
               _baselineBytes = value.bytes;
               _loadState = _LoadState.ready;
             });
-            WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowExternalNotice());
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _maybeShowExternalNotice(),
+            );
           case PdfErr<PdfDocInfo>(:final failure):
             await FailureUi.showDialog(context, failure);
             _fail();
@@ -126,7 +131,12 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         content: const Text('복사본으로 편집합니다. 원본은 변경되지 않습니다.'),
-        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('확인'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('확인'),
+          ),
+        ],
       ),
     );
   }
@@ -139,8 +149,14 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       builder: (ctx) => AlertDialog(
         content: const Text('저장하지 않고 나갈까요?'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('취소')),
-          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('나가기')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('나가기'),
+          ),
         ],
       ),
     );
@@ -150,6 +166,12 @@ class _EditScreenState extends ConsumerState<EditScreen> {
   Future<void> _addPages() async {
     final controller = _controller;
     if (controller == null) return;
+    final selected = controller.current.selected;
+    final selectedIndex = selected.length == 1
+        ? controller.current.pages.indexWhere(
+            (page) => selected.contains(page.id),
+          )
+        : -1;
     final choice = await showModalBottomSheet<_AddPageChoice>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -157,12 +179,10 @@ class _EditScreenState extends ConsumerState<EditScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.document_scanner_outlined),
               title: const Text('카메라로 스캔'),
               onTap: () => Navigator.of(ctx).pop(_AddPageChoice.camera),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
               title: const Text('사진에서 선택'),
               onTap: () => Navigator.of(ctx).pop(_AddPageChoice.gallery),
             ),
@@ -173,18 +193,78 @@ class _EditScreenState extends ConsumerState<EditScreen> {
     if (choice == null || !mounted) return;
 
     final PdfResult<List<String>> result = switch (choice) {
-      _AddPageChoice.camera => await ref.read(scanSourceProvider).scan(),
-      _AddPageChoice.gallery => await ref.read(photoSourceProvider).pickImages(),
+      _AddPageChoice.camera => await ref.read(scanSourceProvider).scan(context),
+      _AddPageChoice.gallery =>
+        await ref.read(photoSourceProvider).pickImages(),
     };
     if (!mounted) return;
     switch (result) {
       case PdfOk<List<String>>(:final value):
-        controller.insertImages(value);
+        final insertion = await _chooseInsertionTarget(selectedIndex);
+        if (!mounted || insertion == null) return;
+        controller.insertImages(value, at: insertion);
       case PdfErr<List<String>>(:final failure):
         if (failure is! Cancelled) {
           await FailureUi.showDialog(context, failure);
         }
     }
+  }
+
+  Future<void> _changePageOrder() {
+    final controller = _controller;
+    if (controller == null) return Future.value();
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.92,
+        child: Scaffold(
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            title: const Text('페이지 순서 변경'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('완료'),
+              ),
+            ],
+          ),
+          body: PageGridEditor(
+            controller: controller,
+            actions: const {EditAction.reorder},
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<int?> _chooseInsertionTarget(int selectedIndex) {
+    final controller = _controller;
+    if (controller == null) return Future.value(null);
+    if (selectedIndex < 0) return Future.value(controller.current.pages.length);
+    return showModalBottomSheet<int>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('선택 페이지 앞에 추가'),
+              onTap: () => Navigator.of(ctx).pop(selectedIndex),
+            ),
+            ListTile(
+              title: const Text('선택 페이지 뒤에 추가'),
+              onTap: () => Navigator.of(ctx).pop(selectedIndex + 1),
+            ),
+            ListTile(
+              title: const Text('마지막에 추가'),
+              onTap: () =>
+                  Navigator.of(ctx).pop(controller.current.pages.length),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -198,7 +278,9 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       for (final page in controller.current.pages) {
         if (page.origin == EditPageOrigin.added && page.ref is ImagePageRef) {
           try {
-            addedImageBytes += await File((page.ref as ImagePageRef).imagePath).length();
+            addedImageBytes += await File(
+              (page.ref as ImagePageRef).imagePath,
+            ).length();
           } catch (_) {
             // 파일을 읽지 못해도 저장 자체는 계속 진행한다 — 게이트가 최종 방어선이다.
           }
@@ -206,7 +288,11 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       }
     }
 
-    final guardInput = assembleGuardInput(op: op, baselineBytes: _baselineBytes, addedImageBytes: addedImageBytes);
+    final guardInput = assembleGuardInput(
+      op: op,
+      baselineBytes: _baselineBytes,
+      addedImageBytes: addedImageBytes,
+    );
 
     final spec = SaveRequestSpec(
       suggestedTitle: FileName.editedTitle(widget.args.title),
@@ -216,7 +302,11 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       showQualityPicker: pages.any((p) => p is ImagePageRef),
     );
 
-    final summary = await showSaveDialog(context: context, ref: ref, spec: spec);
+    final summary = await showSaveDialog(
+      context: context,
+      ref: ref,
+      spec: spec,
+    );
     if (summary == null || !mounted) return;
     _goToViewerAfterSave(summary);
   }
@@ -247,7 +337,11 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       showQualityPicker: selectedRefs.any((p) => p is ImagePageRef),
     );
 
-    final summary = await showSaveDialog(context: context, ref: ref, spec: spec);
+    final summary = await showSaveDialog(
+      context: context,
+      ref: ref,
+      spec: spec,
+    );
     if (summary == null || !mounted) return;
     _goToViewerAfterSave(summary);
   }
@@ -265,7 +359,9 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       ),
     );
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('새 파일로 저장됨 — "${summary.title}" (${summary.pageCount}쪽)')),
+      SnackBar(
+        content: Text('새 파일로 저장됨 — "${summary.title}" (${summary.pageCount}쪽)'),
+      ),
     );
   }
 
@@ -294,24 +390,26 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       child: Scaffold(
         appBar: AppBar(
           leading: isSelect
-              ? IconButton(
-                  icon: const Icon(Icons.close),
-                  tooltip: '선택 해제',
+              ? TextButton(
                   onPressed: controller.clearSelection,
+                  child: const Text('취소'),
                 )
               : null,
-          title: Text(isSelect ? '${state.selected.length}개 선택' : widget.args.title, overflow: TextOverflow.ellipsis),
+          title: Text(
+            isSelect ? '${state.selected.length}개 선택' : widget.args.title,
+            overflow: TextOverflow.ellipsis,
+          ),
           actions: isSelect
               ? [
-                  IconButton(
-                    icon: const Icon(Icons.rotate_right),
-                    tooltip: '회전',
-                    onPressed: state.selected.isEmpty ? null : controller.rotateSelected,
+                  TextButton(
+                    onPressed: state.selected.isEmpty
+                        ? null
+                        : controller.rotateSelected,
+                    child: const Text('회전'),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: '삭제',
+                  TextButton(
                     onPressed: state.selected.isEmpty ? null : _deleteSelected,
+                    child: const Text('삭제'),
                   ),
                   TextButton(
                     onPressed: state.selected.isEmpty ? null : _split,
@@ -319,29 +417,19 @@ class _EditScreenState extends ConsumerState<EditScreen> {
                   ),
                 ]
               : [
-                  IconButton(
-                    icon: const Icon(Icons.checklist_outlined),
-                    tooltip: '선택',
+                  TextButton(
                     onPressed: controller.enterSelectModeOnly,
+                    child: const Text('선택'),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                    tooltip: '페이지 추가',
-                    onPressed: _addPages,
-                  ),
-                  IconButton(icon: const Icon(Icons.save_outlined), tooltip: '저장', onPressed: _save),
+                  TextButton(onPressed: _addPages, child: const Text('페이지 추가')),
+                  TextButton(onPressed: _save, child: const Text('저장')),
                 ],
         ),
-        body: PageGridEditor(
+        body: EditDocumentPager(
           controller: controller,
-          actions: const {
-            EditAction.reorder,
-            EditAction.rotate,
-            EditAction.delete,
-            EditAction.addPage,
-            EditAction.splitToNewDocument,
-          },
+          onPageOrderRequested: _changePageOrder,
         ),
+        bottomNavigationBar: const BannerHost(slot: BannerSlot.edit),
       ),
     );
   }
@@ -354,7 +442,10 @@ class _EditScreenState extends ConsumerState<EditScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('페이지를 삭제했습니다'),
-        action: SnackBarAction(label: '실행취소', onPressed: () => controller.undoDelete(removed)),
+        action: SnackBarAction(
+          label: '실행취소',
+          onPressed: () => controller.undoDelete(removed),
+        ),
       ),
     );
   }

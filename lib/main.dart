@@ -12,16 +12,20 @@ library;
 
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'ads/ads_bootstrap.dart';
 import 'app/app.dart';
 import 'app/providers.dart';
+import 'billing/entitlement.dart';
 import 'core/korean_font.dart';
 import 'data/db/app_database.dart';
 import 'data/repository/document_repository.dart';
 import 'data/repository/recent_repository.dart';
+import 'data/repository/settings_repository.dart';
 import 'data/storage/saf_import.dart';
 import 'data/storage/workspace.dart';
 import 'features/settings/settings_screen.dart';
@@ -80,9 +84,11 @@ Future<void> main() async {
   DocumentRepository? repository;
   PdfEngine? engine;
   RecentRepository? recentRepository;
+  AppDatabase? appDatabase;
   if (appWorkspace != null) {
     try {
       final db = AppDatabase.open(appWorkspace.root);
+      appDatabase = db;
       engine = QpdfPdfEngine(appRoot: appWorkspace.root);
       // ensureThumbnail 전용 렌더러 인스턴스. 뷰어가 쓰는 pdfRendererProvider의
       // PdfxRenderer와는 별개 핸들 캐시를 갖는다(§2.0 — 문서 핸들 캐시는
@@ -109,6 +115,40 @@ Future<void> main() async {
       repository = null;
       engine = null;
       recentRepository = null;
+      appDatabase = null;
+    }
+  }
+
+  // W4-T5b(문서 60 §4 F-1 해소): SettingsRepository/광고 SDK 부팅 배선.
+  // settings 행은 문서 저장소와 같은 db 연결을 공유한다(두 번째 연결을 열지 않는다).
+  // SettingsRepository는 앱 전역에서 이 **단 하나의 인스턴스**만 만든다 — 최소 연타
+  // 방지 간격(§2.5)의 `_lastShownAt`이 인스턴스 메모리 변수라, 인스턴스가 갈리면
+  // 300초 간격이 무력화된다(문서 60 §4 F-1).
+  SettingsRepository? settingsRepository;
+  if (appDatabase != null) {
+    try {
+      settingsRepository = DriftSettingsRepository(database: appDatabase);
+    } catch (e, st) {
+      developer.log('SettingsRepository 초기화 실패', name: 'main', level: 900, error: e, stackTrace: st);
+      settingsRepository = null;
+    }
+  }
+
+  // 구매로 광고가 제거된 상태면 SDK 초기화조차 하지 않는다(설계 §4.2). 이 단계
+  // 실패는 배너 없음으로 흡수될 뿐 부팅을 막지 않는다(기존 관례, 무알림).
+  int? bannerHeight;
+  if (settingsRepository != null) {
+    try {
+      final settings = await settingsRepository.load();
+      if (!settings.adsRemoved) {
+        await initializeMobileAds();
+        final view = PlatformDispatcher.instance.views.first;
+        final screenWidthDp = view.physicalSize.width / view.devicePixelRatio;
+        bannerHeight = await resolveAdaptiveBannerHeight(screenWidthDp);
+      }
+    } catch (e, st) {
+      developer.log('광고 SDK 부팅 실패', name: 'main', level: 900, error: e, stackTrace: st);
+      bannerHeight = null;
     }
   }
 
@@ -121,6 +161,8 @@ Future<void> main() async {
           documentRepositoryProvider.overrideWithValue(repository),
           pdfEngineProvider.overrideWithValue(engine),
           recentRepositoryProvider.overrideWithValue(recentRepository),
+          settingsRepositoryProvider.overrideWithValue(settingsRepository),
+          bannerHeightProvider.overrideWithValue(bannerHeight),
           bootIssuesProvider.overrideWithValue(List.unmodifiable(issues)),
         ],
         child: const PdfDaeriApp(),

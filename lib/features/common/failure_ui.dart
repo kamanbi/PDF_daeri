@@ -36,6 +36,7 @@ abstract final class FailureUi {
     Cancelled() => '',
     SizeGuardViolation() => '저장 중단',
     EngineUnsupported() => '지원하지 않는 파일',
+    ScannerUnavailable() => '스캐너를 사용할 수 없음',
     UnknownFailure() => '처리하지 못했습니다',
   };
 
@@ -69,9 +70,15 @@ abstract final class FailureUi {
         };
       case EngineUnsupported():
         return '이 파일은 처리할 수 없습니다';
+      case ScannerUnavailable(:final message):
+        return message;
       case UnknownFailure(:final message):
         // 원본 메시지는 UI로 절대 내보내지 않는다 — 디버그 전용 로그로만 남긴다.
-        developer.log('UnknownFailure: $message', name: 'FailureUi', level: 900);
+        developer.log(
+          'UnknownFailure: $message',
+          name: 'FailureUi',
+          level: 900,
+        );
         return '다시 시도해 주세요';
     }
   }
@@ -79,13 +86,20 @@ abstract final class FailureUi {
   /// 이 실패에서 사용자가 할 수 있는 행동.
   static List<FailureAction> actions(PdfFailure f) => switch (f) {
     SourceEncrypted() => const [],
-    SourceCorrupted() => const [FailureAction.removeFromList, FailureAction.goHome],
-    SourceMissing() => const [FailureAction.removeFromList, FailureAction.goHome],
+    SourceCorrupted() => const [
+      FailureAction.removeFromList,
+      FailureAction.goHome,
+    ],
+    SourceMissing() => const [
+      FailureAction.removeFromList,
+      FailureAction.goHome,
+    ],
     PermissionDenied() => const [FailureAction.goHome],
     OutOfSpace() => const [FailureAction.freeUpSpace, FailureAction.dismiss],
     Cancelled() => const [],
     SizeGuardViolation() => const [FailureAction.dismiss],
     EngineUnsupported() => const [FailureAction.goHome],
+    ScannerUnavailable() => const [FailureAction.retry, FailureAction.goHome],
     UnknownFailure() => const [FailureAction.retry, FailureAction.goHome],
   };
 
@@ -101,7 +115,10 @@ abstract final class FailureUi {
   ///
   /// `Cancelled`는 §5.1대로 다이얼로그를 띄우지 않고 즉시 `null`을 반환한다 —
   /// 사용자가 스스로 취소한 것을 다시 알리지 않는다.
-  static Future<FailureAction?> showDialog(BuildContext context, PdfFailure f) async {
+  static Future<FailureAction?> showDialog(
+    BuildContext context,
+    PdfFailure f,
+  ) async {
     if (f is Cancelled) return null;
 
     final acts = actions(f);
@@ -112,7 +129,12 @@ abstract final class FailureUi {
         title: Text(title(f)),
         content: Text(msg),
         actions: acts.isEmpty
-            ? [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('확인'))]
+            ? [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('확인'),
+                ),
+              ]
             : [
                 for (final a in acts)
                   TextButton(

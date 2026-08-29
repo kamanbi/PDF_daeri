@@ -50,6 +50,12 @@ class EngineUnsupported extends PdfFailure {
   final String capability;
 }
 
+/// 외부 스캐너 모듈을 열 수 없을 때의 사용자 조치 가능한 실패다.
+class ScannerUnavailable extends PdfFailure {
+  const ScannerUnavailable(this.message);
+  final String message;
+}
+
 class UnknownFailure extends PdfFailure {
   const UnknownFailure(this.message);
   final String message;

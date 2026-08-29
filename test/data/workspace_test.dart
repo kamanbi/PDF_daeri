@@ -236,4 +236,56 @@ void main() {
       expect(await File(sharePath).exists(), isFalse);
     });
   });
+
+  group('usage (4주차 D-2 · 설계 §6.3)', () {
+    test('빈 작업공간: 전부 0바이트/0개', () async {
+      final usage = await workspace.usage();
+
+      expect(usage.docsBytes, 0);
+      expect(usage.recentBytes, 0);
+      expect(usage.cacheBytes, 0);
+      expect(usage.thumbsBytes, 0);
+      expect(usage.recentCount, 0);
+      expect(usage.totalBytes, 0);
+    });
+
+    test('docs/recent/cache/thumbs 각각의 바이트를 정확히 합산한다', () async {
+      // docs/<docId>/document.pdf + sources/ 하위 파일까지 재귀 합산되어야 한다.
+      const docId = 'doc-usage';
+      await File(workspace.docPdf(docId)).create(recursive: true);
+      await File(workspace.docPdf(docId)).writeAsBytes(List.filled(100, 0));
+      await File(workspace.sourceImage(docId, 1)).create(recursive: true);
+      await File(workspace.sourceImage(docId, 1)).writeAsBytes(List.filled(50, 0));
+
+      await File(workspace.recentFile('r1')).create(recursive: true);
+      await File(workspace.recentFile('r1')).writeAsBytes(List.filled(10, 0));
+      await File(workspace.recentFile('r2')).create(recursive: true);
+      await File(workspace.recentFile('r2')).writeAsBytes(List.filled(20, 0));
+
+      await File(workspace.cacheFile('c1')).create(recursive: true);
+      await File(workspace.cacheFile('c1')).writeAsBytes(List.filled(5, 0));
+
+      await File(workspace.thumb(docId)).create(recursive: true);
+      await File(workspace.thumb(docId)).writeAsBytes(List.filled(7, 0));
+
+      final usage = await workspace.usage();
+
+      expect(usage.docsBytes, 150); // 100 + 50
+      expect(usage.recentBytes, 30); // 10 + 20
+      expect(usage.recentCount, 2);
+      expect(usage.cacheBytes, 5);
+      expect(usage.thumbsBytes, 7);
+      expect(usage.totalBytes, 150 + 30 + 5 + 7);
+    });
+
+    test('cache/share/ 하위 파일도 cacheBytes에 재귀 합산된다', () async {
+      final sharePath = workspace.shareFile('공유용.pdf');
+      await File(sharePath).create(recursive: true);
+      await File(sharePath).writeAsBytes(List.filled(3, 0));
+
+      final usage = await workspace.usage();
+
+      expect(usage.cacheBytes, 3);
+    });
+  });
 }

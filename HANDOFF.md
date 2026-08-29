@@ -248,11 +248,20 @@ UI가 이 비율을 임의로 고르지 않는다 — 순수 함수 하나로 �
 하나**에서만 한다. 이걸 감시하는 자동 검사 3종(`no_raster_test.dart` 검사28·29·30)이 있다.
 
 ### 7.4 결제
-비소모성 상품 "광고 제거"(제품 ID `ads_removed`, **Play Console에 아직 미생성** — 사용자가
-나중에 정확히 이 문자열로 만들어야 함). 서버 검증 없음(클라이언트 영수증만 — CLAUDE.md의
-"서버 전송 없음"은 사용자 *파일*에 대한 규칙이라 결제 SDK 통신과 충돌 안 함). 앱 시작 시
-`billingServiceProvider.start()` → `queryProducts()` → `restorePurchases()` 순서로 자동 복원
-(`lib/app/app.dart` initState).
+**[2026-08-27~29 사이, 이 세션 밖에서 전환됨 — `plan.md`/`research.md` 참고]** 원래 설계(ads.md)는
+비소모성 단건 구매 "광고 제거" 4,900원이었으나, 실제 구현은 **연간 자동 갱신 구독** ₩4,990/년으로
+바뀌어 있다(제품 ID는 여전히 `ads_removed`). `billing_service.dart`가 `queryPastPurchases()`로
+활성 구독 여부를 앱 시작·수동 갱신 시 동기화하고, 조회 실패 시 직전 캐시를 유지(§3.5 신뢰 순서
+그대로 적용). 설정 화면은 Play Console의 실제 현지 가격을 표시하고 활성 구독의 Google Play
+관리·취소 페이지를 연다. 서버 영수증 검증 없음(기기 내 Google Play 활성 구매 목록 기준 판정 —
+즉시 철회·다중기기 동기화가 필요하면 별도 서버가 있어야 하는데, 이 앱은 그 요구가 없다고 판단됨).
+
+**⚠️ Play Console 작업 시 주의**: `ads_removed`가 이미 **일회성 상품**으로 생성돼 있다면 같은 ID를
+구독으로 바꿀 수 없다(Play 정책) — 이 경우 새 구독 상품 ID를 만들고 `kAdsRemovedProductId`
+(`lib/billing/billing_service.dart`)와 홈페이지 관리 링크를 함께 바꿔야 한다.
+
+앱 시작 시 `billingServiceProvider.start()` → `queryProducts()` → `restorePurchases()` 순서로
+자동 복원(`lib/app/app.dart` initState).
 
 ### 7.5 광고 ID 안전 처리
 실제 AdMob ID는 git에 커밋되지 않는다 — App ID는 gitignore된 `android/ads.properties` +
@@ -299,14 +308,19 @@ RO 검증.
 - **Knox Secure Folder**: 삼성 기기에서 `run-as`/일부 `adb pull`이 막힘.
 - **실기기**: SM S908N(`R3CTB0CV6NN`)가 주 테스트 기기. 저사양(RAM≤3GB) 기기는 현재 **없음** —
   4주차 M-W4 측정 항목 중 L(저사양) 값은 계속 미실측 상태로 남을 수 있음, 이 사실을 숨기지 말 것.
-- **Play Console**: 인앱상품 `ads_removed` 아직 미생성. 개인정보처리방침 URL도 아직 없음(사용자가
-  별도 홈페이지 제작 후 채울 예정 — `lib/features/settings/settings_screen.dart`에 플레이스홀더
-  상수로 분리돼 있음, 나중에 값만 갈아끼우면 됨).
+- **Play Console**: 구독 상품 `ads_removed`(연 ₩4,990) 생성 여부 미확인 — `research.md`가
+  "이미 일회성 상품으로 만들어져 있으면 같은 ID로 구독 전환 불가"를 경고하고 있으니 실제로
+  만들기 전에 Play Console 현황부터 확인할 것.
+- **개인정보처리방침**: 이미 실제 배포됨 — `https://verdant-pixie-350067.netlify.app/privacy`
+  (`lib/features/settings/settings_screen.dart`의 `kPrivacyPolicyUrl`에 이미 채워져 있음, 더 이상
+  플레이스홀더 아님). 홈페이지 소스는 `website/`(+ `netlify.toml`, `netlify/functions/`), 배포는
+  Netlify. `plan.md`/`research.md`가 이 작업의 완료 기록이다.
 - **릴리스 서명**: `android/app/build.gradle.kts:99-109`가 외부 키(`F:\keys\PDF_daeri\`) 부재
-  시 릴리스 빌드를 `error()`로 강제 중단시키게 배선돼 있음(debug 키 폴백 금지) — **T13 배선 자체는
-  끝나 있음**(2026-08-26 보안점검 §4-8로 재확인, 과거 버전 문서의 "아직 debug 키" 기술은 낡은
-  정보였음). 실제 릴리스 AAB를 아직 안 뽑아봤을 뿐이니, 남은 건 키 파일이 그 경로에 실제로
-  있는지 확인하고 빌드 1회 돌려보는 것.
+  시 릴리스 빌드를 `error()`로 강제 중단시키게 배선돼 있음(debug 키 폴백 금지). **[2026-08-27~29
+  사이 이 세션 밖에서 완료됨]** `research.md` 기록에 따르면 릴리스 APK·AAB가 실제로
+  `com.kamanbi.pdf_daeri` 버전 `1.0.2`(versionCode 3)로 외부 릴리스 키로 이미 서명·생성됐다 —
+  이 세션은 그 산출물 자체를 직접 검증하지 않았으니, 이어받는 쪽에서 실물(빌드 출력 경로)이
+  실제로 있는지 한 번 확인하는 게 안전하다.
 
 ---
 
@@ -331,23 +345,33 @@ RO 검증.
   통과), 실사(아키텍트 R3 중간판정)로 재확인됨.
 - 앱 아이콘 반영 완료(`assets/image.png` → `flutter_launcher_icons`로 생성, 빌드 확인됨).
 
-**진행 중**: T11(저사양 실기기 측정, M-W4-1~13) — L기기 없음이 확정, H기기(SM S908N)로 adb 자동화
-측정 진행 중. 최신 결과는 `_workspace/63_build-runner_w4t11_lowend_measurements.md` 참고.
+**[2026-08-27~29 사이, 이 세션 밖에서 진행된 작업 — `plan.md`/`research.md`가 기록]**:
+- 광고 제거 상품을 비소모성 단건 구매(4,900원)에서 **연간 자동 갱신 구독(₩4,990/년)**으로 전환
+  완료(§7.4 갱신 반영).
+- 홈페이지(`website/`, Netlify)에 개인정보처리방침·환불규정·문의 페이지 실제 배포 완료
+  (`https://verdant-pixie-350067.netlify.app`). `kPrivacyPolicyUrl`도 실제 URL로 채워짐.
+- 릴리스 APK·AAB 실제 서명·생성 완료 기록(`com.kamanbi.pdf_daeri` v1.0.2, versionCode 3) —
+  단 이 세션은 산출물 실물은 직접 확인하지 못했다.
+- 이 작업들은 이 세션이 만든 게 아니므로 임의로 재검토·수정하지 않았다(아래 원칙 참고).
 
-**아직 안 한 것(4주차 잔여, 순서대로)**:
+**T11(저사양 실기기 측정, M-W4-1~13)**: L기기 없음이 확정, H기기(SM S908N)로 adb 자동화 측정
+진행. 최신 결과는 `_workspace/63_build-runner_w4t11_lowend_measurements.md` 참고 — 완전히
+끝나지 않았을 수 있음, 이어받는 쪽에서 문서의 TBD 항목 확인 필요.
+
+**아직 안 한 것(4주차 잔여, 순서대로 — 위 §"이 세션 밖에서 진행된 작업"으로 일부는 이미 끝났을 수
+있으니 실제 상태부터 재확인할 것)**:
 1. T11 마무리(가능한 범위까지)
-2. 스플래시 화면 제작(아이콘은 끝났지만 스플래시는 아직)
-3. T13 릴리스 AAB 실제 빌드(배선은 끝나 있음, §9 참고)
+2. 스플래시 화면 제작 여부 확인(아이콘은 끝남, 스플래시는 이 세션 기준 미확인)
+3. Play Console에서 `ads_removed` 구독 상품 생성 여부 확인(§9 경고 — 일회성 상품 ID 재사용 불가)
 4. T14 스토어 등록물(스크린샷 6장, 설명 — 첫 줄은 "로그인 없음/서버 전송 없음", 데이터 안전
    양식 — **AdMob이 광고 ID를 수집하므로 "수집 안 함" 신고는 거짓**, 주의)
-5. Play Console에 `ads_removed` 인앱상품 실제 생성(사용자 작업)
-6. 개인정보처리방침 페이지 실제 제작·URL 확정(사용자가 별도 홈페이지로 진행 예정)
-7. 보안점검 후속 조치(`_workspace/64_security_review_full_app.md` §5 우선순위표) — H-1(백업
-   비활성화)은 이미 처리·확인됨. M-1(악성 PDF로 저장/압축 영구 멈춤)·M-2(외부 인텐트 스킴 미검증)·
-   M-3(스캔 캐시 미정리)는 사용자 승인 후 처리 중/예정. M-4(doclens 벤더 무결성 매니페스트)는
-   전환 자체는 의도된 결정으로 확인됐으나 qpdf 수준의 SHA-256 매니페스트가 아직 없음. M-5(UMP
-   동의·데이터 안전 양식), L-1~L-5는 백로그.
-8. 심사 제출
+5. 보안점검 후속 조치(`_workspace/64_security_review_full_app.md` §5 우선순위표) — H-1(백업
+   비활성화)·M-1(악성 PDF로 저장/압축 영구 멈춤)·M-2(외부 인텐트 스킴 미검증)·M-3(스캔 캐시
+   미정리)·L-2·L-3는 사용자 승인 받아 이 세션에서 처리·검증 완료(`_workspace/65`·`66`,
+   전체 회귀 360/360 통과, 2026-08-29). M-4(doclens 벤더 무결성 매니페스트)는 전환 자체는
+   의도된 결정으로 확인됐으나 qpdf 수준의 SHA-256 매니페스트가 아직 없음. M-5(UMP 동의·데이터
+   안전 양식), L-1·L-4·L-5는 백로그.
+6. 심사 제출
 
 **중요 — 임의 변경 금지 원칙**: 이 프로젝트는 사용자가 이미 실기기에서 디버깅해 확정한 코드가
 많다(예: doclens 전환). 스캐너/엔진처럼 "왜 이렇게 돼 있는지 설계 문서와 다르게 보이는" 코드를

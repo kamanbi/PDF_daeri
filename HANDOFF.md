@@ -11,6 +11,41 @@ platform-integration/spec-guardian/build-runner)로 진행 중인 프로젝트�
 
 ---
 
+## 0-A. Windows 데스크톱판 (2026-09-01 추가)
+
+Flutter 코드를 그대로 재사용해 Windows 데스크톱 프로그램을 포팅했다(사용자 요청: "동일하게
+기능하도록" — 단 스코프는 문서 처리 기능만, 카메라 스캔·광고·인앱결제·외부 인텐트 연동은 제외
+확정). 설계·실행 전 과정은 `_workspace/68`(설계 확정서)~`75`(W5 최종 실측) 참고, 요약:
+
+- **구조**: 단일 코드 트리 + `lib/core/platform_features.dart`(`AppFeatures`)의 런타임 게이트.
+  `Platform.isWindows`/`Platform.isAndroid`로 조건부 import를 쓰는 안은 언어 차원에서 불가능함을
+  확인(둘 다 `dart.library.io`가 참이라 구분 안 됨) — 그래서 런타임 게이트로 갔다. Android
+  코드베이스는 이 포팅으로 **한 줄도 조건 분기가 들어가지 않았다**(광고/배너/결제/스캔 화면은
+  전부 무수정, provider 주입 지점과 `ad_gate.dart`/`banner_host.dart` 안에서만 껐다).
+- **qpdf**: `native/qpdf/windows-x64/qpdf30.dll`(공식 msvc64 배포물, `test/native/qpdf30.dll`과
+  SHA-256 동일 — 검사33이 이 동일성을 자동으로 지킨다). `windows/CMakeLists.txt`의 `install()`로
+  번들 루트에 배치.
+- **가장 위험했던 지점**: `workspace.dart`의 저장 루트. 그대로 뒀으면 Windows에서 사용자의 실제
+  `내 문서` 폴더에 앱 데이터가 쏟아질 뻔했다 — `getApplicationSupportDirectory()`로 분기해서
+  `%APPDATA%\com.kamanbi\pdf_daeri\`를 쓰도록 고쳤고, 실측으로 재확인했다.
+- **불변식 검사 신설**: `no_raster_test.dart` 검사31(`Platform.is*` 사용처 화이트리스트)·32(광고
+  게이트 단일화)·33(qpdf30.dll 동일성). **주의**: 네이티브 애셋(pdfium.dll·qpdf30.dll) 추가 이후
+  `flutter test`를 기본 동시성으로 돌리면 33개 파일 중 15개만 로드하고도 조용히 "통과"로 표시되는
+  버그를 발견했다 — 반드시 `--concurrency=1`로 순차 실행할 것(§9에도 기록).
+- **배포**: 자체 배포(Microsoft Store 아님), Inno Setup으로 만든 설치 프로그램
+  (`windows/installer/PDFDaeriSetup.iss`, VC++ x64 재배포를 선행 조건으로 자동 설치). 빌드
+  산출물(`PDF대리Setup.exe`, 46.59MB)과 `vcredist_x64.exe`는 gitignore 대상 — 커밋 안 됨, 다시
+  만들려면 `flutter build windows --release` 후 Inno Setup(`ISCC.exe`)으로 `.iss` 컴파일.
+- **실측 결과**(전부 RO 원칙 — 저장 후 pdfrx로 재열기 검증): 100쪽 삭제 200ms·회전 56ms·
+  100+100쪽 합치기 93ms·압축 40ms(43.3% 감소), 50쪽 저장 메모리 피크 델타 약 0.4MB, 한글 파일명
+  왕복 정상. 미검증: 공유 시트 실제 클릭 동작(자동화 불가, `share_plus`가 Windows 10 21H2+에서
+  지원한다는 것만 코드 근거로 확인됨).
+- **아직 안 한 것**: 앱 아이콘은 기본 Flutter 템플릿 아이콘 그대로(`assets/image.png`로 교체
+  안 함, 설계 §6이 "일회성 작업"으로 남겨둔 항목). 서명(코드사이닝) 없음 — 자체 배포라 SmartScreen
+  경고가 뜰 수 있음, 필요하면 별도 인증서 구매·서명 절차 추가해야 함.
+
+---
+
 ## 0. 한 줄 요약
 
 Flutter(Android 전용) PDF 유틸 앱. 스캔·사진→PDF·외부 PDF 열기·편집(자르기/회전/순서변경/삭제)·

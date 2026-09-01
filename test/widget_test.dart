@@ -14,6 +14,7 @@ import 'package:pdf_daeri/app/app.dart';
 import 'package:pdf_daeri/app/providers.dart';
 import 'package:pdf_daeri/core/app_error.dart';
 import 'package:pdf_daeri/core/cancel_token.dart';
+import 'package:pdf_daeri/core/platform_features.dart';
 import 'package:pdf_daeri/core/progress.dart';
 import 'package:pdf_daeri/core/size_guard.dart';
 import 'package:pdf_daeri/data/repository/document_repository.dart';
@@ -99,19 +100,25 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('작업공간 초기화에 실패했습니다.'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('스캔'), 300);
+    await tester.scrollUntilVisible(find.text('PDF 열기'), 300);
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('스캔'), findsOneWidget);
+    // [2026-09-01 · Windows 포팅 W3] "스캔" 진입점은 `AppFeatures.scan`
+    // (Android 전용)이 거짓인 플랫폼에서 렌더 트리에서 제외된다(68 §6) — 이
+    // 테스트가 실행되는 호스트가 그 대상일 수 있으므로 조건부로 확인한다.
+    if (AppFeatures.scan) {
+      expect(find.text('스캔'), findsOneWidget);
+      // workspaceProvider/documentRepositoryProvider가 기본값(null)이므로
+      // 진입점이 비활성 상태여야 한다(죽지 않되, 쓸 수 없음을 알린다).
+      final scanButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, '스캔'),
+      );
+      expect(scanButton.onPressed, isNull);
+    } else {
+      expect(find.text('스캔'), findsNothing);
+    }
     expect(find.text('PDF 열기'), findsOneWidget);
     expect(find.text('사진 → PDF'), findsOneWidget);
-
-    // workspaceProvider/documentRepositoryProvider가 기본값(null)이므로
-    // 3개 진입점 모두 비활성 상태여야 한다(죽지 않되, 쓸 수 없음을 알린다).
-    final scanButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '스캔'),
-    );
-    expect(scanButton.onPressed, isNull);
   });
 
   testWidgets('스캔이 불가능하면 "사진 → PDF"로 유도한다', (tester) async {

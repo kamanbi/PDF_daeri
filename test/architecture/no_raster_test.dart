@@ -9,6 +9,7 @@
 // 별도 그룹으로 추가했다.
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _read(String relativePath) => File(relativePath).readAsStringSync();
@@ -846,4 +847,107 @@ void main() {
       }
     });
   });
+
+  // ── 68_architect_windows_port_design.md §5.4 검사31~33(W4, pdf-core 담당) ──
+
+  group(
+    '§68 검사31 : Platform.isWindows/Platform.isAndroid 식별자는 화이트리스트 밖에서 0회다',
+    () {
+      test("'Platform.isWindows'/'Platform.isAndroid' 식별자가 화이트리스트 밖에 없다", () {
+        // 화이트리스트 근거(설계 §4.3·§5.4 + 전수 grep 재확인):
+        //  - lib/core/platform_features.dart : AppFeatures 단일 소유자, 이 식별자의 정의처
+        //  - lib/data/storage/workspace.dart : 저장 루트 계산은 "경로 계산의 소유자가
+        //    판단한다"는 기존 원칙(§2.9)을 지키기 위한 의도된 예외(§3.1) — AppFeatures가
+        //    아니라 이 파일이 Platform.isWindows를 직접 읽는다
+        //  - lib/pdf/qpdf_isolate.dart : qpdf 네이티브 라이브러리 경로의 단일 소유자(§2.5)
+        //  - lib/features/scan/local_document_scan_source.dart : doclens 스캔 지원 여부를
+        //    이미 Platform.isAndroid로 판정하던 기존 코드(포팅 이전부터 존재, §3.7)
+        //  - lib/billing/billing_service.dart : `:237`·`:303`이 이미 Platform.isAndroid를
+        //    쓰고 있었다(Play 전용 offerToken 처리·구독 동기화) — 이번 포팅이 추가한 것이
+        //    아니라 포팅 이전부터 존재하던 사용이므로 기존 코드를 건드리지 않기 위해
+        //    화이트리스트에 등재한다(설계 §5.4 각주)
+        //  - lib/app/providers.dart : [화이트리스트 확장 · 설계 문서 작성 이후 실제 코드로
+        //    확인] publicPdfExporterProvider/publicImageExporterProvider(§3.4)가 MediaStore
+        //    유무라는 "플랫폼 능력"에 따라 구현체를 갈아끼우는 지점이다. AppFeatures(기능
+        //    on/off) 문제가 아니라 workspace.dart와 같은 유형의 "그 provider를 소유한
+        //    파일이 직접 판단"하는 예외이며, 실제로 이 provider 정의 자체가 유일한 판단
+        //    지점이라 여기서 널리 퍼진 판단이 재발하지 않는다. 설계 문서 §5.4 표에는 없었으나
+        //    전수 grep 결과 실제 코드가 이렇게 배선돼 있어 화이트리스트를 넓혔다.
+        const allowed = {
+          'lib/core/platform_features.dart',
+          'lib/data/storage/workspace.dart',
+          'lib/pdf/qpdf_isolate.dart',
+          'lib/features/scan/local_document_scan_source.dart',
+          'lib/billing/billing_service.dart',
+          'lib/app/providers.dart',
+        };
+        final violations = <String>[];
+        for (final file in _dartFilesUnder('lib')) {
+          final normalized = file.path.replaceAll('\\', '/');
+          if (allowed.any(normalized.endsWith)) continue;
+          final codeOnly = _codeOnly(file.readAsStringSync());
+          for (final token in const ['Platform.isWindows', 'Platform.isAndroid']) {
+            if (codeOnly.contains(token)) {
+              violations.add('$normalized ($token)');
+            }
+          }
+        }
+        expect(
+          violations,
+          isEmpty,
+          reason:
+              '화이트리스트 밖에서 Platform.isWindows/Platform.isAndroid 발견: $violations -- 플랫폼 기능 가용성 판단은 AppFeatures(platform_features.dart) 하나로 끝나야 한다(68 §4.3)',
+        );
+      });
+    },
+  );
+
+  group('§68 검사32 : AppFeatures.ads 식별자는 lib/ads/**와 lib/main.dart 밖에서 0회다', () {
+    test("'AppFeatures.ads' 식별자가 화이트리스트 밖에 없다", () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        final normalized = file.path.replaceAll('\\', '/');
+        if (normalized.contains('lib/ads/')) continue;
+        if (normalized.endsWith('lib/main.dart')) continue;
+        final codeOnly = _codeOnly(file.readAsStringSync());
+        if (codeOnly.contains('AppFeatures.ads')) {
+          violations.add(normalized);
+        }
+      }
+      expect(
+        violations,
+        isEmpty,
+        reason:
+            'lib/ads/**, lib/main.dart 밖에서 AppFeatures.ads 발견: $violations -- 광고 단일 게이트의 연장(검사28과 같은 취지, 68 §5.4)',
+      );
+    });
+  });
+
+  group(
+    '§68 검사33 : test/native/qpdf30.dll과 native/qpdf/windows-x64/qpdf30.dll의 SHA-256이 동일하다',
+    () {
+      test('두 DLL의 SHA-256 해시가 일치한다', () {
+        final testDll = File('test/native/qpdf30.dll');
+        final deployDll = File('native/qpdf/windows-x64/qpdf30.dll');
+        expect(
+          testDll.existsSync(),
+          isTrue,
+          reason: 'test/native/qpdf30.dll이 없다',
+        );
+        expect(
+          deployDll.existsSync(),
+          isTrue,
+          reason: 'native/qpdf/windows-x64/qpdf30.dll이 없다',
+        );
+        final testHash = sha256.convert(testDll.readAsBytesSync()).toString();
+        final deployHash = sha256.convert(deployDll.readAsBytesSync()).toString();
+        expect(
+          deployHash,
+          equals(testHash),
+          reason:
+              '테스트용/배포용 qpdf30.dll의 SHA-256이 다르다(68 §2.4) -- 두 파일은 항상 동일한 바이너리여야 한다',
+        );
+      });
+    },
+  );
 }

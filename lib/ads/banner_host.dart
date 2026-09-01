@@ -19,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../billing/entitlement.dart';
+import '../core/platform_features.dart';
 import 'ad_gate.dart';
 import 'ad_ids.dart';
 import 'ads_bootstrap.dart';
@@ -137,6 +138,9 @@ class _BannerHostState extends ConsumerState<BannerHost> {
 
   @override
   Widget build(BuildContext context) {
+    // 68 §5.2: 광고 SDK가 없는 플랫폼에서는 자리 자체를 만들지 않는다.
+    if (!AppFeatures.ads) return const SizedBox.shrink();
+
     final adsRemoved = ref.watch(adsRemovedProvider).valueOrNull ?? false;
     final height = ref.watch(bannerHeightProvider);
 

@@ -152,7 +152,14 @@ class AppWorkspace implements Workspace {
   );
 
   static Future<AppWorkspace> create() async {
-    final dir = await getApplicationDocumentsDirectory();
+    // Windows는 `getApplicationDocumentsDirectory()`가 사용자의 실제 `내 문서`
+    // 폴더를 돌려준다(§3.1 [치명]). 앱 작업공간은 `getApplicationSupportDirectory()`
+    // (→ %APPDATA%\...)로 분리해야 사용자 문서 폴더를 침범하지 않는다.
+    // 이 파일이 저장 루트의 단일 소유자이므로 `Platform.isWindows`를 여기서
+    // 직접 읽는다(검사31 화이트리스트, 설계 §3.1·§4.3).
+    final dir = Platform.isWindows
+        ? await getApplicationSupportDirectory()
+        : await getApplicationDocumentsDirectory();
     return AppWorkspace(dir.path);
   }
 

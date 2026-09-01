@@ -43,3 +43,17 @@ bash tool/build_qpdf_android.sh
 ```
 
 작업 디렉터리(cwd)는 반드시 ASCII 경로여야 한다. 자세한 시행착오는 `tool/build_qpdf_android.sh` 상단 주석과 `_workspace/17_build-runner_qpdf_ndk_build.md` 참고.
+
+## Windows 배포물 (msvc64, 공식 배포)
+
+| 항목 | 값 |
+|---|---|
+| 출처 | github.com/qpdf/qpdf 릴리스 12.4.0 `qpdf-12.4.0-msvc64.zip` (직접 빌드 아님) |
+| 파일 | qpdf30.dll |
+| 크기 | 7,436,800 byte |
+| SHA-256 | B062982F97FCDC0C4985F840ACB7115B93141143C78265A650D73BFDF7BBD739 |
+| 런타임 의존 | MSVCP140.dll, VCRUNTIME140.dll, VCRUNTIME140_1.dll (VC++ 2015-2022 x64), UCRT |
+| 정적 링크 확인 | libjpeg-turbo·zlib DLL 의존 없음(import table 실측) |
+
+`test/native/qpdf30.dll`(테스트용)과 `native/qpdf/windows-x64/qpdf30.dll`(배포용)은
+**반드시 동일 SHA-256**이어야 한다. 자동 검사33(68 §5.4)이 이를 강제한다.

@@ -105,3 +105,18 @@ class MethodChannelSafImporter implements SafImporter {
     };
   }
 }
+
+/// Windows 등 인텐트 개념이 없는 플랫폼용. 항상 "대기 중 URI 없음"이다. (68 §3.2)
+class NoopSafImporter implements SafImporter {
+  @override
+  Future<String?> takeInitialUri() async => null;
+
+  @override
+  Stream<String> onNewIntentUri() => const Stream.empty();
+
+  @override
+  Future<PdfResult<SafImportResult>> importToPath({
+    required String contentUri,
+    required String destinationPath,
+  }) async => const PdfErr(EngineUnsupported('saf_import_channel'));
+}

@@ -30,4 +30,26 @@ void main() {
       expect(() => importer.onNewIntentUri(), returnsNormally);
     });
   });
+
+  group('NoopSafImporter — Windows 등 인텐트 개념이 없는 플랫폼(68 §3.2)', () {
+    test('takeInitialUri()는 항상 null이다', () async {
+      final importer = NoopSafImporter();
+      expect(await importer.takeInitialUri(), isNull);
+    });
+
+    test('onNewIntentUri()는 빈 스트림이다', () async {
+      final importer = NoopSafImporter();
+      expect(await importer.onNewIntentUri().isEmpty, isTrue);
+    });
+
+    test('importToPath()는 EngineUnsupported로 실패한다', () async {
+      final importer = NoopSafImporter();
+      final result = await importer.importToPath(
+        contentUri: 'content://com.example/document/1',
+        destinationPath: '/tmp/does-not-matter.pdf',
+      );
+      expect(result, isA<PdfErr<SafImportResult>>());
+      expect((result as PdfErr<SafImportResult>).failure, isA<EngineUnsupported>());
+    });
+  });
 }

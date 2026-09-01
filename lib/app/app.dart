@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../ads/ad_gate.dart';
 import '../billing/billing_service.dart';
+import '../core/platform_features.dart';
 import '../features/home/home_screen.dart';
 import '../features/viewer/open_pdf_flow.dart';
 import 'providers.dart';
@@ -70,10 +71,12 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
     // W4-T5b(문서 60 §4 F-1 해소 · §3.6 부팅 순서): billingServiceProvider는
     // Provider라 앱 전역 단일 인스턴스다. start()가 purchaseStream 구독을 먼저
     // 걸고, 그 다음 상품 조회 → 자동 복원 순서로 진행한다(순서가 절대적, §3.6).
-    unawaited(_startBilling());
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => unawaited(_checkForUpdate()),
-    );
+    if (AppFeatures.billing) unawaited(_startBilling());
+    if (AppFeatures.storeUpdate) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(_checkForUpdate()),
+      );
+    }
   }
 
   Future<void> _startBilling() async {

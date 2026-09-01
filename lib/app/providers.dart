@@ -10,8 +10,11 @@
 /// 없는 얇은 래퍼라 기본값을 즉시 만든다(주입 실패 케이스 없음).
 library;
 
+import 'dart:io' show Platform;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/platform_features.dart';
 import '../data/repository/document_repository.dart';
 import '../data/repository/recent_repository.dart';
 import '../data/storage/saf_import.dart';
@@ -56,11 +59,15 @@ final shareExportProvider = Provider<ShareExport?>((ref) {
 });
 
 final publicPdfExporterProvider = Provider<PublicPdfExporter>(
-  (ref) => MethodChannelPublicPdfExporter(),
+  (ref) => AppFeatures.publicExport && Platform.isWindows
+      ? FileSystemPublicPdfExporter()
+      : MethodChannelPublicPdfExporter(),
 );
 
 final publicImageExporterProvider = Provider<PublicImageExporter>(
-  (ref) => MethodChannelPublicImageExporter(),
+  (ref) => AppFeatures.publicExport && Platform.isWindows
+      ? FileSystemPublicImageExporter()
+      : MethodChannelPublicImageExporter(),
 );
 
 final playUpdateServiceProvider = Provider<PlayUpdateService>(
@@ -84,7 +91,7 @@ final photoSourceProvider = Provider<PhotoSource>(
   (ref) => FilePickerPhotoSource(),
 );
 final safImporterProvider = Provider<SafImporter>(
-  (ref) => MethodChannelSafImporter(),
+  (ref) => AppFeatures.intentImport ? MethodChannelSafImporter() : NoopSafImporter(),
 );
 
 /// [2주차 신설] 뷰어·홈 그리드가 공유하는 렌더러. `PdfxRenderer()` 생성 자체는

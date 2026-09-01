@@ -27,6 +27,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
+import 'package:path/path.dart' as p;
 
 import '../core/cancel_token.dart';
 import '../core/progress.dart';
@@ -874,6 +875,11 @@ Future<QpdfJobResult> runImageReplaceJob({
 /// 명시적으로 넘겨야 한다 -- 이 함수는 그 경우 예외를 던진다(무음으로 잘못된 라이브러리를 찾지 않는다).
 String _defaultLibraryPath() {
   if (Platform.isAndroid) return 'libqpdf.so';
+  if (Platform.isWindows) {
+    // 번들 루트(exe 옆). 상대경로로 열면 프로세스 CWD에 좌우되므로 절대경로로만 연다
+    // — "무음으로 잘못된 라이브러리를 찾지 않는다"는 이 함수의 기존 계약 그대로다.
+    return p.join(p.dirname(Platform.resolvedExecutable), 'qpdf30.dll');
+  }
   throw StateError(
     'qpdf library path must be supplied explicitly on this platform (no libqpdf.so default outside Android)',
   );

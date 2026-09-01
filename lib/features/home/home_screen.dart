@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../app/router.dart';
+import '../../core/platform_features.dart';
 import '../../data/repository/document_repository.dart';
 import '../../data/repository/recent_repository.dart';
 import '../common/share_flow.dart';
@@ -326,17 +327,21 @@ class _EntryPoints extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: _buttonHeight,
-            child: FilledButton(
-              onPressed: canCreateDocuments
-                  ? () => Navigator.of(context).pushNamed(AppRoutes.scan)
-                  : null,
-              child: const Text('스캔'),
+          // 68 §6: AppFeatures.scan이 거짓이면 빈 자리를 남기지 않고 버튼
+          // 자체를 렌더 트리에서 제외한다.
+          if (AppFeatures.scan) ...[
+            SizedBox(
+              width: double.infinity,
+              height: _buttonHeight,
+              child: FilledButton(
+                onPressed: canCreateDocuments
+                    ? () => Navigator.of(context).pushNamed(AppRoutes.scan)
+                    : null,
+                child: const Text('스캔'),
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
           SizedBox(
             width: double.infinity,
             height: _buttonHeight,

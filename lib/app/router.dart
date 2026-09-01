@@ -8,6 +8,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../core/platform_features.dart';
 import '../features/edit/edit_controller.dart' show EditMode;
 import '../features/edit/edit_screen.dart';
 import '../features/home/home_screen.dart';
@@ -107,6 +108,11 @@ Route<Object?>? onGenerateRoute(RouteSettings settings) {
     case AppRoutes.home:
       return MaterialPageRoute(builder: (_) => const HomeScreen(), settings: settings);
     case AppRoutes.scan:
+      // 68 §6: AppFeatures.scan이 거짓인 플랫폼(Windows)에서는 홈으로 안전
+      // 착지시킨다(onUnknownRoute와 같은 방침).
+      if (!AppFeatures.scan) {
+        return MaterialPageRoute(builder: (_) => const HomeScreen());
+      }
       return MaterialPageRoute(builder: (_) => const ScanScreen(), settings: settings);
     case AppRoutes.photoToPdf:
       return MaterialPageRoute(builder: (_) => const PhotoToPdfScreen(), settings: settings);

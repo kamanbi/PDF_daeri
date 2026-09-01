@@ -10,6 +10,7 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../billing/entitlement.dart';
+import '../core/platform_features.dart';
 import 'ads_bootstrap.dart';
 import 'interstitial_controller.dart';
 
@@ -61,6 +62,9 @@ class AdGate {
   /// 배너를 붙여도 되는가. `BannerHost`만 읽는다(§4.1).
   /// `!adsRemoved && bannerHeight != null && !suppressed`.
   bool get bannerAllowed {
+    // 68 §5.1: adsRemoved 판단보다 앞선다 — SDK가 없는 플랫폼에서는 설정값을
+    // 읽을 필요조차 없다.
+    if (!AppFeatures.ads) return false;
     if (_adsRemoved) return false; // §4.2: 구매 시 배너 완전 소거.
     if (_bannerHeight == null) return false; // §1.6 disabled 상태.
     final until = _suppressedUntil;
@@ -70,10 +74,14 @@ class AdGate {
 
   /// 전면 억제 해제 시각(§1.5). `BannerHost`가 읽는다. 억제 중이 아니거나
   /// `adsRemoved == true`면 null.
-  DateTime? get bannerSuppressedUntil => _adsRemoved ? null : _suppressedUntil;
+  DateTime? get bannerSuppressedUntil {
+    if (!AppFeatures.ads) return null;
+    return _adsRemoved ? null : _suppressedUntil;
+  }
 
   /// 작업 성공은 광고를 즉시 띄우지 않고 다음 앱 페이지 전환까지 대기시킨다.
   Future<void> registerCompletedTask() async {
+    if (!AppFeatures.ads) return;
     if (_adsRemoved) return;
     _setPendingInterstitial(true);
     await _interstitial.preload();
@@ -82,6 +90,7 @@ class AdGate {
   /// 모달이 아닌 앱 화면 전환이 완료될 때만 호출한다. 광고가 없거나 5분 간격을
   /// 만족하지 않으면 대기를 유지해 다음 화면 전환에서만 다시 시도한다.
   Future<void> consumePendingOnPageTransition() async {
+    if (!AppFeatures.ads) return;
     if (_adsRemoved || !_pendingInterstitial || _transitionInFlight) return;
     _setTransitionInFlight(true);
     await _interstitial.preload();

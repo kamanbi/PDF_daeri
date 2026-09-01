@@ -22,6 +22,7 @@ import 'app/app.dart';
 import 'app/providers.dart';
 import 'billing/entitlement.dart';
 import 'core/korean_font.dart';
+import 'core/platform_features.dart';
 import 'data/db/app_database.dart';
 import 'data/repository/document_repository.dart';
 import 'data/repository/recent_repository.dart';
@@ -107,7 +108,7 @@ Future<void> main() async {
       recentRepository = DriftRecentRepository(
         database: db,
         workspace: appWorkspace,
-        importer: MethodChannelSafImporter(),
+        importer: AppFeatures.intentImport ? MethodChannelSafImporter() : NoopSafImporter(),
       );
     } catch (e, st) {
       developer.log('문서 저장소 초기화 실패', name: 'main', level: 1000, error: e, stackTrace: st);
@@ -137,7 +138,7 @@ Future<void> main() async {
   // 구매로 광고가 제거된 상태면 SDK 초기화조차 하지 않는다(설계 §4.2). 이 단계
   // 실패는 배너 없음으로 흡수될 뿐 부팅을 막지 않는다(기존 관례, 무알림).
   int? bannerHeight;
-  if (settingsRepository != null) {
+  if (AppFeatures.ads && settingsRepository != null) {
     try {
       final settings = await settingsRepository.load();
       if (!settings.adsRemoved) {

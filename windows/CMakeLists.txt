@@ -106,3 +106,9 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# qpdf 12.4.0 (공식 msvc64 배포물). 번들 루트(exe 옆)에 둔다 — Flutter 플러그인의
+# bundled_libraries와 같은 위치이며, DynamicLibrary.open이 절대경로로 여기를 연다.
+install(FILES "${PROJECT_SOURCE_DIR}/../native/qpdf/windows-x64/qpdf30.dll"
+        DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+        COMPONENT Runtime)

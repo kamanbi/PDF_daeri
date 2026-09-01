@@ -20,6 +20,7 @@ import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../billing/billing_service.dart';
 import '../../billing/entitlement.dart';
+import '../../core/platform_features.dart';
 import '../../data/repository/recent_repository.dart';
 import '../../data/repository/settings_repository.dart';
 import '../../data/storage/workspace.dart';
@@ -91,17 +92,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             child: Card(
               clipBehavior: Clip.antiAlias,
-              child: const Column(
+              child: Column(
                 children: [
-                  _AdRemovalSection(),
-                  _SettingsDivider(),
-                  _DefaultQualityTile(),
-                  _SettingsDivider(),
-                  _StorageTile(),
-                  _SettingsDivider(),
-                  _PrivacyPolicyTile(),
-                  _SettingsDivider(),
-                  _LicenseTile(),
+                  // 68 §6: AppFeatures.billing이 거짓이면 결제 관련 UI 블록
+                  // 전체(광고 제거 구독/구독 관리/구독 상태 갱신)를 렌더하지 않는다.
+                  if (AppFeatures.billing) ...const [
+                    _AdRemovalSection(),
+                    _SettingsDivider(),
+                  ],
+                  const _DefaultQualityTile(),
+                  const _SettingsDivider(),
+                  const _StorageTile(),
+                  const _SettingsDivider(),
+                  const _PrivacyPolicyTile(),
+                  const _SettingsDivider(),
+                  const _LicenseTile(),
                 ],
               ),
             ),

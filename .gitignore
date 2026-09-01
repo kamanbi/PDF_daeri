@@ -15,6 +15,11 @@ android/app/google-services.json
 service-account*.json
 
 # ─────────────────────────────────────────────
+# Node.js (netlify/functions 빌드 도구)
+# ─────────────────────────────────────────────
+node_modules/
+
+# ─────────────────────────────────────────────
 # Flutter / Dart
 # ─────────────────────────────────────────────
 .dart_tool/

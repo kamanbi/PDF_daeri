@@ -29,7 +29,8 @@ plugins {
 android {
     namespace = "dev.doclens.doclens"
 
-    compileSdk = 34
+    // CameraX 1.5.x requires API 35 or above; match the host app's API 36.
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -61,7 +62,9 @@ android {
 }
 
 dependencies {
-    val cameraxVersion = "1.3.4"
+    // CameraX 1.5.x ships its native image-processing helper with 16KB ELF
+    // alignment. The older 1.3.4 artifact is rejected by Play's 16KB check.
+    val cameraxVersion = "1.5.3"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")

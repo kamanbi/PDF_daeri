@@ -23,6 +23,7 @@ import '../features/scan/local_document_scan_source.dart';
 import '../pdf/pdf_engine.dart';
 import '../pdf/pdf_renderer.dart';
 import '../pdf/scan_source.dart';
+import '../review/review_prompt_service.dart';
 import 'incoming_intent.dart';
 import 'play_update_service.dart';
 
@@ -64,6 +65,13 @@ final publicImageExporterProvider = Provider<PublicImageExporter>(
 
 final playUpdateServiceProvider = Provider<PlayUpdateService>(
   (ref) => PlayUpdateService(),
+);
+
+final reviewPromptServiceProvider = Provider<ReviewPromptService>(
+  (ref) => ReviewPromptService(
+    SharedPreferencesReviewPreferences(),
+    GooglePlayReviewRequester(),
+  ),
 );
 
 /// 부팅 중 발생한 비치명 이슈(한글 폰트 누락 등)를 화면에 알리기 위한 목록.

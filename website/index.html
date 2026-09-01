@@ -19,6 +19,10 @@
         <a href="#screens">화면 보기</a>
         <a href="privacy.html">개인정보처리방침</a>
         <a href="contact.html">문의하기</a>
+        <div class="visitor-count" id="visitor-count" aria-live="polite">
+          <span>오늘 <strong data-visit-count="today">0</strong></span>
+          <span>누적 <strong data-visit-count="total">0</strong></span>
+        </div>
       </nav>
       <a class="header-install" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">Google Play에서 설치</a>
     </header>
@@ -34,18 +38,21 @@
             <a class="button button-primary" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">무료로 설치하기</a>
             <a class="button button-text" href="#features">기능 살펴보기</a>
           </div>
-          <a class="qr-install" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">
-            <img src="qr-play.svg" alt="PDF 대리 Google Play 설치 QR 코드">
-            <span><strong>휴대폰으로 바로 설치</strong><small>카메라로 QR 코드를 스캔하세요</small></span>
-          </a>
-          <p class="visitor-count" id="visitor-count" aria-live="polite" hidden>누적 방문 <strong>0</strong>회</p>
         </div>
       </section>
 
       <section class="statement">
-        <p>필요한 순간에, 필요한 기능만.</p>
-        <h2>문서 작업은<br>더 단순해야 합니다.</h2>
-        <p>가입이나 복잡한 설정 없이 PDF를 열고, 문서를 스캔하고, 사진을 PDF로 만들 수 있습니다.</p>
+        <div class="statement-content">
+          <div class="statement-copy">
+            <p>필요한 순간에, 필요한 기능만.</p>
+            <h2>문서 작업은<br>더 단순해야 합니다.</h2>
+            <p>가입이나 복잡한 설정 없이 PDF를 열고, 문서를 스캔하고, 사진을 PDF로 만들 수 있습니다.</p>
+          </div>
+          <a class="statement-qr" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">
+            <img src="qr-play.svg" alt="PDF 대리 Google Play 설치 QR 코드">
+            <span>휴대폰으로 바로 설치</span>
+          </a>
+        </div>
       </section>
 
       <section class="features" id="features" aria-labelledby="feature-title">
@@ -66,7 +73,7 @@
           <p class="eyebrow">IN YOUR HAND</p>
           <h2 id="gallery-title">휴대폰 안에서 바로<br>확인하는 작업 흐름.</h2>
         </div>
-        <div class="screen-strip" aria-label="PDF 대리 앱 화면">
+        <div class="screen-gallery-grid" aria-label="PDF 대리 앱 화면">
           <figure><img src="assets/1.png" alt="PDF 대리 홈 화면"><figcaption>한눈에 보는 시작 화면</figcaption></figure>
           <figure><img src="assets/2.png" alt="PDF 문서 보기 화면"><figcaption>큰 화면으로 PDF 보기</figcaption></figure>
           <figure><img src="assets/3.png" alt="문서 스캔 화면"><figcaption>문서 스캔과 모서리 보정</figcaption></figure>
@@ -86,7 +93,7 @@
           <div>
             <a class="button button-primary" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">Google Play에서 설치</a>
             <p>QR 코드를 스캔하면 휴대폰에서 바로 설치할 수 있습니다.</p>
-            <p class="support-message">PDF 관련 기능은 무료로 사용할 수 있습니다.<br>다만, 저에게 응원을 주세요.<br>연 4,990원 구독으로 광고를 없앨 수 있습니다.<br>Google Play에서 언제든 관리하거나 취소할 수 있습니다.<br>감사합니다.</p>
+            <p class="support-message">PDF 관련 기능은 무료로 사용할 수 있습니다.<br>다만, 저에게 응원을 주세요.<br>월 990원 또는 연 4,990원 구독으로 광고를 없앨 수 있습니다.<br>Google Play에서 언제든 관리하거나 취소할 수 있습니다.<br>감사합니다.</p>
           </div>
         </div>
       </section>
@@ -99,7 +106,13 @@
         <a href="refund.html">환불 규정</a>
         <a href="contact.html">문의하기</a>
       </div>
-      <p>© <span id="year"></span> PDF 대리. All rights reserved.</p>
+      <div class="footer-information">
+        <p>© <span id="year"></span> PDF 대리.</p>
+      </div>
+      <address class="footer-business-details">
+        <p>까만비 스튜디오 (kamanbi studio) · 대표 김광우 · 사업자등록번호 525-36-01749</p>
+        <p>인천광역시 부평구 충선로209번길 41, 8층 801-03호(삼산동, 주영어린타운) · 전화 <a href="tel:01045796423">010-4579-6423</a> · 이메일 <a href="mailto:kamanbi23@naver.com">kamanbi23@naver.com</a></p>
+      </address>
     </footer>
     <script src="app.js"></script>
   </body>

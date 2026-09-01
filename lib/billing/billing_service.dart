@@ -21,13 +21,35 @@ import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 
 import 'entitlement.dart';
 
-/// 연간 자동 갱신 구독 상품(연 4,990원). Google Play Console에서 연간 기본 요금제를
+/// 광고 제거 자동 갱신 구독 상품. Google Play Console에서 월간·연간 기본 요금제를
 /// 활성화해야 한다.
 ///
 /// **[승인 대기 · 사용자 작업 필요]** 이 상품은 아직 Play Console에 존재하지
 /// 않는다(§3.2). 상품이 없으면 [BillingService.queryProducts]가 `notFoundIDs`를
 /// 받아 [PurchaseUiState.notFound]로 떨어진다 — 앱이 죽지 않는다.
 const String kAdsRemovedProductId = 'ads_removed';
+const String kMonthlyBasePlanId = 'monthly';
+const String kYearlyBasePlanId = 'yearly';
+
+enum SubscriptionPeriod { monthly, yearly }
+
+/// Play가 반환한 구독 기본 요금제 하나. 같은 상품 ID라도 기본 요금제마다 오퍼 토큰과
+/// 가격이 다르므로 구매 시 이 객체를 함께 전달한다.
+class SubscriptionPlan {
+  const SubscriptionPlan({required this.period, required this.product});
+
+  final SubscriptionPeriod period;
+  final GooglePlayProductDetails product;
+
+  String get basePlanId {
+    final subscriptionIndex = product.subscriptionIndex;
+    final offers = product.productDetails.subscriptionOfferDetails;
+    if (subscriptionIndex == null || offers == null) return '';
+    return offers[subscriptionIndex].basePlanId;
+  }
+
+  String get billingPeriod => period == SubscriptionPeriod.monthly ? '월' : '년';
+}
 
 /// S5 설정 화면(§6.2, 다음 라운드 T9)이 구독할 구매 UI 상태.
 enum PurchaseUiState {
@@ -68,7 +90,7 @@ class BillingService {
   final InAppPurchase _iap;
 
   StreamSubscription<List<PurchaseDetails>>? _subscription;
-  ProductDetails? _product;
+  final Map<SubscriptionPeriod, SubscriptionPlan> _plans = {};
   bool _available = false;
   bool _started = false;
   PurchaseUiState _state = PurchaseUiState.loading;
@@ -85,8 +107,11 @@ class BillingService {
   /// 스트림 구독 전에도 즉시 읽을 수 있는 현재 상태.
   PurchaseUiState get state => _state;
 
-  /// 조회된 상품. `notFound`/`unavailable`/`loading` 상태에서는 null이다.
-  ProductDetails? get product => _product;
+  /// 조회된 월간 기본 요금제. `notFound`/`unavailable`/`loading` 상태에서는 null이다.
+  SubscriptionPlan? get monthlyPlan => _plans[SubscriptionPeriod.monthly];
+
+  /// 조회된 연간 기본 요금제. `notFound`/`unavailable`/`loading` 상태에서는 null이다.
+  SubscriptionPlan? get yearlyPlan => _plans[SubscriptionPeriod.yearly];
 
   void _emit(PurchaseUiState next) {
     _state = next;
@@ -148,12 +173,15 @@ class BillingService {
           level: 800,
         );
       }
-      if (response.error != null || response.productDetails.isEmpty) {
-        _product = null;
+      final plans = _mapSubscriptionPlans(response.productDetails);
+      if (response.error != null || plans.isEmpty) {
+        _plans.clear();
         _emit(PurchaseUiState.notFound);
         return;
       }
-      _product = response.productDetails.first;
+      _plans
+        ..clear()
+        ..addAll(plans);
       _emit(PurchaseUiState.available);
     } catch (e, st) {
       developer.log(
@@ -163,18 +191,50 @@ class BillingService {
         error: e,
         stackTrace: st,
       );
-      _product = null;
+      _plans.clear();
       _emit(PurchaseUiState.notFound);
     }
   }
 
+  Map<SubscriptionPeriod, SubscriptionPlan> _mapSubscriptionPlans(
+    List<ProductDetails> products,
+  ) {
+    final plans = <SubscriptionPeriod, SubscriptionPlan>{};
+    for (final product in products.whereType<GooglePlayProductDetails>()) {
+      if (product.id != kAdsRemovedProductId) continue;
+
+      final basePlanId = _basePlanIdOf(product);
+      final period = switch (basePlanId) {
+        kMonthlyBasePlanId => SubscriptionPeriod.monthly,
+        kYearlyBasePlanId => SubscriptionPeriod.yearly,
+        _ => null,
+      };
+      if (period == null) {
+        developer.log(
+          '알 수 없는 구독 기본 요금제: $basePlanId',
+          name: 'billing_service',
+          level: 800,
+        );
+        continue;
+      }
+      plans[period] = SubscriptionPlan(period: period, product: product);
+    }
+    return plans;
+  }
+
+  String _basePlanIdOf(GooglePlayProductDetails product) {
+    final subscriptionIndex = product.subscriptionIndex;
+    final offers = product.productDetails.subscriptionOfferDetails;
+    if (subscriptionIndex == null || offers == null) return '';
+    return offers[subscriptionIndex].basePlanId;
+  }
+
   /// [구독] 버튼 핸들러. Android 구독은 Play가 제공한 오퍼 토큰이 반드시 있어야
   /// 하며, 상품이 없거나 결제를 쓸 수 없으면 아무 것도 하지 않는다.
-  Future<void> buy() async {
-    final product = _product;
-    if (product == null || !_available) return;
-    if (Platform.isAndroid &&
-        (product is! GooglePlayProductDetails || product.offerToken == null)) {
+  Future<void> buy(SubscriptionPlan plan) async {
+    final product = plan.product;
+    if (!_available || !_plans.containsValue(plan)) return;
+    if (Platform.isAndroid && product.offerToken == null) {
       developer.log(
         '구독 오퍼 토큰이 없어 결제를 시작하지 않음',
         name: 'billing_service',
@@ -183,12 +243,10 @@ class BillingService {
       return;
     }
     try {
-      final purchaseParam = product is GooglePlayProductDetails
-          ? GooglePlayPurchaseParam(
-              productDetails: product,
-              offerToken: product.offerToken,
-            )
-          : PurchaseParam(productDetails: product);
+      final purchaseParam = GooglePlayPurchaseParam(
+        productDetails: product,
+        offerToken: product.offerToken,
+      );
       await _iap.buyNonConsumable(purchaseParam: purchaseParam);
     } catch (e, st) {
       developer.log(

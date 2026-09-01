@@ -327,20 +327,25 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
       case PurchaseUiState.unavailable:
         // §3.6: 구매·복원 항목을 비활성 + 안내 문구로 둔다. 항목 자체는 숨기지 않는다.
         return _buildPurchaseRows(
-          subtitle: '이 기기에서는 구독을 사용할 수 없습니다',
+          monthlyPlan: null,
+          yearlyPlan: null,
+          unavailableMessage: '이 기기에서는 구독을 사용할 수 없습니다',
           buyEnabled: false,
           restoreEnabled: false,
         );
       case PurchaseUiState.notFound:
         return _buildPurchaseRows(
-          subtitle: '지금 구독할 수 없습니다',
+          monthlyPlan: null,
+          yearlyPlan: null,
+          unavailableMessage: '지금 구독할 수 없습니다',
           buyEnabled: false,
           restoreEnabled: true,
         );
       case PurchaseUiState.available:
-        final price = _billing.product?.price;
         return _buildPurchaseRows(
-          subtitle: price == null ? '연간 자동 갱신' : '$price / 년 · 자동 갱신',
+          monthlyPlan: _billing.monthlyPlan,
+          yearlyPlan: _billing.yearlyPlan,
+          unavailableMessage: '현재 이용할 수 없습니다',
           buyEnabled: true,
           restoreEnabled: true,
         );
@@ -393,20 +398,27 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
   }
 
   Widget _buildPurchaseRows({
-    required String subtitle,
+    required SubscriptionPlan? monthlyPlan,
+    required SubscriptionPlan? yearlyPlan,
+    required String unavailableMessage,
     required bool buyEnabled,
     required bool restoreEnabled,
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _SettingsRow(
-          title: '광고 제거 구독',
-          subtitle: Text(subtitle),
-          trailing: FilledButton(
-            onPressed: buyEnabled ? _billing.buy : null,
-            child: const Text('구독'),
-          ),
+        _buildPlanPurchaseRow(
+          title: '월간 광고 제거',
+          plan: monthlyPlan,
+          unavailableMessage: unavailableMessage,
+          buyEnabled: buyEnabled,
+        ),
+        const _SettingsDivider(),
+        _buildPlanPurchaseRow(
+          title: '연간 광고 제거',
+          plan: yearlyPlan,
+          unavailableMessage: unavailableMessage,
+          buyEnabled: buyEnabled,
         ),
         const _SettingsDivider(),
         _SettingsRow(
@@ -424,6 +436,25 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPlanPurchaseRow({
+    required String title,
+    required SubscriptionPlan? plan,
+    required String unavailableMessage,
+    required bool buyEnabled,
+  }) {
+    final subtitle = plan == null
+        ? unavailableMessage
+        : '${plan.product.price} / ${plan.billingPeriod} · 자동 갱신';
+    return _SettingsRow(
+      title: title,
+      subtitle: Text(subtitle),
+      trailing: FilledButton(
+        onPressed: buyEnabled && plan != null ? () => _billing.buy(plan) : null,
+        child: const Text('구독'),
+      ),
     );
   }
 }

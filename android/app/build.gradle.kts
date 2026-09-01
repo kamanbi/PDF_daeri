@@ -52,7 +52,9 @@ val releaseSigningReady = releaseSigningProblem == null
 android {
     namespace = "com.kamanbi.pdf_daeri"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Keep release builds on NDK r28, which emits 16KB-page-compatible ELF
+    // alignment for any native code built by this app.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

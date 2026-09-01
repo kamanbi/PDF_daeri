@@ -1,9 +1,7 @@
-# 광고 제거 연간 구독 현재 상태
+# PDF 생성 후 리뷰 요청 현황
 
-- `ads_removed`는 연 4,990원 자동 갱신 구독으로 전환하도록 앱·홈페이지·환불 규정을 갱신했다.
-- Android 앱은 Google Play의 활성 구독 목록을 앱 시작과 수동 갱신 시 조회해 `settings.ads_removed` 캐시를 동기화한다. 조회 실패 시 직전 캐시를 유지한다.
-- 설정은 Play Console의 실제 현지 가격을 표시하며, 활성 구독의 Google Play 관리·취소 페이지를 연다.
-- 공개 홈페이지 `https://verdant-pixie-350067.netlify.app`와 환불 규정에 구독 가격·자동 갱신·관리/취소 경로가 배포돼 있다.
-- 최종 릴리즈 산출물은 `com.kamanbi.pdf_daeri` 버전 `1.0.2`(versionCode 3)이며, APK와 AAB 모두 외부 릴리즈 키로 서명됐다.
-- `ads_removed`가 Play Console에 일회성 상품으로 이미 생성됐다면 같은 ID를 구독으로 변경할 수 없다. 이 경우 새 구독 ID를 정하고 앱 상수를 함께 바꿔야 한다.
-- 서버 영수증 검증은 없다. 기기 내 Google Play 활성 구매 목록을 기준으로 판정하므로 즉시 철회·다중 기기 검증을 보장하려면 별도 서버가 필요하다.
+- 앱 버전은 `1.1.5+5`다. `in_app_review` 2.0.12와 `shared_preferences` 2.5.5를 사용한다.
+- 새 PDF 생성은 `DocumentRepository.createDocument`를 통해 원자적으로 완료된다. UI 성공 지점은 공용 `save_dialog.dart`와 단일 스캔용 `single_scan_save_screen.dart` 두 곳이다.
+- 공용 저장 다이얼로그는 사진→PDF, PDF 편집, 문서 합치기에서 사용된다. 단일 스캔 저장은 공용 다이얼로그를 거치지 않는다.
+- 저장 성공 시 전면 광고 작업 등록과 별도로 리뷰 요청 서비스가 실행된다. 완료 생성 횟수와 리뷰 요청 이력은 기기 로컬 저장소에 보관한다.
+- Google Play 인앱 리뷰는 `requestReview()`를 요청해도 플랫폼의 사용량 제한 때문에 항상 대화상자가 나타나는 것은 아니다. 따라서 10회째 성공 완료 시 한 번만 요청하고, 사용자에게 별도 강제 다이얼로그는 띄우지 않아야 한다.

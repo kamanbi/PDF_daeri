@@ -1,5 +1,6 @@
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -81,7 +82,14 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
           final exportResult = await _exportOutputs(value);
           if (!mounted) return;
           await _showExportResult(exportResult);
-          if (mounted) Navigator.of(context).pop(value);
+          if (mounted) {
+            Navigator.of(context).pop(value);
+            unawaited(
+              ref
+                  .read(reviewPromptServiceProvider)
+                  .recordSuccessfulPdfCreation(),
+            );
+          }
         case PdfErr<DocumentSummary>(:final failure):
           ScaffoldMessenger.of(
             context,

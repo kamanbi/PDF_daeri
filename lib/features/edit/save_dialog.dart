@@ -179,6 +179,9 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
         if (!mounted) return;
         unawaited(ref.read(adGateProvider).registerCompletedTask());
         Navigator.of(context).pop(value);
+        unawaited(
+          ref.read(reviewPromptServiceProvider).recordSuccessfulPdfCreation(),
+        );
       case PdfErr<DocumentSummary>(:final failure):
         developer.log('저장 실패', name: 'SaveDialog', error: failure);
         setState(() => _stage = _Stage.input);

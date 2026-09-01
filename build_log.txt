@@ -1,0 +1,521 @@
+[ +289 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[   +2 ms] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[   +1 ms] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[        ] executing: [C:\dev\flutter/] git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[ +153 ms] Exit code 0 from: git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[        ] 2026-07-23 10:56:21 -0700
+[  +22 ms] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[   +4 ms] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[  +93 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[   +4 ms] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[  +25 ms] Skipping pub get: version match.
+[  +48 ms] Found plugin integration_test at C:\dev\flutter\packages\integration_test\
+[ +248 ms] Found plugin url_launcher at E:\DevCaches\Pub\hosted\pub.dev\url_launcher-6.3.2\
+[   +3 ms] Found plugin url_launcher_windows at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_windows-3.1.6\
+[   +7 ms] Found plugin url_launcher_web at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_web-2.4.3\
+[   +4 ms] Found plugin url_launcher_macos at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_macos-3.2.6\
+[   +5 ms] Found plugin url_launcher_linux at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_linux-3.2.3\
+[   +6 ms] Found plugin url_launcher_ios at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_ios-6.4.2\
+[   +2 ms] Found plugin url_launcher_android at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_android-6.3.33\
+[   +7 ms] Found plugin shared_preferences at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences-2.5.5\
+[   +3 ms] Found plugin shared_preferences_windows at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_windows-2.4.1\
+[   +5 ms] Found plugin path_provider_windows at E:\DevCaches\Pub\hosted\pub.dev\path_provider_windows-2.3.0\
+[   +7 ms] Found plugin shared_preferences_web at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_web-2.4.3\
+[   +2 ms] Found plugin shared_preferences_linux at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_linux-2.4.1\
+[   +3 ms] Found plugin path_provider_linux at E:\DevCaches\Pub\hosted\pub.dev\path_provider_linux-2.2.2\
+[   +5 ms] Found plugin shared_preferences_foundation at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_foundation-2.5.7\
+[   +3 ms] Found plugin shared_preferences_android at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_android-2.4.28\
+[   +2 ms] Found plugin share_plus at E:\DevCaches\Pub\hosted\pub.dev\share_plus-13.3.0\
+[   +8 ms] Found plugin path_provider at E:\DevCaches\Pub\hosted\pub.dev\path_provider-2.1.6\
+[   +6 ms] Found plugin path_provider_foundation at E:\DevCaches\Pub\hosted\pub.dev\path_provider_foundation-2.6.0\
+[   +5 ms] Found plugin path_provider_android at E:\DevCaches\Pub\hosted\pub.dev\path_provider_android-2.3.1\
+[   +3 ms] Found plugin jni_flutter at E:\DevCaches\Pub\hosted\pub.dev\jni_flutter-1.0.3\
+[   +4 ms] Found plugin jni at E:\DevCaches\Pub\hosted\pub.dev\jni-1.0.3\
+[  +22 ms] Found plugin pdfium_flutter at E:\DevCaches\Pub\hosted\pub.dev\pdfium_flutter-0.2.3\
+[  +22 ms] Found plugin package_info_plus at E:\DevCaches\Pub\hosted\pub.dev\package_info_plus-10.2.1\
+[   +7 ms] Found plugin in_app_review at E:\DevCaches\Pub\hosted\pub.dev\in_app_review-2.0.12\
+[   +5 ms] Found plugin in_app_purchase_android at E:\DevCaches\Pub\hosted\pub.dev\in_app_purchase_android-0.5.3\
+[   +7 ms] Found plugin in_app_purchase at E:\DevCaches\Pub\hosted\pub.dev\in_app_purchase-3.3.0\
+[   +2 ms] Found plugin in_app_purchase_storekit at E:\DevCaches\Pub\hosted\pub.dev\in_app_purchase_storekit-0.4.11+2\
+[   +3 ms] Found plugin google_mobile_ads at E:\DevCaches\Pub\hosted\pub.dev\google_mobile_ads-9.1.0\
+[   +5 ms] Found plugin webview_flutter_wkwebview at E:\DevCaches\Pub\hosted\pub.dev\webview_flutter_wkwebview-3.26.1\
+[   +5 ms] Found plugin webview_flutter_android at E:\DevCaches\Pub\hosted\pub.dev\webview_flutter_android-4.14.1\
+[   +2 ms] Found plugin webview_flutter at E:\DevCaches\Pub\hosted\pub.dev\webview_flutter-4.14.1\
+[  +11 ms] Found plugin file_picker at E:\DevCaches\Pub\hosted\pub.dev\file_picker-12.1.2\
+[   +3 ms] Found plugin windows_file_picker at E:\DevCaches\Pub\hosted\pub.dev\windows_file_picker-1.1.0\
+[   +5 ms] Found plugin file_picker_web at E:\DevCaches\Pub\hosted\pub.dev\file_picker_web-3.0.3\
+[   +2 ms] Found plugin file_picker_linux at E:\DevCaches\Pub\hosted\pub.dev\file_picker_linux-1.0.2\
+[   +3 ms] Found plugin file_picker_darwin at E:\DevCaches\Pub\hosted\pub.dev\file_picker_darwin-1.0.4\
+[   +2 ms] Found plugin android_file_picker at E:\DevCaches\Pub\hosted\pub.dev\android_file_picker-1.0.3\
+[   +2 ms] Found plugin doclens at F:\PDF_daeri\third_party\doclens\
+[  +54 ms] Found plugin integration_test at C:\dev\flutter\packages\integration_test\
+[ +143 ms] Found plugin url_launcher at E:\DevCaches\Pub\hosted\pub.dev\url_launcher-6.3.2\
+[   +2 ms] Found plugin url_launcher_windows at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_windows-3.1.6\
+[   +5 ms] Found plugin url_launcher_web at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_web-2.4.3\
+[   +2 ms] Found plugin url_launcher_macos at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_macos-3.2.6\
+[   +2 ms] Found plugin url_launcher_linux at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_linux-3.2.3\
+[   +1 ms] Found plugin url_launcher_ios at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_ios-6.4.2\
+[   +1 ms] Found plugin url_launcher_android at E:\DevCaches\Pub\hosted\pub.dev\url_launcher_android-6.3.33\
+[   +4 ms] Found plugin shared_preferences at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences-2.5.5\
+[   +2 ms] Found plugin shared_preferences_windows at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_windows-2.4.1\
+[   +3 ms] Found plugin path_provider_windows at E:\DevCaches\Pub\hosted\pub.dev\path_provider_windows-2.3.0\
+[   +3 ms] Found plugin shared_preferences_web at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_web-2.4.3\
+[   +1 ms] Found plugin shared_preferences_linux at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_linux-2.4.1\
+[   +1 ms] Found plugin path_provider_linux at E:\DevCaches\Pub\hosted\pub.dev\path_provider_linux-2.2.2\
+[   +3 ms] Found plugin shared_preferences_foundation at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_foundation-2.5.7\
+[   +1 ms] Found plugin shared_preferences_android at E:\DevCaches\Pub\hosted\pub.dev\shared_preferences_android-2.4.28\
+[   +2 ms] Found plugin share_plus at E:\DevCaches\Pub\hosted\pub.dev\share_plus-13.3.0\
+[   +6 ms] Found plugin path_provider at E:\DevCaches\Pub\hosted\pub.dev\path_provider-2.1.6\
+[   +1 ms] Found plugin path_provider_foundation at E:\DevCaches\Pub\hosted\pub.dev\path_provider_foundation-2.6.0\
+[   +2 ms] Found plugin path_provider_android at E:\DevCaches\Pub\hosted\pub.dev\path_provider_android-2.3.1\
+[   +1 ms] Found plugin jni_flutter at E:\DevCaches\Pub\hosted\pub.dev\jni_flutter-1.0.3\
+[   +1 ms] Found plugin jni at E:\DevCaches\Pub\hosted\pub.dev\jni-1.0.3\
+[  +11 ms] Found plugin pdfium_flutter at E:\DevCaches\Pub\hosted\pub.dev\pdfium_flutter-0.2.3\
+[  +12 ms] Found plugin package_info_plus at E:\DevCaches\Pub\hosted\pub.dev\package_info_plus-10.2.1\
+[   +3 ms] Found plugin in_app_review at E:\DevCaches\Pub\hosted\pub.dev\in_app_review-2.0.12\
+[   +3 ms] Found plugin in_app_purchase_android at E:\DevCaches\Pub\hosted\pub.dev\in_app_purchase_android-0.5.3\
+[   +3 ms] Found plugin in_app_purchase at E:\DevCaches\Pub\hosted\pub.dev\in_app_purchase-3.3.0\
+[   +2 ms] Found plugin in_app_purchase_storekit at E:\DevCaches\Pub\hosted\pub.dev\in_app_purchase_storekit-0.4.11+2\
+[   +2 ms] Found plugin google_mobile_ads at E:\DevCaches\Pub\hosted\pub.dev\google_mobile_ads-9.1.0\
+[   +2 ms] Found plugin webview_flutter_wkwebview at E:\DevCaches\Pub\hosted\pub.dev\webview_flutter_wkwebview-3.26.1\
+[   +3 ms] Found plugin webview_flutter_android at E:\DevCaches\Pub\hosted\pub.dev\webview_flutter_android-4.14.1\
+[   +1 ms] Found plugin webview_flutter at E:\DevCaches\Pub\hosted\pub.dev\webview_flutter-4.14.1\
+[   +5 ms] Found plugin file_picker at E:\DevCaches\Pub\hosted\pub.dev\file_picker-12.1.2\
+[   +1 ms] Found plugin windows_file_picker at E:\DevCaches\Pub\hosted\pub.dev\windows_file_picker-1.1.0\
+[   +2 ms] Found plugin file_picker_web at E:\DevCaches\Pub\hosted\pub.dev\file_picker_web-3.0.3\
+[   +2 ms] Found plugin file_picker_linux at E:\DevCaches\Pub\hosted\pub.dev\file_picker_linux-1.0.2\
+[   +3 ms] Found plugin file_picker_darwin at E:\DevCaches\Pub\hosted\pub.dev\file_picker_darwin-1.0.4\
+[   +1 ms] Found plugin android_file_picker at E:\DevCaches\Pub\hosted\pub.dev\android_file_picker-1.0.3\
+[   +3 ms] Found plugin doclens at F:\PDF_daeri\third_party\doclens\
+[  +30 ms] Generating F:\PDF_daeri\android\app\src\main\java\io\flutter\plugins\GeneratedPluginRegistrant.java
+[  +17 ms] Skipping generating GeneratedPluginRegistrant.java because it is up-to-date.
+[   +7 ms] Skipping generating generated_plugin_registrant.h because it is up-to-date.
+[   +1 ms] Skipping generating generated_plugin_registrant.cc because it is up-to-date.
+[   +2 ms] Skipping generating generated_plugins.cmake because it is up-to-date.
+[  +88 ms] executing: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[ +133 ms] Exit code 0 from: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[        ] []
+[        ] executing: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.VCTools Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[ +103 ms] Exit code 0 from: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.VCTools Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[        ] [
+             {
+               "instanceId": "be10d30c",
+               "installDate": "2026-08-27T03:34:29Z",
+               "installationName": "VisualStudio/17.14.39+37614.0.-august.2026-",
+               "installationPath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools",
+               "installationVersion": "17.14.37614.0",
+               "productId": "Microsoft.VisualStudio.Product.BuildTools",
+               "productPath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\LaunchDevCmd.bat",
+               "state": 4294967295,
+               "isComplete": true,
+               "isLaunchable": true,
+               "isPrerelease": false,
+               "isRebootRequired": false,
+               "displayName": "Visual Studio Build Tools 2022",
+               "description": "Visual Studio Build Tools에서는 Visual Studio IDE 없이 네이티브 및 관리 MSBuild 기반 애플리케이션을 빌드할 수 있습니다. Visual C++ 컴파일러 및 라이브러리, MFC, ATL, C++/CLI 지원 등과 같은 도구를 설치하는 옵션이 있습니다.",
+               "channelId": "VisualStudio.17.Release",
+               "channelUri": "https://aka.ms/vs/17/release/channel",
+               "enginePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\resources\\app\\ServiceHub\\Services\\Microsoft.VisualStudio.Setup.Service",
+               "installChannelUri": "https://aka.ms/vs/17/release/525978853_-560036173/channel",
+               "installedChannelId": "VisualStudio.17.Release",
+               "installedChannelUri": "https://aka.ms/vs/17/release/channel",
+               "releaseNotes": "https://docs.microsoft.com/en-us/visualstudio/releases/2022/release-notes-v17.14#17.14.39",
+               "resolvedInstallationPath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools",
+               "thirdPartyNotices": "https://go.microsoft.com/fwlink/?LinkId=661288",
+               "updateDate": "2026-08-27T03:34:29.8988546Z",
+               "catalog": {
+                 "buildBranch": "d17.14",
+                 "buildVersion": "17.14.37614.0",
+                 "id": "VisualStudio/17.14.39+37614.0.-august.2026-",
+                 "localBuild": "build-lab",
+                 "manifestName": "VisualStudio",
+                 "manifestType": "installer",
+                 "productDisplayVersion": "17.14.39 (August 2026)",
+                 "productLine": "Dev17",
+                 "productLineVersion": "2022",
+                 "productMilestone": "RTW",
+                 "productMilestoneIsPreRelease": "False",
+                 "productName": "Visual Studio",
+                 "productPatchVersion": "39",
+                 "productPreReleaseMilestoneSuffix": "1.0",
+                 "productReleaseNameSuffix": "(August 2026)",
+                 "productSemanticVersion": "17.14.39+37614.0.-august.2026-",
+                 "requiredEngineVersion": "3.14.2094.42856"
+               },
+               "properties": {
+                 "campaignId": "",
+                 "channelManifestId": "VisualStudio.17.Release/17.14.39+37614.0.-august.2026-",
+                 "includeRecommended": "0",
+                 "nickname": "",
+                 "setupEngineFilePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe"
+               }
+             }
+           ]
+[   +7 ms] Building Windows application...
+[   +6 ms] executing: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe -S F:\PDF_daeri\windows -B F:\PDF_daeri\build\windows\x64 -G Visual Studio 17 2022 -A x64 -DFLUTTER_TARGET_PLATFORM=windows-x64
+[ +148 ms] -- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+[ +195 ms] -- Configuring done (0.2s)
+[ +418 ms] -- Generating done (0.4s)
+[   +7 ms] -- Build files have been written to: F:/PDF_daeri/build/windows/x64
+[  +42 ms] executing: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe --build F:\PDF_daeri\build\windows\x64 --config Debug --target INSTALL --verbose
+[ +129 ms] Change Dir: 'F:/PDF_daeri/build/windows/x64'
+[        ] Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/amd64/MSBuild.exe" INSTALL.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+[ +193 ms] msbuild 버전 17.14.51+25f168cee(.NET Framework용)
+[  +63 ms] 빌드 시작: 2026-09-01 오후 12:06:53
+[ +345 ms] 1 노드의 "F:\PDF_daeri\build\windows\x64\INSTALL.vcxproj" 프로젝트(기본 대상)입니다.
+[        ] "F:\PDF_daeri\build\windows\x64\INSTALL.vcxproj"(1) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\ZERO_CHECK.vcxproj"(2)을(를) 빌드하고 있습니다(기본 대상).
+[        ] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +8 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "x64\Debug\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "x64\Debug\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[  +33 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[ +139 ms]   1>Checking Build System
+[ +165 ms] FinalizeBuildStatus:
+[        ]   "x64\Debug\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "x64\Debug\ZERO_CHECK\ZERO_CHECK.tlog\ZERO_CHECK.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\ZERO_CHECK.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[ +148 ms] "F:\PDF_daeri\build\windows\x64\INSTALL.vcxproj"(1) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\ALL_BUILD.vcxproj"(3)을(를) 빌드하고 있습니다(기본 대상).
+[        ] "F:\PDF_daeri\build\windows\x64\ALL_BUILD.vcxproj"(3) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\flutter\flutter_wrapper_app.vcxproj"(4)을(를) 빌드하고 있습니다(기본 대상).
+[        ] "F:\PDF_daeri\build\windows\x64\flutter\flutter_wrapper_app.vcxproj"(4) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\flutter\flutter_assemble.vcxproj"(5)을(를) 빌드하고 있습니다(기본 대상).
+[        ] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +1 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "x64\Debug\flutter_assemble\flutter_assemble.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "x64\Debug\flutter_assemble\flutter_assemble.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[  +10 ms] CustomBuild:
+[        ]   "'F:\PDF_daeri\build\windows\x64\CMakeFiles\839ddb5cd5738c4da4bbdd3f55ed62bd\flutter_assemble.rule'의 빌드는 'F:\PDF_daeri\build\windows\x64\CMakeFiles\a61a22b2d66ba8473ace7601d041c6e4\flutter_windows.dll.rule'의 빌드로 생성되는 'F:\PDF_DAERI\WINDOWS\FLUTTER\EPHEMERAL\FLUTTER_WINDOWS.DLL'에 따라 달라집니다. 항목은 동시에 빌드할 수 없습니다."
+[  +63 ms]   Generating F:/PDF_daeri/windows/flutter/ephemeral/flutter_windows.dll, F:/PDF_daeri/windows/flutter/ephemeral/flutter_export.h, F:/PDF_daeri/windows/flutter/ephemeral/flutter_windows.h, F:/PDF_daeri/windows/flutter/ephemeral/flutter_messenger.h, F:/PDF_daeri/windows/flutter/ephemeral/flutter_plugin_registrar.h, F:/PDF_daeri/windows/flutter/ephemeral/flutter_texture_registrar.h, F:/PDF_daeri/windows/flutter/ephemeral/cpp_client_wrapper/core_implementations.cc, F:/PDF_daeri/windows/flutter/ephemeral/cpp_client_wrapper/standard_codec.cc, F:/PDF_daeri/windows/flutter/ephemeral/cpp_client_wrapper/plugin_registrar.cc, F:/PDF_daeri/windows/flutter/ephemeral/cpp_client_wrapper/flutter_engine.cc, F:/PDF_daeri/windows/flutter/ephemeral/cpp_client_wrapper/flutter_view_controller.cc, _phony_
+[+3408 ms]   [ +312 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ]   [   +2 ms] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ]   [   +1 ms] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[   +1 ms]   [        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[   +4 ms]   [  +25 ms] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[   +6 ms]   [   +5 ms] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[ +145 ms]   [ +147 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[   +7 ms]   [   +7 ms] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[  +86 ms]   [  +88 ms] Initializing file store
+[  +49 ms]   [  +49 ms] Done initializing file store
+[ +291 ms]   [ +290 ms] Skipping target: dart_build
+[   +4 ms]   [   +4 ms] Skipping target: gen_dart_plugin_registrant
+[+7085 ms]   [+7085 ms] Skipping target: unpack_windows
+[  +86 ms]   [  +86 ms] Skipping target: install_code_assets
+[        ]   [        ] Skipping target: gen_localizations
+[+5189 ms]   [+5189 ms] Skipping target: kernel_snapshot_program
+[  +40 ms]   [  +40 ms] invalidated build due to missing files: F:\PDF_daeri\DOES_NOT_EXIST_RERUN_FOR_WILDCARD834376117
+[+1438 ms]   [+1439 ms] debug_bundle_windows-x64_assets: Starting due to {InvalidatedReasonKind.inputMissing: The following inputs were missing: F:\PDF_daeri\DOES_NOT_EXIST_RERUN_FOR_WILDCARD834376117}
+[ +377 ms]   [ +377 ms] Skipping assets entry "packages/pdfrx/assets/pdfium.wasm" since its configured platform(s) did not match the target platform.
+[   +1 ms]              Configured platforms: web
+[        ]              Target platform: windows
+[   +1 ms]   [        ] Skipping assets entry "packages/pdfrx/assets/pdfium_client.js" since its configured platform(s) did not match the target platform.
+[        ]              Configured platforms: web
+[        ]              Target platform: windows
+[        ]   [        ] Skipping assets entry "packages/pdfrx/assets/pdfium_worker.js" since its configured platform(s) did not match the target platform.
+[        ]              Configured platforms: web
+[        ]              Target platform: windows
+[ +280 ms]   [ +284 ms] Manifest contained wildcard assets. Inserting missing file into build graph to force rerun. for more information see #56466.
+[  +36 ms]   [  +37 ms] impellerc command: [C:\dev\flutter\bin\cache\artifacts\engine\windows-x64\impellerc.exe, --sksl, --runtime-stage-gles, --runtime-stage-gles3, --runtime-stage-vulkan, --iplr, --sl=F:\PDF_daeri\build\flutter_assets\shaders/ink_sparkle.frag, --spirv=F:\PDF_daeri\build\flutter_assets\shaders/ink_sparkle.frag.spirv, --input=C:\dev\flutter\packages\flutter\lib\src\material\shaders\ink_sparkle.frag, --input-type=frag, --include=C:\dev\flutter\packages\flutter\lib\src\material\shaders, --include=C:\dev\flutter\bin\cache\artifacts\engine\windows-x64\shader_lib]
+[   +2 ms]   [   +2 ms] impellerc command: [C:\dev\flutter\bin\cache\artifacts\engine\windows-x64\impellerc.exe, --sksl, --runtime-stage-gles, --runtime-stage-gles3, --runtime-stage-vulkan, --iplr, --sl=F:\PDF_daeri\build\flutter_assets\shaders/stretch_effect.frag, --spirv=F:\PDF_daeri\build\flutter_assets\shaders/stretch_effect.frag.spirv, --input=C:\dev\flutter\packages\flutter\lib\src\material\shaders\stretch_effect.frag, --input-type=frag, --include=C:\dev\flutter\packages\flutter\lib\src\material\shaders, --include=C:\dev\flutter\bin\cache\artifacts\engine\windows-x64\shader_lib]
+[+1391 ms]   [+1392 ms] debug_bundle_windows-x64_assets: Complete
+[+1109 ms]   [+1109 ms] Persisting file store
+[  +30 ms]   [  +30 ms] Done persisting file store
+[  +53 ms]   [  +53 ms] build succeeded.
+[   +3 ms]   [   +3 ms] "flutter assemble" took 17,753ms.
+[ +184 ms]   [ +184 ms] Running 1 shutdown hook
+[   +2 ms]   [   +2 ms] Shutdown hooks complete
+[ +264 ms]   [ +264 ms] exiting with code 0
+[ +179 ms] FinalizeBuildStatus:
+[        ]   "x64\Debug\flutter_assemble\flutter_assemble.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "x64\Debug\flutter_assemble\flutter_assemble.tlog\flutter_assemble.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\flutter\flutter_assemble.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[  +12 ms] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +2 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "flutter_wrapper_app.dir\Debug\flutter_.B42889BB.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "flutter_wrapper_app.dir\Debug\flutter_.B42889BB.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[   +5 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[ +106 ms] ClCompile:
+[        ]   모든 출력이 최신 상태입니다.
+[  +58 ms] Lib:
+[        ]   모든 출력이 최신 상태입니다.
+[   +2 ms]   flutter_wrapper_app.vcxproj -> F:\PDF_daeri\build\windows\x64\flutter\Debug\flutter_wrapper_app.lib
+[  +30 ms] FinalizeBuildStatus:
+[        ]   "flutter_wrapper_app.dir\Debug\flutter_.B42889BB.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "flutter_wrapper_app.dir\Debug\flutter_.B42889BB.tlog\flutter_wrapper_app.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[  +64 ms] "F:\PDF_daeri\build\windows\x64\ALL_BUILD.vcxproj"(3) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\flutter\flutter_wrapper_plugin.vcxproj"(6)을(를) 빌드하고 있습니다(기본 대상).
+[        ] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +2 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "flutter_wrapper_plugin.dir\Debug\flutter_.1C9C2F8F.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "flutter_wrapper_plugin.dir\Debug\flutter_.1C9C2F8F.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[   +4 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[  +18 ms] ClCompile:
+[        ]   모든 출력이 최신 상태입니다.
+[   +8 ms] Lib:
+[        ]   모든 출력이 최신 상태입니다.
+[        ]   flutter_wrapper_plugin.vcxproj -> F:\PDF_daeri\build\windows\x64\flutter\Debug\flutter_wrapper_plugin.lib
+[  +15 ms] FinalizeBuildStatus:
+[        ]   "flutter_wrapper_plugin.dir\Debug\flutter_.1C9C2F8F.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "flutter_wrapper_plugin.dir\Debug\flutter_.1C9C2F8F.tlog\flutter_wrapper_plugin.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\flutter\flutter_wrapper_plugin.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[  +63 ms] "F:\PDF_daeri\build\windows\x64\ALL_BUILD.vcxproj"(3) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\plugins\jni\shared\jni.vcxproj"(7)을(를) 빌드하고 있습니다(기본 대상).
+[        ] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +2 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "jni.dir\Debug\jni.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "jni.dir\Debug\jni.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[   +6 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[  +81 ms]   Building Custom Rule F:/PDF_daeri/windows/flutter/ephemeral/.plugin_symlinks/jni/src/CMakeLists.txt
+[ +133 ms] ClCompile:
+[        ]   모든 출력이 최신 상태입니다.
+[  +85 ms] Link:
+[        ]   모든 출력이 최신 상태입니다.
+[   +6 ms]   jni.vcxproj -> F:\PDF_daeri\build\windows\x64\plugins\jni\shared\Debug\dartjni.dll
+[  +20 ms] FinalizeBuildStatus:
+[        ]   "jni.dir\Debug\jni.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[   +1 ms]   "jni.dir\Debug\jni.tlog\jni.lastbuildstate"에 연결(touching)하고 있습니다.
+[   +1 ms] "F:\PDF_daeri\build\windows\x64\plugins\jni\shared\jni.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[ +142 ms] "F:\PDF_daeri\build\windows\x64\ALL_BUILD.vcxproj"(3) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\runner\pdf_daeri.vcxproj"(8)을(를) 빌드하고 있습니다(기본 대상).
+[        ] "F:\PDF_daeri\build\windows\x64\runner\pdf_daeri.vcxproj"(8) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\plugins\share_plus\share_plus_plugin.vcxproj"(9)을(를) 빌드하고 있습니다(기본 대상).
+[        ] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +3 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "share_plus_plugin.dir\Debug\share_pl.8BD2E959.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "share_plus_plugin.dir\Debug\share_pl.8BD2E959.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[   +3 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[  +27 ms] ClCompile:
+[        ]   모든 출력이 최신 상태입니다.
+[  +22 ms] Link:
+[        ]   모든 출력이 최신 상태입니다.
+[   +1 ms]   share_plus_plugin.vcxproj -> F:\PDF_daeri\build\windows\x64\plugins\share_plus\Debug\share_plus_plugin.dll
+[  +17 ms] FinalizeBuildStatus:
+[        ]   "share_plus_plugin.dir\Debug\share_pl.8BD2E959.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "share_plus_plugin.dir\Debug\share_pl.8BD2E959.tlog\share_plus_plugin.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\plugins\share_plus\share_plus_plugin.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[  +76 ms] "F:\PDF_daeri\build\windows\x64\runner\pdf_daeri.vcxproj"(8) 프로젝트가 1 노드에서 "F:\PDF_daeri\build\windows\x64\plugins\url_launcher_windows\url_launcher_windows_plugin.vcxproj"(10)을(를) 빌드하고 있습니다(기본 대상).
+[        ] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +3 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "url_launcher_windows_plugin.dir\Debug\url_laun.F832AB68.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "url_launcher_windows_plugin.dir\Debug\url_laun.F832AB68.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[   +5 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[  +41 ms] ClCompile:
+[        ]   모든 출력이 최신 상태입니다.
+[  +17 ms] Link:
+[        ]   모든 출력이 최신 상태입니다.
+[   +1 ms]   url_launcher_windows_plugin.vcxproj -> F:\PDF_daeri\build\windows\x64\plugins\url_launcher_windows\Debug\url_launcher_windows_plugin.dll
+[  +16 ms] FinalizeBuildStatus:
+[        ]   "url_launcher_windows_plugin.dir\Debug\url_laun.F832AB68.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[   +1 ms]   "url_launcher_windows_plugin.dir\Debug\url_laun.F832AB68.tlog\url_launcher_windows_plugin.lastbuildstate"에 연결(touching)하고 있습니다.
+[   +1 ms] "F:\PDF_daeri\build\windows\x64\plugins\url_launcher_windows\url_launcher_windows_plugin.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[  +25 ms] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +2 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "pdf_daeri.dir\Debug\pdf_daeri.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "pdf_daeri.dir\Debug\pdf_daeri.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[   +4 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[  +29 ms] ClCompile:
+[        ]   모든 출력이 최신 상태입니다.
+[  +12 ms] ResourceCompile:
+[        ]   모든 출력이 최신 상태입니다.
+[  +32 ms] Link:
+[        ]   모든 출력이 최신 상태입니다.
+[   +1 ms]   pdf_daeri.vcxproj -> F:\PDF_daeri\build\windows\x64\runner\Debug\pdf_daeri.exe
+[  +20 ms] FinalizeBuildStatus:
+[        ]   "pdf_daeri.dir\Debug\pdf_daeri.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "pdf_daeri.dir\Debug\pdf_daeri.tlog\pdf_daeri.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\runner\pdf_daeri.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[  +15 ms] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +2 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "x64\Debug\ALL_BUILD\ALL_BUILD.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "x64\Debug\ALL_BUILD\ALL_BUILD.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[   +6 ms] CustomBuild:
+[        ]   모든 출력이 최신 상태입니다.
+[  +68 ms]   Building Custom Rule F:/PDF_daeri/windows/CMakeLists.txt
+[ +114 ms] FinalizeBuildStatus:
+[        ]   "x64\Debug\ALL_BUILD\ALL_BUILD.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "x64\Debug\ALL_BUILD\ALL_BUILD.tlog\ALL_BUILD.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\ALL_BUILD.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[  +16 ms] PrepareForBuild:
+[        ]   구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+[   +3 ms] InitializeBuildStatus:
+[        ]   "AlwaysCreate"이(가) 지정되었기 때문에 "x64\Debug\INSTALL\INSTALL.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+[        ]   "x64\Debug\INSTALL\INSTALL.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+[  +68 ms] CustomBuild:
+[        ]   1>
+[  +31 ms] PostBuildEvent:
+[        ]   setlocal
+[        ]   "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -DBUILD_TYPE=Debug -P cmake_install.cmake
+[        ]   if %errorlevel% neq 0 goto :cmEnd
+[        ]   :cmEnd
+[        ]   endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+[        ]   :cmErrorLevel
+[        ]   exit /b %1
+[        ]   :cmDone
+[        ]   if %errorlevel% neq 0 goto :VCEnd
+[        ]   :VCEnd
+[ +152 ms]   -- Install configuration: "Debug"
+[   +6 ms]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug/data/icudtl.dat
+[   +4 ms]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug/flutter_windows.dll
+[   +4 ms]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug/share_plus_plugin.dll
+[   +4 ms]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug/url_launcher_windows_plugin.dll
+[   +3 ms]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug/dartjni.dll
+[   +1 ms]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug
+[   +5 ms]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug/pdfium.dll
+[        ]   -- Up-to-date: F:/PDF_daeri/build/windows/x64/runner/Debug/sqlite3.dll
+[  +26 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/AssetManifest.bin
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets
+[   +1 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts/NotoSansKR-Regular.ttf
+[  +29 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts/OFL.txt
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts/Pretendard-Bold.ttf
+[  +14 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts/Pretendard-Medium.ttf
+[  +15 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts/Pretendard-OFL.txt
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts/Pretendard-Regular.ttf
+[  +15 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/fonts/Pretendard-SemiBold.ttf
+[  +14 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/images
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/images/home_document_workspace.png
+[  +12 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/licenses
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/licenses/apache-2.0.txt
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/licenses/libjpeg-turbo-LICENSE.md
+[   +3 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/assets/licenses/zlib.txt
+[   +4 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/FontManifest.json
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/fonts
+[   +1 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/fonts/MaterialIcons-Regular.otf
+[   +8 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/kernel_blob.bin
+[ +408 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/NativeAssetsManifest.json
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/NOTICES.Z
+[   +3 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/packages
+[   +1 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/packages/cupertino_icons
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/packages/cupertino_icons/assets
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf
+[   +3 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/shaders
+[   +1 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/shaders/ink_sparkle.frag
+[   +2 ms]   -- Installing: F:/PDF_daeri/build/windows/x64/runner/Debug/data/flutter_assets/shaders/stretch_effect.frag
+[  +26 ms] FinalizeBuildStatus:
+[        ]   "x64\Debug\INSTALL\INSTALL.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+[        ]   "x64\Debug\INSTALL\INSTALL.tlog\INSTALL.lastbuildstate"에 연결(touching)하고 있습니다.
+[        ] "F:\PDF_daeri\build\windows\x64\INSTALL.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+[   +8 ms] 빌드했습니다.
+[        ]     경고 0개
+[        ]     오류 0개
+[        ] 경과 시간: 00:00:25.13
+[ +111 ms] Building Windows application... (completed in 26.5s)
+[   +2 ms] √ Built build\windows\x64\runner\Debug\pdf_daeri.exe
+[        ] "flutter windows" took 27,842ms.
+[ +203 ms] Running 1 shutdown hook
+[   +4 ms] Shutdown hooks complete
+[ +255 ms] exiting with code 0

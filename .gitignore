@@ -111,3 +111,6 @@ native/*/src-*/
 
 # Local Netlify folder
 .netlify
+
+# 빌드 로그 스크래치 파일
+build_log.txt

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
 import 'package:pdf_daeri/core/app_error.dart';
 import 'package:pdf_daeri/core/cancel_token.dart';
 import 'package:pdf_daeri/core/progress.dart';
@@ -63,6 +64,17 @@ class _StubPdfEngine implements PdfEngine {
   @override
   Future<PdfResult<PdfDocInfo>> inspect(String pdfPath, {String? password}) =>
       throw UnimplementedError();
+
+  @override
+  Future<PdfResult<SaveOutcome>> stamp({
+    required String sourcePdfPath,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required String outputPath,
+    required GuardInput guardInput,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 /// `createDocument`/`OutOfSpace` 계열 테스트는 썸네일 렌더를 쓰지 않는다 —
@@ -124,6 +136,14 @@ class _FixedFreeSpaceWorkspace implements Workspace {
   @override
   Future<void> ensureLayout() => _inner.ensureLayout();
   @override
+  String get signaturePath => _inner.signaturePath;
+  @override
+  Future<bool> hasSignature() => _inner.hasSignature();
+  @override
+  Future<void> writeSignature(Uint8List png) => _inner.writeSignature(png);
+  @override
+  Future<void> clearSignature() => _inner.clearSignature();
+  @override
   String docDir(String docId) => _inner.docDir(docId);
   @override
   String docPdf(String docId) => _inner.docPdf(docId);
@@ -163,6 +183,21 @@ class _FixedFreeSpaceWorkspace implements Workspace {
   Future<void> clearNativeCache() => _inner.clearNativeCache();
   @override
   Future<StorageUsage> usage() => _inner.usage();
+  @override
+  String draftDir(String draftId) => _inner.draftDir(draftId);
+  @override
+  String draftImage(String draftId, int n) => _inner.draftImage(draftId, n);
+  @override
+  String draftMarkImage(String draftId, int n) => _inner.draftMarkImage(draftId, n);
+  @override
+  Future<void> beginDraft(String draftId) => _inner.beginDraft(draftId);
+  @override
+  Future<void> beginDraftMarks(String draftId) => _inner.beginDraftMarks(draftId);
+  @override
+  Future<void> discardDraft(String draftId) => _inner.discardDraft(draftId);
+  @override
+  Future<void> purgeOrphanDrafts(Set<String> liveDraftIds) =>
+      _inner.purgeOrphanDrafts(liveDraftIds);
 }
 
 void main() {
@@ -547,6 +582,127 @@ void main() {
         guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
       );
       expect((result as PdfOk<DocumentSummary>).value.title, '문서 B');
+    });
+  });
+
+  group('§76 §0 회귀: _copySourcesToStaging이 ImagePageRef.crop을 보존한다', () {
+    test('crop이 지정된 ImagePageRef로 저장하면 최종 페이지의 crop이 유지된다', () async {
+      final repo = repoWith(
+        () => const PdfOk(
+          SaveOutcome(
+            outputPath: '',
+            bytes: 55,
+            pageCount: 1,
+            guard: GuardPass(resultBytes: 55, limitBytes: 999),
+          ),
+        ),
+      );
+
+      const crop = CropRect(left: 0.1, top: 0.2, right: 0.9, bottom: 0.8);
+      final result = await repo.createDocument(
+        title: '크롭 문서',
+        origin: DocOrigin.scan,
+        pages: [ImagePageRef(imagePath: sourceImagePath, rotation: 0, crop: crop)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 50),
+      );
+
+      expect(result, isA<PdfOk<DocumentSummary>>());
+      final docId = (result as PdfOk<DocumentSummary>).value.id;
+
+      final detail = await repo.load(docId);
+      expect(detail, isA<PdfOk<DocumentDetail>>());
+      final pages = (detail as PdfOk<DocumentDetail>).value.pages;
+      expect(pages, hasLength(1));
+      final savedPage = pages.single as ImagePageRef;
+      expect(
+        savedPage.crop,
+        isNotNull,
+        reason: '_copySourcesToStaging이 ImagePageRef를 재조립할 때 crop을 넘기지 않으면 저장 후 크롭이 사라진다',
+      );
+      expect(savedPage.crop!.left, closeTo(crop.left, 1e-9));
+      expect(savedPage.crop!.top, closeTo(crop.top, 1e-9));
+      expect(savedPage.crop!.right, closeTo(crop.right, 1e-9));
+      expect(savedPage.crop!.bottom, closeTo(crop.bottom, 1e-9));
+    });
+  });
+
+  group('§76 §4.1 회귀: watchDocuments(titleQuery)가 제목 검색을 지원한다', () {
+    Future<void> createDoc(DriftDocumentRepository repo, String title) async {
+      final result = await repo.createDocument(
+        title: title,
+        origin: DocOrigin.imported,
+        pages: [PdfPageRef(sourcePath: sourcePdfPath, sourceIndex: 0, rotation: 0)],
+        quality: ImageQuality.standard,
+        guardInput: const GuardInput(op: SaveOp.deletePages, baselineBytes: 100),
+      );
+      expect(result, isA<PdfOk<DocumentSummary>>());
+    }
+
+    DriftDocumentRepository okRepo() => repoWith(
+      () => const PdfOk(
+        SaveOutcome(
+          outputPath: '',
+          bytes: 10,
+          pageCount: 1,
+          guard: GuardPass(resultBytes: 10, limitBytes: 999),
+        ),
+      ),
+    );
+
+    test('titleQuery가 null이면 전체 목록을 최신순으로 흘린다(기존 동작과 동일)', () async {
+      final repo = okRepo();
+      await createDoc(repo, '문서 A');
+      await createDoc(repo, '문서 B');
+
+      final rows = await repo.watchDocuments().first;
+      expect(rows.map((d) => d.title), containsAll(['문서 A', '문서 B']));
+    });
+
+    test('T6: NFD 질의어가 NFC로 저장된 제목을 찾는다(한글 자모 분리 입력)', () async {
+      final repo = okRepo();
+      // documents.title은 createDocument에서 FileName.normalize(NFC)를 거쳐 저장된다.
+      await createDoc(repo, '2026년 8월 보고서 (최종)');
+
+      // 'ㅂㅗㄱㅗㅅㅓ' 형태의 NFD(자모 분리) 검색어를 흉내낸다.
+      final nfdQuery = unorm.nfd('보고서');
+      expect(nfdQuery == '보고서', isFalse, reason: 'NFD 변환이 실제로 조합을 분리했는지 사전 확인');
+
+      final rows = await repo.watchDocuments(titleQuery: nfdQuery).first;
+      expect(rows.map((d) => d.title), contains('2026년 8월 보고서 (최종)'));
+    });
+
+    test('대소문자 무시 부분 일치로 매칭한다', () async {
+      final repo = okRepo();
+      await createDoc(repo, 'Report Final');
+      await createDoc(repo, '문서 B');
+
+      final rows = await repo.watchDocuments(titleQuery: 'report').first;
+      expect(rows.map((d) => d.title), ['Report Final']);
+    });
+
+    test('결과가 없으면 빈 목록을 흘린다', () async {
+      final repo = okRepo();
+      await createDoc(repo, '문서 A');
+
+      final rows = await repo.watchDocuments(titleQuery: '존재하지않음').first;
+      expect(rows, isEmpty);
+    });
+
+    test('%/_ 를 포함한 질의어가 와일드카드로 동작하지 않는다', () async {
+      final repo = okRepo();
+      await createDoc(repo, '50% 완료본');
+      await createDoc(repo, '50X 완료본');
+      await createDoc(repo, 'A_B 문서');
+      await createDoc(repo, 'AXB 문서');
+
+      // '%'가 와일드카드로 해석됐다면 'AXB 문서' 같은 무관한 제목까지 걸릴 수 있다.
+      final percentRows = await repo.watchDocuments(titleQuery: '50%').first;
+      expect(percentRows.map((d) => d.title), ['50% 완료본']);
+
+      // '_'가 임의의 한 글자 와일드카드로 해석됐다면 'AXB 문서'도 걸린다.
+      final underscoreRows = await repo.watchDocuments(titleQuery: 'A_B').first;
+      expect(underscoreRows.map((d) => d.title), ['A_B 문서']);
     });
   });
 

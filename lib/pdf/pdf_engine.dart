@@ -14,6 +14,7 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../core/app_error.dart';
 import '../core/cancel_token.dart';
@@ -66,6 +67,26 @@ abstract interface class PdfEngine {
 
   /// 파일을 열지 않고 페이지 수만 얻는다(임포트 직후 목록 구성용).
   Future<PdfResult<PdfDocInfo>> inspect(String pdfPath, {String? password});
+
+  /// `79_architect_v1.1_v2_design.md` §2.6 스탬프 레이어를 [sourcePdfPath]에 얹어 [outputPath]로
+  /// **전체 재작성** 저장한다(서명·주석·OCR 공용 진입점).
+  ///
+  /// [stampPdfBytes]는 `StampBuilder.build`의 산출물이며, 이 메서드가 임시 파일로 떨어뜨린 뒤
+  /// qpdf에 넘기고 **반드시 지운다**(임시 파일 소유자는 이 엔진이다). [pageCount]는
+  /// [sourcePdfPath]의 실제 페이지 수와 정확히 일치해야 한다(1:1 매핑 전제, 불일치 시 거부).
+  ///
+  /// **무손실 불변식**: 이 메서드는 [sourcePdfPath]의 페이지 객체를 읽지도 바꾸지도 않는다.
+  /// 렌더링 API를 호출하지 않으며 호출할 수단도 갖지 않는다(검사1·검사2-b·검사7 3중으로
+  /// `stamp_builder.dart`에 고정됨, §2.4-R1).
+  Future<PdfResult<SaveOutcome>> stamp({
+    required String sourcePdfPath,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required String outputPath,
+    required GuardInput guardInput,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  });
 }
 
 class SaveOutcome {
@@ -302,6 +323,67 @@ class QpdfPdfEngine implements PdfEngine {
       selectedPages: pageIndices.length,
     );
     return _finishFromJobResult(resultMap, guardInput, outputPath);
+  }
+
+  @override
+  Future<PdfResult<SaveOutcome>> stamp({
+    required String sourcePdfPath,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required String outputPath,
+    required GuardInput guardInput,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
+    final pathError = _validateStagingPath(outputPath, appRoot);
+    if (pathError != null) return PdfErr(pathError);
+    if (!File(sourcePdfPath).existsSync()) {
+      return PdfErr(SourceMissing(sourcePdfPath));
+    }
+
+    final infoResult = await inspect(sourcePdfPath);
+    final PdfDocInfo info;
+    switch (infoResult) {
+      case PdfErr<PdfDocInfo>():
+        return PdfErr(infoResult.failure);
+      case PdfOk<PdfDocInfo>():
+        info = infoResult.value;
+    }
+    if (info.isEncrypted) return PdfErr(SourceEncrypted(sourcePdfPath));
+    // 1:1 매핑 전제(§2.5) -- 스탬프 PDF의 페이지 수가 대상과 어긋나면 qpdf overlay가 페이지를
+    // 잘못 얹는다. 추측으로 보정하지 않고 거부한다.
+    if (info.pageCount != pageCount) {
+      return PdfErr(
+        UnknownFailure(
+          'stamp pageCount mismatch: source has ${info.pageCount} pages, stamp built for $pageCount',
+        ),
+      );
+    }
+
+    if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
+
+    // 스탬프 PDF를 임시 파일로 떨군다 -- 이 메서드가 유일한 소유자이며 성공/실패 모두 지운다(§2.6).
+    final stampTempPath = '${File(outputPath).parent.path}${Platform.pathSeparator}_stamp.pdf';
+    try {
+      await File(stampTempPath).writeAsBytes(stampPdfBytes, flush: true);
+
+      final resultMap = await runOverlayJob(
+        sourcePath: sourcePdfPath,
+        stampPath: stampTempPath,
+        outputPath: outputPath,
+        pageCount: pageCount,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+        libraryPathOverride: libraryPathOverride,
+      );
+      return _finishFromJobResult(resultMap, guardInput, outputPath);
+    } finally {
+      try {
+        await File(stampTempPath).delete();
+      } catch (_) {
+        // 최선 노력.
+      }
+    }
   }
 
   @override

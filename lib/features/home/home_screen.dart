@@ -11,6 +11,16 @@ import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../app/router.dart';
 import '../../core/platform_features.dart';
+import '../../data/repository/draft_repository.dart';
+import '../edit/edit_screen.dart' show resumeDraftProvider;
+
+/// 앱 시작 시 1회 `DraftRepository.pending()`을 호출한다(§4.1·§4.8). 홈 화면을
+/// 다시 열 때마다(뒤로가기 포함) 새로 조회해 카드가 최신 상태를 반영한다.
+final pendingDraftProvider = FutureProvider.autoDispose<DraftSnapshot?>((ref) {
+  final repo = ref.watch(draftRepositoryProvider);
+  if (repo == null) return null;
+  return repo.pending();
+});
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -86,6 +96,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ],
                 ),
               ),
+            const SliverToBoxAdapter(child: _DraftRecoveryCard()),
             const SliverToBoxAdapter(child: _HomeIntro()),
             SliverToBoxAdapter(
               child: _EntryPoints(
@@ -205,4 +216,76 @@ class _EntryPoints extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 작업 중 상태 복구 카드(설계 §4.8). `DraftRepository.pending()`이 null이면
+/// 렌더하지 않는다 — 배너처럼 높이를 선점하지 않는다(스크롤 콘텐츠 안의 일반
+/// 위젯). 모달 다이얼로그를 쓰지 않는다(UX 원칙 "확인 창 금지").
+class _DraftRecoveryCard extends ConsumerWidget {
+  const _DraftRecoveryCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final snapshot = ref.watch(pendingDraftProvider).asData?.value;
+    if (snapshot == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '편집하던 문서가 있습니다 — ${snapshot.title} · ${_formatDraftTime(snapshot.updatedAt)}',
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => _resume(context, ref, snapshot),
+                    child: const Text('이어서 편집'),
+                  ),
+                  TextButton(
+                    onPressed: () => _delete(ref, snapshot),
+                    child: const Text('삭제'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _resume(
+    BuildContext context,
+    WidgetRef ref,
+    DraftSnapshot snapshot,
+  ) async {
+    final source = switch (snapshot.source) {
+      MyDocumentEditSource(:final docId) => EditSource.myDocument(docId),
+      ExternalPdfEditSource(:final pdfPath, :final title, :final recentId) =>
+        EditSource.externalPdf(pdfPath: pdfPath, title: title, recentId: recentId),
+    };
+    ref.read(resumeDraftProvider.notifier).state = snapshot;
+    if (!context.mounted) return;
+    await Navigator.of(context).pushNamed(
+      AppRoutes.edit,
+      arguments: EditArgs(source: source, title: snapshot.title),
+    );
+  }
+
+  Future<void> _delete(WidgetRef ref, DraftSnapshot snapshot) async {
+    await ref.read(draftRepositoryProvider)?.discard(snapshot.draftId);
+    ref.invalidate(pendingDraftProvider);
+  }
+}
+
+String _formatDraftTime(DateTime value) {
+  String twoDigits(int number) => number.toString().padLeft(2, '0');
+  return '${value.month}.${twoDigits(value.day)} ${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }

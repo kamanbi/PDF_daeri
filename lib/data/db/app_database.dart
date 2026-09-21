@@ -14,7 +14,17 @@ import 'tables.dart';
 
 part 'app_database.g.dart';
 
-@DriftDatabase(tables: [Documents, Pages, RecentFiles, SettingsRows])
+@DriftDatabase(
+  tables: [
+    Documents,
+    Pages,
+    RecentFiles,
+    SettingsRows,
+    EditDrafts,
+    EditDraftPages,
+    EditDraftMarks,
+  ],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
@@ -25,7 +35,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 5;
 
   // schemaVersion 1 → 2 (`_workspace/36_architect_week3_design.md` §1·§2.3·Q-W10):
   // pages.crop 컬럼 신설("l,t,r,b" 형식 또는 null, kind='image' 전용). `addColumn`
@@ -43,6 +53,27 @@ class AppDatabase extends _$AppDatabase {
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.addColumn(pages, pages.crop);
+      }
+      // schemaVersion 2 → 3 (`_workspace/76_architect_design.md` §4.4): 편집 드래프트
+      // 복구용 테이블 2개 신설. 신규 생성이므로 CHECK 제약이 정상 적용된다
+      // (기존 테이블에 `addColumn`으로 컬럼을 더하는 경우와 달리 제약 누락 문제가 없다).
+      if (from < 3) {
+        await m.createTable(editDrafts);
+        await m.createTable(editDraftPages);
+      }
+      // schemaVersion 3 → 4 (`_workspace/79_architect_v1.1_v2_design.md` §6.3):
+      // 드래프트 페이지 위 마크(형광펜·텍스트 상자·이미지) 저장용 테이블 신설.
+      // 신규 생성이므로 CHECK 제약이 정상 적용된다(2→3과 동일한 이유로
+      // addColumn 케이스의 제약 누락 문제가 없다).
+      if (from < 4) {
+        await m.createTable(editDraftMarks);
+      }
+      // schemaVersion 4 → 5 (`_workspace/82_spec-guardian_final_review.md` M1):
+      // settings.theme_mode 컬럼 신설. addColumn이므로 CHECK 제약이 기존 행에
+      // 소급 적용되지 않는다(2→3의 pages.crop과 동일한 SQLite 제약) — 코드
+      // 레벨 검증은 `settings_repository.dart`가 담당한다.
+      if (from < 5) {
+        await m.addColumn(settingsRows, settingsRows.themeMode);
       }
     },
     beforeOpen: (details) async {

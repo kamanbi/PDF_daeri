@@ -13,6 +13,8 @@ dependencies {
     // Google Mobile Ads SDK 25.4.0이 전이 의존성으로 가져오는 2.7.0은 target SDK 36
     // 기기에서 WorkDatabase 초기화에 실패한다. 앱의 min SDK 24와 호환되는 안정판으로 고정한다.
     implementation("androidx.work:work-runtime:2.11.2")
+    // 한국어 스크립트 모델은 APK에 번들한다(절대 규칙 1 — 네트워크 다운로드 금지).
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 }
 
 // 52_architect_week4_design.md §5.1 — AdMob App ID는 Manifest meta-data 전용이라

@@ -32,7 +32,12 @@ import '../storage/workspace.dart';
 
 abstract interface class DocumentRepository {
   /// 목록(최신순 고정). 정렬 옵션 없음.
-  Stream<List<DocumentSummary>> watchDocuments();
+  ///
+  /// [titleQuery]가 null이거나 정규화 후 빈 문자열이면 현행과 완전히 동일하게
+  /// 전체 목록을 최신순으로 흘린다(기존 호출부 무변경 — 선택 매개변수).
+  /// 매칭은 대소문자 무시 부분 일치이며, 질의어는 `FileName.normalizeForSearch`
+  /// (NFC + trim + 소문자 + LIKE 와일드카드 이스케이프)를 거친 뒤 비교한다.
+  Stream<List<DocumentSummary>> watchDocuments({String? titleQuery});
 
   Future<PdfResult<DocumentDetail>> load(String docId);
 
@@ -68,6 +73,43 @@ abstract interface class DocumentRepository {
     required ImageQuality preset,
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
+  });
+
+  /// 목표 용량 모드(§76 §3.6). `compressToNewDocument`와 **동일한 스테이징·커밋·공간
+  /// 확인 경로**를 쓴다 — preset 대신 [targetBytes]를 받는 것만 다르다. 내부적으로
+  /// `PdfCompressor.compressToTarget`을 호출하며, `_resolveCompressSource`,
+  /// `beginStaging`/`commitStaging`/`rollbackStaging`, `_compress_staging` 정리,
+  /// `keptOriginal` 분기는 전부 재사용한다(두 번째 구현을 만들지 않는다).
+  ///
+  /// 디스크 여유 확인은 `compressToNewDocument`의 `× 1.2`가 아니라 `× 2.2`를 쓴다 —
+  /// 목표 모드는 사다리를 내려가며 재시도하는 동안 `<cur>`(이번 시도 결과)와
+  /// `<prev>`(직전 최선 결과 보존본) 두 결과 파일이 동시에 존재할 수 있기 때문이다.
+  Future<PdfResult<CompressToTargetResult>> compressToTargetSize({
+    required CompressSource source,
+    required int targetBytes,
+    void Function(PdfProgress)? onProgress,
+    void Function(TargetAttempt)? onAttempt,
+    CancelToken? cancelToken,
+  });
+
+  /// 전자서명 결과를 **새 문서**로 만든다(`_workspace/79_architect_v1.1_v2_design.md` §3.4).
+  /// `compressToNewDocument`와 같은 원칙(원본 미수정, 항상 새 `docId`) — `PdfEngine.stamp`가
+  /// `sourcePdfPath`를 읽기만 하고 쓰지 않으므로 소스 복사 단계가 없다는 점만 다르다.
+  /// [stampPdfBytes]는 `StampBuilder.build`의 산출물, [pageCount]는 [sourcePdfPath]의
+  /// 실제 페이지 수와 일치해야 한다. 제목은 `FileName.signedTitle`(`<원본 제목> (서명)`)이다.
+  /// 재편집 가능성 보장을 위해 결과물을 `sources/src_1.pdf`로도 남긴다(압축 결과와 동일 패턴).
+  Future<PdfResult<DocumentSummary>> stampToNewDocument({
+    required String sourcePdfPath,
+    required String originalTitle,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required int baselineBytes,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+    /// 결과 제목 조합 방식. 생략하면 `FileName.signedTitle`(서명, `<제목> (서명)`).
+    /// 주석 저장(§13 배치 4 항목 12)은 `FileName.annotatedTitle`(`<제목> (주석)`)을
+    /// 넘긴다 — 두 번째 저장 경로를 새로 만들지 않고 제목 조합만 주입한다.
+    String Function(String originalTitle)? titleFor,
   });
 
   Future<PdfResult<DocumentSummary>> rename(String docId, String newTitle);
@@ -176,6 +218,26 @@ class CompressToNewDocumentResult {
   final bool keptOriginal;
 }
 
+/// `compressToTargetSize`의 결과(§76 §3.6). [base]가 기존 `CompressToNewDocumentResult`를
+/// 그대로 품는다 — 새 문서 커밋·keptOriginal 규칙은 [base]에서 동일하게 유효하다.
+class CompressToTargetResult {
+  const CompressToTargetResult({
+    required this.base,
+    required this.targetBytes,
+    required this.reachedTarget,
+    required this.attempts,
+  });
+
+  final CompressToNewDocumentResult base;
+  final int targetBytes;
+
+  /// `base.resultBytes <= targetBytes`인가. false면 §3.5 미달 흐름.
+  final bool reachedTarget;
+
+  /// 실제로 실행한 압축 시도 횟수. `targetBytes >= 원본`이면 0이다.
+  final int attempts;
+}
+
 enum DocOrigin { scan, photo, imported }
 
 String _originToDb(DocOrigin o) => switch (o) {
@@ -275,6 +337,33 @@ class _ResolvedCompressSource {
   final List<String>? imagePagePaths;
 }
 
+/// `_compressCore`의 `runCompress` 클로저 반환값 — `PdfCompressor.compress`(단발)와
+/// `compressToTarget`(반복) 결과를 같은 모양으로 맞춘다. `compress`를 감싸는 쪽은
+/// [attempts]에 0, [reachedTarget]에 true를 넣어 목표 모드 전용 필드가 의미 없음을
+/// 표시한다.
+class _CoreCompressOutcome {
+  const _CoreCompressOutcome({
+    required this.outcome,
+    required this.attempts,
+    required this.reachedTarget,
+  });
+
+  final CompressOutcome outcome;
+  final int attempts;
+  final bool reachedTarget;
+}
+
+/// `_compressCore`의 반환값. [result]는 두 공개 메서드가 공통으로 쓰는 결과이고,
+/// [attempts]/[reachedTarget]은 `compressToTargetSize`만 `CompressToTargetResult`를
+/// 조립할 때 읽는다.
+class _CompressCoreResult {
+  const _CompressCoreResult({required this.result, required this.attempts, required this.reachedTarget});
+
+  final CompressToNewDocumentResult result;
+  final int attempts;
+  final bool reachedTarget;
+}
+
 class DriftDocumentRepository implements DocumentRepository {
   DriftDocumentRepository({
     required this._db,
@@ -312,9 +401,13 @@ class DriftDocumentRepository implements DocumentRepository {
   );
 
   @override
-  Stream<List<DocumentSummary>> watchDocuments() {
+  Stream<List<DocumentSummary>> watchDocuments({String? titleQuery}) {
+    final q = FileName.normalizeForSearch(titleQuery ?? '');
     final query = _db.select(_db.documents)
       ..orderBy([(t) => drift.OrderingTerm(expression: t.updatedAt, mode: drift.OrderingMode.desc)]);
+    if (q.isNotEmpty) {
+      query.where((t) => t.title.lower().like('%$q%', escapeChar: r'\'));
+    }
     return query.watch().map((rows) => rows.map(_toSummary).toList());
   }
 
@@ -473,6 +566,131 @@ class DriftDocumentRepository implements DocumentRepository {
     }
   }
 
+  /// 인터페이스 문서 참조(§3.4). `_compressCore`의 "결과를 sources/src_1.pdf로도
+  /// 남긴다" 패턴을 그대로 따른다 — 두 번째 스테이징/커밋 구현을 만들지 않는다.
+  @override
+  Future<PdfResult<DocumentSummary>> stampToNewDocument({
+    required String sourcePdfPath,
+    required String originalTitle,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required int baselineBytes,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+    String Function(String originalTitle)? titleFor,
+  }) async {
+    final requiredBytes =
+        (baselineBytes + stampPdfBytes.length) * 2 + Workspace.spaceSafetyBufferBytes;
+    final freeBytes = await _workspace.freeSpaceBytes();
+    if (freeBytes >= 0 && freeBytes < requiredBytes) {
+      return PdfErr(OutOfSpace(requiredBytes));
+    }
+    if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
+
+    final docId = _uuid.v4();
+    try {
+      await _workspace.beginStaging(docId);
+    } catch (e) {
+      return PdfErr(UnknownFailure('스테이징 생성 실패: $e'));
+    }
+
+    try {
+      final stagingPdfPath = _workspace.stagingDocPdf(docId);
+      final guardInput = GuardInput(
+        op: SaveOp.stamp,
+        baselineBytes: baselineBytes,
+        stampBytes: stampPdfBytes.length,
+      );
+
+      final stampResult = await _engine.stamp(
+        sourcePdfPath: sourcePdfPath,
+        stampPdfBytes: stampPdfBytes,
+        pageCount: pageCount,
+        outputPath: stagingPdfPath,
+        guardInput: guardInput,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
+      if (stampResult is PdfErr<SaveOutcome>) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(stampResult.failure);
+      }
+      final outcome = (stampResult as PdfOk<SaveOutcome>).value;
+
+      try {
+        await File(stagingPdfPath).copy(_workspace.stagingSourcePdf(docId, 1));
+      } catch (e) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(UnknownFailure('서명 결과 소스 복사 실패: $e'));
+      }
+
+      try {
+        await _workspace.commitStaging(docId);
+      } catch (e) {
+        await _workspace.rollbackStaging(docId);
+        return PdfErr(UnknownFailure('스테이징 반영 실패: $e'));
+      }
+
+      final finalSourcePath = _workspace.sourcePdf(docId, 1);
+      final existingTitles = (await _db.select(_db.documents).get())
+          .map((row) => row.title)
+          .toSet();
+      final dedupedTitle = FileName.dedupe(
+        FileName.normalize((titleFor ?? FileName.signedTitle)(originalTitle)),
+        existingTitles,
+      );
+      final now = DateTime.now().millisecondsSinceEpoch;
+      try {
+        await _db.transaction(() async {
+          await _db
+              .into(_db.documents)
+              .insert(
+                DocumentsCompanion.insert(
+                  id: docId,
+                  title: dedupedTitle,
+                  origin: _originToDb(DocOrigin.imported),
+                  pageCount: outcome.pageCount,
+                  fileSize: outcome.bytes,
+                  createdAt: now,
+                  updatedAt: now,
+                ),
+              );
+          for (var i = 0; i < outcome.pageCount; i++) {
+            await _db
+                .into(_db.pages)
+                .insert(
+                  _pageToCompanion(
+                    _uuid.v4(),
+                    docId,
+                    i,
+                    PdfPageRef(sourcePath: finalSourcePath, sourceIndex: i, rotation: 0),
+                  ),
+                );
+          }
+        });
+      } catch (e) {
+        await _deleteDocDirIfExists(docId);
+        return PdfErr(UnknownFailure('DB 기록 실패: $e'));
+      }
+
+      return PdfOk(
+        DocumentSummary(
+          id: docId,
+          title: dedupedTitle,
+          origin: DocOrigin.imported,
+          pageCount: outcome.pageCount,
+          fileSize: outcome.bytes,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(now),
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(now),
+          thumbPath: null,
+        ),
+      );
+    } catch (e) {
+      await _workspace.rollbackStaging(docId);
+      return PdfErr(UnknownFailure('stampToNewDocument 실패: $e'));
+    }
+  }
+
   /// **M-E7** — 인터페이스 문서 참조. 원본(`docs/<docId>/` 또는 외부 PDF)은 읽기만
   /// 한다 — 새 `docId`를 발급하고 그 스테이징에만 쓴다(절대 규칙: 원본 미수정).
   @override
@@ -480,6 +698,121 @@ class DriftDocumentRepository implements DocumentRepository {
     required CompressSource source,
     required ImageQuality preset,
     void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
+    final coreResult = await _compressCore(
+      source: source,
+      // §31 R3: "대형 스캔 PDF에서 디스크·메모리 압박" — 원본의 약 1.2배 여유 공간이
+      // 필요하다. createDocument의 §7.3과 같은 원칙(스테이징 시작 전에 확인, freeBytes
+      // -1이면 판단 불가로 취급해 막지 않는다)을 그대로 따른다.
+      spaceMultiplier: 1.2,
+      cancelToken: cancelToken,
+      runCompress:
+          ({
+            required pdfPath,
+            required outputPath,
+            required imagePagePaths,
+            required embeddedImageStagingDir,
+          }) async {
+            final compressResult = await _compressor.compress(
+              pdfPath: pdfPath,
+              outputPath: outputPath,
+              preset: preset,
+              imagePagePaths: imagePagePaths,
+              embeddedImageStagingDir: embeddedImageStagingDir,
+              onProgress: onProgress,
+              cancelToken: cancelToken,
+            );
+            if (compressResult is PdfErr<CompressOutcome>) {
+              return PdfErr(compressResult.failure);
+            }
+            final outcome = (compressResult as PdfOk<CompressOutcome>).value;
+            return PdfOk(_CoreCompressOutcome(outcome: outcome, attempts: 0, reachedTarget: true));
+          },
+    );
+    if (coreResult is PdfErr<_CompressCoreResult>) {
+      return PdfErr(coreResult.failure);
+    }
+    return PdfOk((coreResult as PdfOk<_CompressCoreResult>).value.result);
+  }
+
+  /// §76 §3.6 — 목표 용량 모드. `compressToNewDocument`와 동일한 스테이징·커밋·공간
+  /// 확인 경로(`_compressCore`)를 재사용하고, `PdfCompressor.compressToTarget`만
+  /// 다르게 호출한다.
+  @override
+  Future<PdfResult<CompressToTargetResult>> compressToTargetSize({
+    required CompressSource source,
+    required int targetBytes,
+    void Function(PdfProgress)? onProgress,
+    void Function(TargetAttempt)? onAttempt,
+    CancelToken? cancelToken,
+  }) async {
+    final coreResult = await _compressCore(
+      source: source,
+      // 목표 모드는 사다리를 내려가며 재시도하는 동안 이번 시도 결과(`<cur>`)와 직전
+      // 최선 결과 보존본(`<prev>`) 두 파일이 동시에 존재할 수 있다(§76 §3.3/§3.4의
+      // rung 반복 구조). 단일 결과 파일만 가정하는 `compressToNewDocument`의 1.2배로는
+      // 부족해 spec-guardian 리뷰(C4)에 따라 이 경로에서만 2.2배로 키운다.
+      spaceMultiplier: 2.2,
+      cancelToken: cancelToken,
+      runCompress:
+          ({
+            required pdfPath,
+            required outputPath,
+            required imagePagePaths,
+            required embeddedImageStagingDir,
+          }) async {
+            final compressResult = await _compressor.compressToTarget(
+              pdfPath: pdfPath,
+              outputPath: outputPath,
+              targetBytes: targetBytes,
+              imagePagePaths: imagePagePaths,
+              embeddedImageStagingDir: embeddedImageStagingDir,
+              onProgress: onProgress,
+              onAttempt: onAttempt,
+              cancelToken: cancelToken,
+            );
+            if (compressResult is PdfErr<TargetCompressOutcome>) {
+              return PdfErr(compressResult.failure);
+            }
+            final target = (compressResult as PdfOk<TargetCompressOutcome>).value;
+            return PdfOk(
+              _CoreCompressOutcome(
+                outcome: target.outcome,
+                attempts: target.attempts,
+                reachedTarget: target.reachedTarget,
+              ),
+            );
+          },
+    );
+    if (coreResult is PdfErr<_CompressCoreResult>) {
+      return PdfErr(coreResult.failure);
+    }
+    final core = (coreResult as PdfOk<_CompressCoreResult>).value;
+    return PdfOk(
+      CompressToTargetResult(
+        base: core.result,
+        targetBytes: targetBytes,
+        reachedTarget: core.reachedTarget,
+        attempts: core.attempts,
+      ),
+    );
+  }
+
+  /// `compressToNewDocument`/`compressToTargetSize` 공유 코어(§76 §3.6 — "두 번째
+  /// 구현을 만들지 않는다"). 여유 공간 확인 → 스테이징 → [runCompress] 호출 → 결과
+  /// 커밋/DB 기록까지 전부 이 메서드가 맡고, 두 공개 메서드는 [runCompress] 클로저
+  /// (실제 `PdfCompressor` 메서드 선택)와 [spaceMultiplier]만 다르게 넘긴다.
+  Future<PdfResult<_CompressCoreResult>> _compressCore({
+    required CompressSource source,
+    required double spaceMultiplier,
+    required Future<PdfResult<_CoreCompressOutcome>> Function({
+      required String pdfPath,
+      required String outputPath,
+      required List<String>? imagePagePaths,
+      required String? embeddedImageStagingDir,
+    })
+    runCompress,
     CancelToken? cancelToken,
   }) async {
     final resolveResult = await _resolveCompressSource(source);
@@ -494,10 +827,7 @@ class DriftDocumentRepository implements DocumentRepository {
     }
     final originalBytes = srcFile.lengthSync();
 
-    // §31 R3: "대형 스캔 PDF에서 디스크·메모리 압박" — 원본의 약 1.2배 여유 공간이
-    // 필요하다. createDocument의 §7.3과 같은 원칙(스테이징 시작 전에 확인, freeBytes
-    // -1이면 판단 불가로 취급해 막지 않는다)을 그대로 따른다.
-    final requiredBytes = (originalBytes * 1.2).ceil() + Workspace.spaceSafetyBufferBytes;
+    final requiredBytes = (originalBytes * spaceMultiplier).ceil() + Workspace.spaceSafetyBufferBytes;
     final freeBytes = await _workspace.freeSpaceBytes();
     if (freeBytes >= 0 && freeBytes < requiredBytes) {
       return PdfErr(OutOfSpace(requiredBytes));
@@ -521,21 +851,19 @@ class DriftDocumentRepository implements DocumentRepository {
           ? _workspace.stagingCompressImagesDir(docId)
           : null;
 
-      final compressResult = await _compressor.compress(
+      final compressResult = await runCompress(
         pdfPath: resolved.pdfPath,
         outputPath: stagingPdfPath,
-        preset: preset,
         imagePagePaths: resolved.imagePagePaths,
         embeddedImageStagingDir: embeddedStagingDir,
-        onProgress: onProgress,
-        cancelToken: cancelToken,
       );
 
-      if (compressResult is PdfErr<CompressOutcome>) {
+      if (compressResult is PdfErr<_CoreCompressOutcome>) {
         await _workspace.rollbackStaging(docId);
         return PdfErr(compressResult.failure);
       }
-      final outcome = (compressResult as PdfOk<CompressOutcome>).value;
+      final coreOutcome = (compressResult as PdfOk<_CoreCompressOutcome>).value;
+      final outcome = coreOutcome.outcome;
 
       // L2-ext가 남긴 임시 추출 폴더는 최종 docDir에 들어가면 안 된다(sources/도
       // cache/도 아닌 순수 작업 폴더) — keptOriginal이든 아니든 여기서 지운다.
@@ -558,11 +886,15 @@ class DriftDocumentRepository implements DocumentRepository {
         // 버린다(성공이지만 커밋할 산출물이 없다).
         await _workspace.rollbackStaging(docId);
         return PdfOk(
-          CompressToNewDocumentResult(
-            summary: null,
-            originalBytes: outcome.originalBytes,
-            resultBytes: outcome.resultBytes,
-            keptOriginal: true,
+          _CompressCoreResult(
+            result: CompressToNewDocumentResult(
+              summary: null,
+              originalBytes: outcome.originalBytes,
+              resultBytes: outcome.resultBytes,
+              keptOriginal: true,
+            ),
+            attempts: coreOutcome.attempts,
+            reachedTarget: coreOutcome.reachedTarget,
           ),
         );
       }
@@ -635,25 +967,29 @@ class DriftDocumentRepository implements DocumentRepository {
       }
 
       return PdfOk(
-        CompressToNewDocumentResult(
-          summary: DocumentSummary(
-            id: docId,
-            title: title,
-            origin: DocOrigin.imported,
-            pageCount: pageCount,
-            fileSize: outcome.resultBytes,
-            createdAt: DateTime.fromMillisecondsSinceEpoch(now),
-            updatedAt: DateTime.fromMillisecondsSinceEpoch(now),
-            thumbPath: null,
+        _CompressCoreResult(
+          result: CompressToNewDocumentResult(
+            summary: DocumentSummary(
+              id: docId,
+              title: title,
+              origin: DocOrigin.imported,
+              pageCount: pageCount,
+              fileSize: outcome.resultBytes,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(now),
+              updatedAt: DateTime.fromMillisecondsSinceEpoch(now),
+              thumbPath: null,
+            ),
+            originalBytes: outcome.originalBytes,
+            resultBytes: outcome.resultBytes,
+            keptOriginal: false,
           ),
-          originalBytes: outcome.originalBytes,
-          resultBytes: outcome.resultBytes,
-          keptOriginal: false,
+          attempts: coreOutcome.attempts,
+          reachedTarget: coreOutcome.reachedTarget,
         ),
       );
     } catch (e) {
       await _workspace.rollbackStaging(docId);
-      return PdfErr(UnknownFailure('compressToNewDocument 실패: $e'));
+      return PdfErr(UnknownFailure('_compressCore 실패: $e'));
     }
   }
 
@@ -745,7 +1081,7 @@ class DriftDocumentRepository implements DocumentRepository {
               rotation: rotation,
             ),
           );
-        case ImagePageRef(:final imagePath, :final rotation):
+        case ImagePageRef(:final imagePath, :final rotation, :final crop):
           var n = copiedImageIndex[imagePath];
           if (n == null) {
             final srcFile = File(imagePath);
@@ -761,10 +1097,18 @@ class DriftDocumentRepository implements DocumentRepository {
             copiedImageIndex[imagePath] = n;
           }
           stagingPages.add(
-            ImagePageRef(imagePath: _workspace.stagingSourceImage(docId, n), rotation: rotation),
+            ImagePageRef(
+              imagePath: _workspace.stagingSourceImage(docId, n),
+              rotation: rotation,
+              crop: crop,
+            ),
           );
           finalPages.add(
-            ImagePageRef(imagePath: _workspace.sourceImage(docId, n), rotation: rotation),
+            ImagePageRef(
+              imagePath: _workspace.sourceImage(docId, n),
+              rotation: rotation,
+              crop: crop,
+            ),
           );
       }
     }

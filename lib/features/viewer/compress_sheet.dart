@@ -29,6 +29,7 @@ import '../../core/cancel_token.dart';
 import '../../core/progress.dart';
 import '../../data/repository/document_repository.dart';
 import '../../pdf/image_quality.dart';
+import '../../pdf/pdf_compressor.dart' show TargetAttempt;
 import '../common/failure_ui.dart';
 import '../common/share_flow.dart';
 
@@ -92,10 +93,24 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
   bool _removed = false; // 원본 삭제/제거 버튼 중복 클릭 방지
   int? _sourceBytes;
 
+  // 목표 용량 모드(설계 §76 §3.6) 상태. 기존 프리셋 상태(_result)와 별개로 두되
+  // 같은 시트·같은 _Stage를 그대로 오간다 — 새 스테이지를 만들지 않는다.
+  bool _targetExpanded = false;
+  final _customMbController = TextEditingController();
+  String? _customMbError;
+  TargetAttempt? _targetAttempt;
+  CompressToTargetResult? _targetResult;
+
   @override
   void initState() {
     super.initState();
     _loadSourceBytes();
+  }
+
+  @override
+  void dispose() {
+    _customMbController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSourceBytes() async {
@@ -122,6 +137,8 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     setState(() {
       _stage = _Stage.progress;
       _progress = const PdfProgress(phase: PdfPhase.opening, done: 0, total: 0);
+      _targetResult = null;
+      _targetAttempt = null;
     });
 
     // §4.5 파일 소유표: "내 문서인가 외부 PDF인가"는 이 호출부가 CompressSource로
@@ -164,6 +181,96 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     }
   }
 
+  /// 목표 용량 모드(설계 §76 §3.6). 칩 탭이 곧 실행 지시다 — 확인 창을 거치지 않는다.
+  Future<void> _startCompressToTarget(int targetBytes) async {
+    final repo = ref.read(documentRepositoryProvider);
+    if (repo == null) {
+      await FailureUi.showDialog(
+        context,
+        const UnknownFailure('저장소를 사용할 수 없습니다.'),
+      );
+      return;
+    }
+
+    final token = CancelToken();
+    _cancelToken = token;
+    setState(() {
+      _stage = _Stage.progress;
+      _progress = const PdfProgress(phase: PdfPhase.opening, done: 0, total: 0);
+      _result = null;
+      _targetAttempt = null;
+    });
+
+    final source = widget.docId != null
+        ? CompressSource.myDocument(widget.docId!)
+        : CompressSource.externalPdf(
+            pdfPath: widget.pdfPath,
+            title: widget.title,
+          );
+
+    final result = await repo.compressToTargetSize(
+      source: source,
+      targetBytes: targetBytes,
+      onProgress: (p) {
+        if (!mounted) return;
+        setState(() => _progress = p);
+      },
+      // 매 시도마다 진행률 바가 0부터 다시 오르므로(§3.4), 이 줄이 없으면 사용자가
+      // 멈춘 줄 오해한다(§3.6).
+      onAttempt: (a) {
+        if (!mounted) return;
+        setState(() => _targetAttempt = a);
+      },
+      cancelToken: token,
+    );
+
+    if (!mounted) return;
+
+    switch (result) {
+      case PdfOk<CompressToTargetResult>(:final value):
+        setState(() {
+          _targetResult = value;
+          _stage = _Stage.result;
+        });
+        // §3.5 확정: reachedTarget이 true일 때만 기존 압축 완료 흐름과 동일하게 즉시
+        // 배경을 교체한다. false면 사용자가 "이 결과로 저장"을 눌러야 교체한다 —
+        // 자동 저장하지 않는다.
+        if (value.reachedTarget &&
+            !value.base.keptOriginal &&
+            value.base.summary != null) {
+          widget.onDocumentReady(value.base.summary!);
+        }
+        // 광고: 기존 ad_gate 지점 그대로 재사용 — 시도 횟수와 무관하게 압축 1회당 1번.
+        unawaited(ref.read(adGateProvider).registerCompletedTask());
+      case PdfErr<CompressToTargetResult>(:final failure):
+        setState(() => _stage = _Stage.pickPreset);
+        if (failure is! Cancelled) {
+          await FailureUi.showDialog(context, failure);
+        }
+    }
+  }
+
+  void _startCompressToCustomTarget() {
+    final raw = _customMbController.text.trim();
+    final mb = int.tryParse(raw);
+    if (mb == null || mb <= 0) {
+      setState(() => _customMbError = '1 이상의 숫자를 입력하세요.');
+      return;
+    }
+    setState(() => _customMbError = null);
+    _startCompressToTarget(mb * 1024 * 1024);
+  }
+
+  /// §3.5 "이 결과로 저장" — 목표 미달 시 기본 동작이 아니라 사용자가 눌러야 하는
+  /// 선택지다. 여기서 처음이자 유일하게 배경 문서를 교체한다.
+  void _acceptTargetResult() {
+    final base = _targetResult!.base;
+    if (!base.keptOriginal && base.summary != null) {
+      widget.onDocumentReady(base.summary!);
+    }
+    Navigator.of(context).pop();
+  }
+
   void _cancel() => _cancelToken?.cancel();
 
   Future<void> _removeOriginal() async {
@@ -181,12 +288,17 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     setState(() => _removed = true);
   }
 
+  /// 프리셋 흐름(`_result`)과 목표 용량 흐름(`_targetResult`, reachedTarget: true)이
+  /// 공유한다 — 둘 다 성공 결과 화면에서만 쓰이므로 상호 배타적이다.
+  DocumentSummary? get _currentSummary =>
+      _result?.summary ?? _targetResult?.base.summary;
+
   Future<void> _share() async {
     // [W4-T1] `shareExportProvider` 배선(설계 §2.6). 이 버튼은 `!keptOriginal`일
-    // 때만 표시되므로(`_buildResult`) `_result.summary`는 항상 non-null이다
+    // 때만 표시되므로(`_buildResult`) `_currentSummary`는 항상 non-null이다
     // (`document_repository.dart` 계약: keptOriginal false면 summary도 non-null).
     // 공유 대상은 압축 전 원본이 아니라 새로 만들어진 압축 문서다.
-    final summary = _result!.summary!;
+    final summary = _currentSummary!;
     final workspace = ref.read(workspaceProvider);
     if (workspace == null) {
       await FailureUi.showDialog(
@@ -253,17 +365,92 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
         ),
         const SizedBox(height: 8),
         const Text('예상치는 사진 중심 PDF 기준입니다. 텍스트 중심 PDF는 원본 유지 또는 소폭 변화할 수 있습니다.'),
+        const Divider(height: 24),
+        // §76 §3.6: 새 스테이지·새 다이얼로그를 만들지 않고 같은 시트 안에서 펼친다.
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('목표 용량 맞추기'),
+          subtitle: const Text('원하는 파일 크기를 정해서 압축합니다.'),
+          trailing: Icon(_targetExpanded ? Icons.expand_less : Icons.expand_more),
+          onTap: () => setState(() => _targetExpanded = !_targetExpanded),
+        ),
+        if (_targetExpanded) _buildTargetPicker(context),
       ],
+    );
+  }
+
+  Widget _buildTargetPicker(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 칩 탭이 곧 실행 지시다 — 확인 버튼을 두지 않는다(UX 원칙, §3.6).
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ActionChip(
+                label: const Text('1MB'),
+                onPressed: () => _startCompressToTarget(1 * 1024 * 1024),
+              ),
+              ActionChip(
+                label: const Text('5MB'),
+                onPressed: () => _startCompressToTarget(5 * 1024 * 1024),
+              ),
+              ActionChip(
+                label: const Text('10MB'),
+                onPressed: () => _startCompressToTarget(10 * 1024 * 1024),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // "직접 입력"은 숫자를 받아야 하므로 입력 필드 + 실행 버튼은 예외로 허용한다
+          // (§3.6). 확인 창이 아니라 실행 그 자체다.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _customMbController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: '직접 입력 (MB)',
+                    isDense: true,
+                    errorText: _customMbError,
+                  ),
+                  onSubmitted: (_) => _startCompressToCustomTarget(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _startCompressToCustomTarget,
+                child: const Text('실행'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildProgress(BuildContext context) {
     final fraction = _progress?.fraction ?? 0;
+    final attempt = _targetAttempt;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('압축 중…', style: Theme.of(context).textTheme.titleLarge),
+        if (attempt != null) ...[
+          const SizedBox(height: 4),
+          // §3.6: 진행률 바가 매 시도 0부터 다시 오르므로 이 줄이 없으면 사용자가
+          // 멈춘 줄 오해한다.
+          Text(
+            '${attempt.attempt}/${attempt.maxAttempts}번째 시도 중',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
         const SizedBox(height: 16),
         // 패스 A/B/C/D를 사용자에게 나누어 보이지 않는다 -- 0~100 하나로만 표시(§4.3).
         LinearProgressIndicator(value: fraction == 0 ? null : fraction),
@@ -280,34 +467,110 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     );
   }
 
+  /// 프리셋 흐름(`_result`)과 목표 용량 흐름(reachedTarget: true, `_targetResult`)이
+  /// 공유하는 디스패처다. 둘은 상호 배타적으로만 채워진다(§3.6).
   Widget _buildResult(BuildContext context) {
+    final targetResult = _targetResult;
+    if (targetResult != null) {
+      return _buildTargetResult(context, targetResult);
+    }
     final result = _result!;
     if (result.keptOriginal) {
-      // §4.3 확정: 감소율·[원본 삭제]/[공유] 전부 숨기고 안내만 표시한다. 새 문서를
-      // 만들지 않았으므로 지울 원본도, 공유할 결과도 없다.
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('이미 최적화된 문서입니다', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          const Text('새 파일을 만들지 않았습니다.'),
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('확인'),
-            ),
-          ),
-        ],
+      return _buildKeptOriginalBody(context);
+    }
+    return _buildSuccessBody(
+      context,
+      originalBytes: result.originalBytes,
+      resultBytes: result.resultBytes,
+    );
+  }
+
+  Widget _buildTargetResult(BuildContext context, CompressToTargetResult target) {
+    final base = target.base;
+    if (base.keptOriginal) {
+      // §3.5: 모든 시도가 원본보다 큰 경우(사다리를 내려갈 필요가 없었던 경우)는
+      // 기존 "이미 최적화된 문서" 문구를 그대로 재사용한다 — 새 문구를 만들지 않는다.
+      return _buildKeptOriginalBody(context);
+    }
+    if (target.reachedTarget) {
+      // §3.5: 목표에 도달했으면 기존 압축 완료 문구를 그대로 재사용한다.
+      return _buildSuccessBody(
+        context,
+        originalBytes: base.originalBytes,
+        resultBytes: base.resultBytes,
       );
     }
 
-    final fromMb = _formatMb(result.originalBytes);
-    final toMb = _formatMb(result.resultBytes);
+    // §3.5 미달 흐름 — "이 결과로 저장"이 기본 동작이 아니라 사용자가 눌러야 하는
+    // 선택지다. 자동 저장하지 않는다.
+    final targetMb = _formatMb(target.targetBytes);
+    final fromMb = _formatMb(base.originalBytes);
+    final toMb = _formatMb(base.resultBytes);
     final pct =
-        (1 - result.resultBytes / result.originalBytes).clamp(0, 1) * 100;
+        (1 - base.resultBytes / base.originalBytes).clamp(0, 1) * 100;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '목표 $targetMb에 맞추지 못했습니다',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text('최선 결과: $fromMb → $toMb (${pct.round()}% 감소)'),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _acceptTargetResult,
+                child: const Text('이 결과로 저장'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('취소'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // §4.3 확정: 감소율·[원본 삭제]/[공유] 전부 숨기고 안내만 표시한다. 새 문서를
+  // 만들지 않았으므로 지울 원본도, 공유할 결과도 없다.
+  Widget _buildKeptOriginalBody(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('이미 최적화된 문서입니다', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 4),
+        const Text('새 파일을 만들지 않았습니다.'),
+        const SizedBox(height: 16),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuccessBody(
+    BuildContext context, {
+    required int originalBytes,
+    required int resultBytes,
+  }) {
+    final fromMb = _formatMb(originalBytes);
+    final toMb = _formatMb(resultBytes);
+    final pct = (1 - resultBytes / originalBytes).clamp(0, 1) * 100;
 
     return Column(
       mainAxisSize: MainAxisSize.min,

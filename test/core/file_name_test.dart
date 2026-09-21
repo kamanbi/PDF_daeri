@@ -108,4 +108,33 @@ void main() {
       expect(FileName.toJpegFileName('스캔 문서.jpeg'), '스캔 문서.jpg');
     });
   });
+
+  group('FileName.normalizeForSearch (§76 §4.1 — 제목 검색 정규화의 단일 구현)', () {
+    test('NFD 입력도 NFC로 정규화해 NFC 저장값과 매칭 가능한 형태가 된다', () {
+      const fixed = '보고서';
+      final nfdInput = unorm.nfd(fixed);
+      expect(FileName.normalizeForSearch(nfdInput), FileName.normalizeForSearch(fixed));
+    });
+
+    test('trim + 소문자 변환', () {
+      expect(FileName.normalizeForSearch('  Report  '), 'report');
+    });
+
+    test('% 와일드카드를 이스케이프한다', () {
+      expect(FileName.normalizeForSearch('100%'), r'100\%');
+    });
+
+    test('_ 와일드카드를 이스케이프한다', () {
+      expect(FileName.normalizeForSearch('a_b'), r'a\_b');
+    });
+
+    test('이스케이프 문자 \\ 자체도 먼저 이스케이프해 이중 해석을 막는다', () {
+      expect(FileName.normalizeForSearch(r'a\b'), r'a\\b');
+    });
+
+    test('빈 문자열/공백만 있는 질의어는 빈 문자열이 된다', () {
+      expect(FileName.normalizeForSearch(''), '');
+      expect(FileName.normalizeForSearch('   '), '');
+    });
+  });
 }

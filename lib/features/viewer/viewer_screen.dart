@@ -31,6 +31,10 @@ import '../../data/repository/document_repository.dart';
 import '../../pdf/pdf_renderer.dart';
 import '../common/failure_ui.dart';
 import '../common/share_flow.dart';
+import '../../pdf/page_ref.dart';
+import '../annotate/annotate_screen.dart';
+import '../edit/ocr_screen.dart';
+import '../edit/signature_screen.dart';
 import 'compress_sheet.dart';
 import 'page_thumbnail_bar.dart';
 
@@ -41,6 +45,11 @@ const int _basePxCap = 2048;
 const int _zoomPxCap = 4096;
 const double _highResScaleThreshold = 1.8;
 const Duration _zoomSettleDelay = Duration(milliseconds: 250);
+
+/// `⋮` 드롭다운 메뉴 항목(Q12). 값 자체에 의미를 두지 않고 `onSelected`
+/// 분기 키로만 쓴다 — 기존 콜백(`_openEdit`/`_openCompressSheet`/`_share`)의
+/// 동작은 바꾸지 않는다.
+enum _ViewerMenuAction { edit, compress, share, signature, annotate, ocr }
 
 class ViewerScreen extends ConsumerStatefulWidget {
   const ViewerScreen({super.key, required this.args});
@@ -54,6 +63,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _loading = true;
   PdfPageGeometry? _geometry;
   PdfFailure? _fatalFailure;
+  // §7.1 재확인: OCR은 ImagePageRef(스캔·사진) 페이지만 대상이다. 문서 전량이
+  // PdfPageRef(외부 PDF)면 메뉴 항목을 숨긴다. `_args.docId`가 없으면(외부에서
+  // 바로 연 PDF) 애초에 `documents` 테이블에 페이지 행이 없으므로 false로 둔다.
+  bool _hasImagePage = false;
   late final PageController _pageController;
   int _currentPage = 0;
 
@@ -116,6 +129,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             _loading = false;
           });
           _prefetchAround(0);
+          _checkHasImagePage();
         case PdfErr<PdfPageGeometry>(:final failure):
           final mapped = failure is SourceEncrypted
               ? SourceCorrupted(_args.pdfPath)
@@ -147,6 +161,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     Navigator.of(
       context,
     ).pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+  }
+
+  // §7.1: 메뉴 노출 판단용 — "내 문서"(docId 있음)일 때만 페이지 종류를 조회한다.
+  // 실패해도 조용히 넘어간다(메뉴 항목이 그냥 안 뜨는 것 = 안전한 폴백).
+  Future<void> _checkHasImagePage() async {
+    final docId = _args.docId;
+    if (docId == null) return;
+    final repo = ref.read(documentRepositoryProvider);
+    if (repo == null) return;
+    final result = await repo.load(docId);
+    if (!mounted) return;
+    if (result is PdfOk<DocumentDetail>) {
+      final hasImage = result.value.pages.any((p) => p is ImagePageRef);
+      if (hasImage != _hasImagePage) {
+        setState(() => _hasImagePage = hasImage);
+      }
+    }
   }
 
   void _onPageChanged(int index) {
@@ -271,6 +302,100 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
   }
 
+  // Q12(승인) 신설: 서명 추가. `stamp_placement.dart`로 배치 후
+  // `PdfEngine.stamp`로 새 문서를 만든다(§3.4). 암호 PDF는 편집·압축과 같은
+  // 정책으로 차단한다(§3.3 Q10과 동일 취급 — 스탬프도 전체 재작성 저장이다).
+  Future<void> _openSignature() async {
+    final geometry = _geometry;
+    if (geometry == null) return;
+    final result = await showSignatureScreen(
+      context: context,
+      args: SignatureArgs(
+        pdfPath: _args.pdfPath,
+        title: _args.title,
+        pageCount: geometry.pageCount,
+        initialPageIndex: _currentPage,
+        password: _args.password,
+      ),
+    );
+    if (!mounted || result == null) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('새 파일로 저장됨')));
+    Navigator.of(context).pushNamed(
+      AppRoutes.viewer,
+      arguments: ViewerArgs(
+        pdfPath: ref.read(workspaceProvider)!.docPdf(result.id),
+        title: result.title,
+        pageCount: result.pageCount,
+        docId: result.id,
+      ),
+    );
+  }
+
+  // §13 배치 4 항목 12(주석) 신설: 형광펜·텍스트 상자 배치 후 §3.4와 같은
+  // 저장 흐름(`stampToNewDocument`)을 탄다. 암호 PDF는 서명·편집·압축과 같은
+  // 정책으로 차단한다(스탬프도 전체 재작성 저장이다).
+  Future<void> _openAnnotate() async {
+    final geometry = _geometry;
+    if (geometry == null) return;
+    final result = await showAnnotateScreen(
+      context: context,
+      args: AnnotateArgs(
+        pdfPath: _args.pdfPath,
+        title: _args.title,
+        pageCount: geometry.pageCount,
+        initialPageIndex: _currentPage,
+        password: _args.password,
+      ),
+    );
+    if (!mounted || result == null) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('새 파일로 저장됨')));
+    Navigator.of(context).pushNamed(
+      AppRoutes.viewer,
+      arguments: ViewerArgs(
+        pdfPath: ref.read(workspaceProvider)!.docPdf(result.id),
+        title: result.title,
+        pageCount: result.pageCount,
+        docId: result.id,
+      ),
+    );
+  }
+
+  // §13 배치 5 항목 16(OCR) 신설: ImagePageRef 페이지만 순차 인식 후 같은
+  // 저장 흐름(`stampToNewDocument`, `titleFor: FileName.ocrTitle`)을 탄다.
+  // 암호 PDF는 서명·주석·편집·압축과 같은 정책으로 차단한다.
+  Future<void> _openOcr() async {
+    final geometry = _geometry;
+    final docId = _args.docId;
+    if (geometry == null || docId == null) return;
+    final result = await showOcrScreen(
+      context: context,
+      args: OcrArgs(
+        docId: docId,
+        pdfPath: _args.pdfPath,
+        title: _args.title,
+        pageCount: geometry.pageCount,
+        password: _args.password,
+      ),
+    );
+    if (!mounted || result == null) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('새 파일로 저장됨')));
+    Navigator.of(context).pushNamed(
+      AppRoutes.viewer,
+      arguments: ViewerArgs(
+        pdfPath: ref.read(workspaceProvider)!.docPdf(result.id),
+        title: result.title,
+        pageCount: result.pageCount,
+        docId: result.id,
+      ),
+    );
+  }
+
   void _openCompressSheet() {
     showCompressSheet(
       context: context,
@@ -309,6 +434,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       _loading = true;
       _geometry = null;
       _currentPage = 0;
+      _hasImagePage = false;
     });
     if (_pageController.hasClients) {
       _pageController.jumpToPage(0);
@@ -338,19 +464,59 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_args.title, overflow: TextOverflow.ellipsis),
-        // §31 §4.2 신설: 압축 진입 아이콘 1개. 암호 PDF는 편집과 같은 정책으로
-        // 비활성화한다(`ViewerArgs.isEncrypted`, §3.3 Q10). 공유·편집 이동은
-        // 3주차(설계 §0.4)에 이 자리에 함께 붙는다 — 지금은 아이콘 1개뿐이다.
+        // Q12(승인) 개정: 흩어져 있던 개별 아이콘·텍스트버튼(편집·압축·공유)을
+        // `⋮` 드롭다운 메뉴로 통합했다. 각 항목의 동작·활성화 조건은 그대로다 —
+        // 위치만 메뉴로 옮겼다. "서명 추가"(§3.3)가 새 항목으로 들어간다.
         actions: [
-          // 편집 이동(3주차, 설계 §0.4·§1.1) — 암호 PDF는 편집 진입을 차단한다
-          // (1주차 Q10 확정 정책). 비활성화가 아니라 버튼 자체를 없앤다.
-          if (!_args.isEncrypted)
-            TextButton(onPressed: _openEdit, child: const Text('편집')),
-          TextButton(
-            onPressed: _args.isEncrypted ? null : _openCompressSheet,
-            child: const Text('압축'),
+          PopupMenuButton<_ViewerMenuAction>(
+            onSelected: (action) => switch (action) {
+              _ViewerMenuAction.edit => _openEdit(),
+              _ViewerMenuAction.compress => _openCompressSheet(),
+              _ViewerMenuAction.share => _share(),
+              _ViewerMenuAction.signature => _openSignature(),
+              _ViewerMenuAction.annotate => _openAnnotate(),
+              _ViewerMenuAction.ocr => _openOcr(),
+            },
+            itemBuilder: (context) => [
+              // 편집 이동 — 암호 PDF는 편집 진입을 차단한다(1주차 Q10 확정
+              // 정책). 비활성화가 아니라 항목 자체를 없앤다(기존 동작 유지).
+              if (!_args.isEncrypted)
+                const PopupMenuItem(
+                  value: _ViewerMenuAction.edit,
+                  child: Text('편집'),
+                ),
+              PopupMenuItem(
+                value: _ViewerMenuAction.compress,
+                enabled: !_args.isEncrypted,
+                child: const Text('압축'),
+              ),
+              // 서명 추가(Q12) — 스탬프도 전체 재작성 저장이므로 암호 PDF에는
+              // 편집·압축과 같은 정책을 적용한다.
+              PopupMenuItem(
+                value: _ViewerMenuAction.signature,
+                enabled: !_args.isEncrypted,
+                child: const Text('서명 추가'),
+              ),
+              // 주석 추가(§13 배치 4 항목 12) — 서명과 같은 정책(암호 PDF 차단).
+              PopupMenuItem(
+                value: _ViewerMenuAction.annotate,
+                enabled: !_args.isEncrypted,
+                child: const Text('주석 추가'),
+              ),
+              // 텍스트 인식(§13 배치 5 항목 16) — ImagePageRef 페이지가 하나도
+              // 없으면(외부 PDF뿐이거나 아직 확인 전) 항목 자체를 숨긴다(§7.1).
+              if (_hasImagePage)
+                PopupMenuItem(
+                  value: _ViewerMenuAction.ocr,
+                  enabled: !_args.isEncrypted,
+                  child: const Text('텍스트 인식'),
+                ),
+              const PopupMenuItem(
+                value: _ViewerMenuAction.share,
+                child: Text('공유'),
+              ),
+            ],
           ),
-          TextButton(onPressed: _share, child: const Text('공유')),
         ],
       ),
       body: _loading

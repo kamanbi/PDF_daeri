@@ -8,7 +8,7 @@
 /// (§2.3/§2.6 공개 시그니처 무변경 원칙 유지).
 library;
 
-enum ImageQuality { high, standard, min }
+enum ImageQuality { original, high, standard, min }
 
 /// 저장·압축이 공유하는 이미지 화질 정책의 단일 소유자.
 class ImageQualityProfile {
@@ -58,17 +58,38 @@ class ImageQualityProfile {
     estimatedMaxRatio: 0.45,
   );
 
+  /// 재인코딩을 하지 않는다는 뜻의 센티널. `encodeForEmbed`의 A-4 스킵 조건
+  /// `longEdge <= longEdgeMaxPx`가 어떤 실사 이미지에서도 참이 되도록 잡는다.
+  /// 실제 카메라 센서 장변은 1e4px를 넘지 않으므로 1<<24로 충분하다(§76 §1.3).
+  static const int unboundedLongEdgePx = 1 << 24;
+
+  static const original = ImageQualityProfile(
+    quality: ImageQuality.original,
+    label: '원본',
+    recommendedFor: '원본 해상도 그대로 (용량 큼)',
+    longEdgeMaxPx: unboundedLongEdgePx,
+    jpegQuality: 100, // 크롭이 걸린 페이지에만 실제로 쓰인다(§76 §1.2)
+    estimatedMinRatio: 1.00,
+    estimatedMaxRatio: 1.00,
+  );
+
   static ImageQualityProfile of(ImageQuality quality) => switch (quality) {
+    ImageQuality.original => original,
     ImageQuality.high => high,
     ImageQuality.standard => standard,
     ImageQuality.min => min,
   };
+
+  /// 재인코딩 없이 원본 바이트를 그대로 임베드하는 프리셋인가.
+  /// 압축 경로가 이 프리셋을 거부할 때 쓰는 유일한 판별자다(§76 §1.5).
+  bool get isPassthrough => longEdgeMaxPx >= unboundedLongEdgePx;
 
   String get processingDescription =>
       '장변 최대 ${longEdgeMaxPx}px · JPEG 품질 $jpegQuality';
 
   String estimateFor(int inputBytes) {
     if (inputBytes <= 0) return '사진 크기를 확인하면 예상 용량을 표시합니다.';
+    if (isPassthrough) return '원본 크기 그대로 (${formatBytes(inputBytes)})';
     final minBytes = (inputBytes * estimatedMinRatio).round();
     final maxBytes = (inputBytes * estimatedMaxRatio).round();
     return '사진 기준 예상 ${formatBytes(minBytes)} ~ ${formatBytes(maxBytes)}';
@@ -81,5 +102,62 @@ class ImageQualityProfile {
     }
     const bytesPerKb = 1024;
     return '${(bytes / bytesPerKb).toStringAsFixed(0)}KB';
+  }
+}
+
+/// 목표 용량 모드에서만 쓰는 화질 단 하나. 사용자에게 직접 노출하지 않는다(§76 §3.2).
+class CompressRung {
+  const CompressRung({required this.longEdgeMaxPx, required this.jpegQuality});
+  final int longEdgeMaxPx;
+  final int jpegQuality;
+}
+
+/// 목표 용량 모드 전용 화질 사다리. 인덱스가 작을수록 고화질이다.
+/// 0..2는 사용자 프리셋(high/standard/min)과 **같은 수치**이며, 3..4는 목표
+/// 용량 모드에서만 도달할 수 있는 하위 단이다(UI에 노출하지 않는다). (§76 §3.2)
+abstract final class CompressLadder {
+  /// 0..2는 `ImageQualityProfile.high/standard/min`의 값을 **참조로 생성**한다
+  /// (리터럴 재기재 금지 — 두 표가 갈라지는 것을 코드 구조로 막는다, spec-guardian C1).
+  static final List<CompressRung> rungs = [
+    CompressRung(
+      longEdgeMaxPx: ImageQualityProfile.high.longEdgeMaxPx,
+      jpegQuality: ImageQualityProfile.high.jpegQuality,
+    ), // 0 = high
+    CompressRung(
+      longEdgeMaxPx: ImageQualityProfile.standard.longEdgeMaxPx,
+      jpegQuality: ImageQualityProfile.standard.jpegQuality,
+    ), // 1 = standard
+    CompressRung(
+      longEdgeMaxPx: ImageQualityProfile.min.longEdgeMaxPx,
+      jpegQuality: ImageQualityProfile.min.jpegQuality,
+    ), // 2 = min
+    const CompressRung(longEdgeMaxPx: 1000, jpegQuality: 50), // 3 = 목표 전용
+    const CompressRung(longEdgeMaxPx: 800, jpegQuality: 40), // 4 = 목표 전용
+  ];
+
+  /// 사용자 프리셋을 사다리 인덱스로 변환한다. `original`은 패스스루 프리셋이라
+  /// 사다리에 없다(§76 §1.5) — 호출하면 프로그래밍 오류로 취급해 예외를 던진다.
+  static int indexOf(ImageQuality preset) => switch (preset) {
+    ImageQuality.high => 0,
+    ImageQuality.standard => 1,
+    ImageQuality.min => 2,
+    ImageQuality.original => throw ArgumentError(
+      'ImageQuality.original is passthrough and is not on CompressLadder (§76 §1.5)',
+    ),
+  };
+
+  /// 예상 비율(`estimatedMaxRatio`)로 **파일을 전혀 읽지 않고** 시작 단을 고른다.
+  /// 목표를 만족할 것으로 예상되는 가장 고화질 단(0..2 중). 없으면 마지막 단.
+  static int startIndexFor({required int originalBytes, required int targetBytes}) {
+    if (originalBytes <= 0) return rungs.length - 1;
+    for (final profile in [
+      ImageQualityProfile.high,
+      ImageQualityProfile.standard,
+      ImageQualityProfile.min,
+    ]) {
+      final predictedBytes = (originalBytes * profile.estimatedMaxRatio).round();
+      if (predictedBytes <= targetBytes) return indexOf(profile.quality);
+    }
+    return rungs.length - 1;
   }
 }

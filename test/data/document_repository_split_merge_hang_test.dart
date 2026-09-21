@@ -90,6 +90,17 @@ class _SplitThenMergeStubEngine implements PdfEngine {
   @override
   Future<PdfResult<PdfDocInfo>> inspect(String pdfPath, {String? password}) =>
       throw UnimplementedError();
+
+  @override
+  Future<PdfResult<SaveOutcome>> stamp({
+    required String sourcePdfPath,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required String outputPath,
+    required GuardInput guardInput,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 class _StubPdfRenderer implements PdfRenderer {

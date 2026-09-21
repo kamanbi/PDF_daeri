@@ -67,6 +67,17 @@ abstract final class FileName {
   /// 아니라 `(압축)`이다. 외부 PDF L2 압축(`_workspace/31_...md`)도 이 규칙을 그대로 쓴다.
   static String compressedTitle(String originalTitle) => '$originalTitle (압축)';
 
+  /// 전자서명 결과 제목. `_workspace/79_architect_v1.1_v2_design.md` §3.4 확정.
+  static String signedTitle(String originalTitle) => '$originalTitle (서명)';
+
+  /// 주석(형광펜·텍스트) 결과 제목. `_workspace/79_architect_v1.1_v2_design.md`
+  /// §6·§13 배치 4 항목 12 확정.
+  static String annotatedTitle(String originalTitle) => '$originalTitle (주석)';
+
+  /// OCR(텍스트 인식) 결과 제목. `_workspace/79_architect_v1.1_v2_design.md`
+  /// §7·§13 배치 5 항목 16 확정.
+  static String ocrTitle(String originalTitle) => '$originalTitle (텍스트 인식)';
+
   /// [existing]에 [title]이 이미 있으면 ` (2)`, ` (3)` ... 을 붙여 유일하게 만든다.
   static String dedupe(String title, Set<String> existing) {
     if (!existing.contains(title)) return title;
@@ -90,6 +101,23 @@ abstract final class FileName {
       }
     }
     return '$normalized.pdf';
+  }
+
+  /// 제목 검색 질의어 정규화의 단일 구현(§76 §4.1). NFC 정규화 → trim → 소문자 변환
+  /// → `LIKE` 와일드카드(`%`, `_`) 이스케이프 순으로 처리한다. `documents.title`은
+  /// [normalize](NFC)를 거친 값이므로, 검색어도 같은 NFC를 거쳐야 한글 조합(NFD) 입력이
+  /// 매칭된다. 이 함수 밖에서 검색어를 다시 정규화하지 않는다.
+  static String normalizeForSearch(String raw) {
+    var s = raw.trim();
+    s = unorm.nfc(s);
+    s = s.toLowerCase();
+    // LIKE 패턴에서 `%`/`_`가 와일드카드로 해석되지 않도록 이스케이프한다.
+    // 이스케이프 문자 자체(`\`)도 먼저 이스케이프해 이중 해석을 막는다.
+    s = s
+        .replaceAll(r'\', r'\\')
+        .replaceAll('%', r'\%')
+        .replaceAll('_', r'\_');
+    return s;
   }
 
   /// 사진 보관함에 저장할 JPEG 파일명. 기존 확장자는 제거해 이중 확장자를 막는다.

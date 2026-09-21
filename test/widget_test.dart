@@ -6,6 +6,8 @@
 /// - `GuardBlocked`(용량 게이트 차단)를 삼키지 않고 화면에 노출한다
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +24,7 @@ import 'package:pdf_daeri/features/edit/save_dialog.dart';
 import 'package:pdf_daeri/features/scan/local_document_scan_source.dart';
 import 'package:pdf_daeri/features/scan/scan_screen.dart';
 import 'package:pdf_daeri/pdf/page_ref.dart';
+import 'package:pdf_daeri/pdf/pdf_compressor.dart' show TargetAttempt;
 import 'package:pdf_daeri/pdf/pdf_engine.dart';
 
 class _FakeUnsupportedScanSource implements ScanSource {
@@ -39,7 +42,8 @@ class _FakeUnsupportedScanSource implements ScanSource {
 /// 삼키지 않고 사용자에게 보여주는지 검증하는 용도다.
 class _FakeGuardBlockedRepository implements DocumentRepository {
   @override
-  Stream<List<DocumentSummary>> watchDocuments() => const Stream.empty();
+  Stream<List<DocumentSummary>> watchDocuments({String? titleQuery}) =>
+      const Stream.empty();
 
   @override
   Future<PdfResult<DocumentDetail>> load(String docId) async =>
@@ -63,10 +67,31 @@ class _FakeGuardBlockedRepository implements DocumentRepository {
   }
 
   @override
+  Future<PdfResult<DocumentSummary>> stampToNewDocument({
+    required String sourcePdfPath,
+    required String originalTitle,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required int baselineBytes,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+    String Function(String originalTitle)? titleFor,
+  }) async => const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
+
+  @override
   Future<PdfResult<CompressToNewDocumentResult>> compressToNewDocument({
     required CompressSource source,
     required ImageQuality preset,
     void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) async => const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
+
+  @override
+  Future<PdfResult<CompressToTargetResult>> compressToTargetSize({
+    required CompressSource source,
+    required int targetBytes,
+    void Function(PdfProgress)? onProgress,
+    void Function(TargetAttempt)? onAttempt,
     CancelToken? cancelToken,
   }) async => const PdfErr(UnknownFailure('테스트에서 사용하지 않음'));
 

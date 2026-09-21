@@ -14,9 +14,12 @@ import 'dart:io' show Platform;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../billing/entitlement.dart' show settingsRepositoryProvider;
 import '../core/platform_features.dart';
 import '../data/repository/document_repository.dart';
+import '../data/repository/draft_repository.dart';
 import '../data/repository/recent_repository.dart';
+import '../data/repository/settings_repository.dart' show AppThemeMode;
 import '../data/storage/saf_import.dart';
 import '../data/storage/share_export.dart';
 import '../data/storage/public_pdf_exporter.dart';
@@ -24,6 +27,7 @@ import '../data/storage/public_image_exporter.dart';
 import '../data/storage/workspace.dart';
 import '../features/scan/local_document_scan_source.dart';
 import '../features/scan/doclens_fallback_scan_source.dart';
+import '../pdf/ocr_source.dart';
 import '../pdf/pdf_engine.dart';
 import '../pdf/pdf_renderer.dart';
 import '../pdf/scan_source.dart';
@@ -39,6 +43,13 @@ final pdfEngineProvider = Provider<PdfEngine?>((ref) => null);
 /// [2주차 신설] `recent_files` 접근. `documentRepositoryProvider`와 동일한 nullable
 /// 패턴(§1.3) — DB/워크스페이스 초기화가 실패해도 다른 화면은 죽지 않는다.
 final recentRepositoryProvider = Provider<RecentRepository?>((ref) => null);
+
+/// [`_workspace/76_architect_design.md` §4.6·§6 신설 · platform-integration] 편집
+/// 드래프트("작업 중 상태") 접근. 다른 nullable provider와 동일한 패턴 —
+/// `main.dart` 부팅 시퀀스가 `Workspace`/`AppDatabase` 초기화에 성공했을 때만
+/// override로 실제 구현체를 주입한다. 실제 배선(override)은 `main.dart`의 몫이며
+/// 이 파일은 provider 선언만 담당한다(§4.7~4.8 소비 지점은 flutter-ui가 잇는다).
+final draftRepositoryProvider = Provider<DraftRepository?>((ref) => null);
 
 /// [2026-08-25 · 3주차 T6 신설 · platform-integration] 시스템 공유의 유일한 진입점
 /// (`share_export.dart` §5.2). `workspaceProvider`와 같은 nullable 패턴 —
@@ -85,6 +96,18 @@ final reviewPromptServiceProvider = Provider<ReviewPromptService>(
 /// 부팅 중 발생한 비치명 이슈(한글 폰트 누락 등)를 화면에 알리기 위한 목록.
 final bootIssuesProvider = Provider<List<String>>((ref) => const []);
 
+/// [82 최종검증 M1 해소 · platform-integration] 화면 테마 선택값의 런타임 진실
+/// (설계 §5.4/§5.5). `adsRemovedProvider`(`lib/billing/entitlement.dart`)와 동일한
+/// 패턴 — `SettingsRepository.watchThemeMode()`를 그대로 투영하며 캐시를 쓰지 않는다.
+/// `settingsRepositoryProvider`가 아직 null이면(DB 초기화 실패) `AppThemeMode.system`으로
+/// 흐른다. `app.dart`(flutter-ui)가 `ref.watch(themeModeProvider).valueOrNull ??
+/// AppThemeMode.system`으로 소비한다.
+final themeModeProvider = StreamProvider<AppThemeMode>((ref) {
+  final repo = ref.watch(settingsRepositoryProvider);
+  if (repo == null) return Stream.value(AppThemeMode.system);
+  return repo.watchThemeMode();
+});
+
 final scanSourceProvider = Provider<ScanSource>(
   (ref) => ResilientDocumentScanSource(),
 );
@@ -95,6 +118,15 @@ final safImporterProvider = Provider<SafImporter>(
   (ref) =>
       AppFeatures.intentImport ? MethodChannelSafImporter() : NoopSafImporter(),
 );
+
+/// [§7.3 신설 · platform-integration] `ocr_screen.dart`의 유일한 소비 지점.
+/// **팩토리를 제공한다 — 인스턴스를 캐시하지 않는다.** `Provider<OcrSource>`로
+/// 두면 컨테이너가 단일 인스턴스를 계속 캐시하는데, 화면 이탈 시 호출부가
+/// `OcrSource.dispose()`를 부르는 계약(§7.3)과 부딪혀 두 번째 진입에서 이미
+/// 닫힌 인스턴스를 재사용하게 된다(82번 최종검증 M2). 화면은 매번
+/// `ref.read(ocrSourceProvider)()`로 새 인스턴스를 만들고, 그 인스턴스의
+/// dispose는 계속 호출부 책임이다.
+final ocrSourceProvider = Provider<OcrSource Function()>((ref) => MlKitOcrSource.new);
 
 /// [2주차 신설] 뷰어·홈 그리드가 공유하는 렌더러. `PdfxRenderer()` 생성 자체는
 /// 실패 여지가 없다(문서를 열 때 실패하는 것과는 별개) — nullable로 두지 않는다.

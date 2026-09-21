@@ -96,6 +96,39 @@ void main() {
         );
       }
     });
+
+    // R1(§2.4-R1 T11) : 검사2-b의 `PdfTextRenderingMode` 마스킹이 인접 위반을 함께 삼키지
+    // 않는지 확인한다 — 이 개정의 유일한 실패 지점.
+    group('검사2-b 마스킹 회귀(§2.4-R1) — 인접 위반을 삼키지 않는다', () {
+      String masked(String s) => s.replaceAll('PdfTextRenderingMode', '');
+
+      test('"PdfTextRenderingMode.invisible; page.render(x);" 는 마스킹 후에도 매치된다(반드시 실패해야 함)', () {
+        const sample = 'final m = PdfTextRenderingMode.invisible; page.render(x);';
+        expect(
+          rasterIdentifierPattern.hasMatch(masked(sample)),
+          isTrue,
+          reason: '인접한 render 위반이 마스킹에 함께 삼켜짐: $sample',
+        );
+      });
+
+      test('"PdfTextRenderingModeRenderPage" 는 마스킹 후에도 매치된다(반드시 실패해야 함, 우회 시도)', () {
+        const sample = 'PdfTextRenderingModeRenderPage';
+        expect(
+          rasterIdentifierPattern.hasMatch(masked(sample)),
+          isTrue,
+          reason: '식별자를 붙여 쓰는 우회 시도가 마스킹을 통과함: $sample',
+        );
+      });
+
+      test('"PdfTextRenderingMode.invisible" 단독은 마스킹 후 매치되지 않는다(유일한 허용)', () {
+        const sample = 'PdfTextRenderingMode.invisible';
+        expect(
+          rasterIdentifierPattern.hasMatch(masked(sample)),
+          isFalse,
+          reason: '유일하게 허용돼야 할 식별자가 마스킹 후에도 위반으로 남음: $sample',
+        );
+      });
+    });
   });
 
   group('§3.4-1 : 저장 경로 파일이 렌더러·flutter/dart:ui를 import하지 않는다', () {
@@ -121,8 +154,19 @@ void main() {
     }
   });
 
+  // R1(2026-09-22, `79_architect_v1.1_v2_design.md` §2.4-R1) : `stamp_builder.dart`는
+  // `PdfTextRenderingMode.invisible`(Tr 3 -- OCR/텍스트 주석 비가시 레이어의 유일한 구현 수단)을
+  // 쓴다. 그 식별자가 `render`를 부분 문자열로 포함해 검사2와 오탐 충돌한다. `stamp_builder.dart`를
+  // **검사2 그룹에서만** 빼고(검사1은 그대로 받는다 -- 위 `rasterCoreFiles`는 무변경), 대신
+  // 검사2-b(아래)가 이 파일을 전용 축소 검사로 검증한다. `_rasterCoreFiles()` 자체를 고치지
+  // 않는다 -- 고치면 검사1까지 함께 풀려 봉쇄가 무너진다(`81_spec-guardian_r1_reverify.md` V1).
+  final rasterCoreFilesExceptStampBuilder = rasterCoreFiles.where((f) {
+    final normalized = f.path.replaceAll('\\', '/');
+    return !normalized.endsWith('lib/pdf/stamp_builder.dart');
+  }).toList(growable: false);
+
   group('§3.4-2 : 저장 경로 파일에 래스터화 관련 식별자가 없다(접두·접미 포함)', () {
-    for (final file in rasterCoreFiles) {
+    for (final file in rasterCoreFilesExceptStampBuilder) {
       test(
         '${file.path}에 render/toImage/toByteData/Canvas/PictureRecorder/Bitmap/Picture가 없다',
         () {
@@ -134,6 +178,22 @@ void main() {
         },
       );
     }
+  });
+
+  // R1 신설 검사2-b : `stamp_builder.dart` 전용 축소 래스터 검사(§2.4-R1). `rasterIdentifierPattern`
+  // 자체는 한 글자도 바꾸지 않는다 -- 정확히 `PdfTextRenderingMode` 문자열 1개만 마스킹한 뒤 같은
+  // 패턴을 그대로 적용한다. 허용되는 것은 이 식별자 하나뿐이다.
+  group('§2.4-R1 검사2-b : stamp_builder.dart는 PdfTextRenderingMode 오탐 1건 외 래스터 식별자가 없다', () {
+    test('PdfTextRenderingMode만 마스킹한 뒤에도 다른 래스터 식별자가 0건이다', () {
+      final codeOnly = _codeOnly(_read('lib/pdf/stamp_builder.dart'));
+      final masked = codeOnly.replaceAll('PdfTextRenderingMode', '');
+      final matches = rasterIdentifierPattern.allMatches(masked).map((m) => m.group(0)).toList();
+      expect(
+        matches,
+        isEmpty,
+        reason: 'stamp_builder.dart 위반(PdfTextRenderingMode 마스킹 후에도 래스터 식별자 존재): $matches',
+      );
+    });
   });
 
   group('§3.4-3 : lib/features/**에서 PDF 라이브러리 직접 import 금지', () {
@@ -173,6 +233,22 @@ void main() {
     });
   });
 
+  group('T10 : EditCornersScreen 산발 신설 금지', () {
+    test("'EditCornersScreen' 이 lib/ 전체에 없다", () {
+      final violations = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        if (file.readAsStringSync().contains('EditCornersScreen')) {
+          violations.add(file.path);
+        }
+      }
+      expect(
+        violations,
+        isEmpty,
+        reason: '자체 크롭 화면(EditCornersScreen) 신설 발견: $violations',
+      );
+    });
+  });
+
   group('§3.4-5 : PdfEngine 인터페이스에 incremental 식별자가 없다', () {
     test("'incremental' 이 코드(주석 제외)에 없다", () {
       final codeOnly = _codeOnly(_read('lib/pdf/pdf_engine.dart'));
@@ -206,52 +282,60 @@ void main() {
     });
   });
 
+  // R1(§2.4-R1, `79_architect_v1.1_v2_design.md` 검사7) : `stamp_builder.dart`도 §2.2 doc
+  // comment대로 `pdfrx`/`dart:io`/`File(`/`PdfPageRef`를 쥐지 않는 2-키 분리 파일이다.
+  // `image_pdf_builder.dart`와 같은 금지 토큰을 그대로 적용한다.
+  const pdfImageOwnerFiles = ['lib/pdf/image_pdf_builder.dart', 'lib/pdf/stamp_builder.dart'];
+
   group(
-    '§3.4-7 : image_pdf_builder.dart는 PDF 문서·페이지 객체·파일 접근을 쥐지 않는다(2-키 분리)',
+    '§3.4-7(+R1 stamp_builder.dart 확장) : PDF 문서·페이지 객체·파일 접근을 쥐지 않는다(2-키 분리)',
     () {
-      test(
-        "코드(주석 제외)에 'pdfrx', PdfDocument, PdfPage, 'dart:io', 'File(' 이 없다",
-        () {
-          final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
-          // 부분 문자열 토큰(파일 접근 관련) — 오탐 위험이 낮다.
-          for (final token in const ['pdfrx', 'dart:io', 'File(']) {
-            expect(
-              codeOnly.contains(token),
-              isFalse,
-              reason: 'image_pdf_builder.dart에 금지 토큰 "$token" 존재',
-            );
-          }
-          // 식별자 토큰(pdfrx 타입명) — 단어 경계로 검사한다. `package:pdf`의 자체 타입인
-          // `PdfPageFormat`/`PdfDocument`(package:pdf에는 이 이름의 클래스가 없다) 같은 합성
-          // 식별자를 오탐하지 않게 하면서, 실제 pdfrx `PdfPage`/`PdfDocument` 타입 사용은 잡는다.
-          for (final identifier in const ['PdfDocument', 'PdfPage']) {
-            final matched = RegExp('\\b$identifier\\b').hasMatch(codeOnly);
-            expect(
-              matched,
-              isFalse,
-              reason: 'image_pdf_builder.dart에 금지 식별자 "$identifier" 존재',
-            );
-          }
-        },
-      );
+      for (final path in pdfImageOwnerFiles) {
+        test(
+          "$path의 코드(주석 제외)에 'pdfrx', PdfDocument, PdfPage, 'dart:io', 'File(' 이 없다",
+          () {
+            final codeOnly = _codeOnly(_read(path));
+            // 부분 문자열 토큰(파일 접근 관련) — 오탐 위험이 낮다.
+            for (final token in const ['pdfrx', 'dart:io', 'File(']) {
+              expect(
+                codeOnly.contains(token),
+                isFalse,
+                reason: '$path에 금지 토큰 "$token" 존재',
+              );
+            }
+            // 식별자 토큰(pdfrx 타입명) — 단어 경계로 검사한다. `package:pdf`의 자체 타입인
+            // `PdfPageFormat`/`PdfDocument`(package:pdf에는 이 이름의 클래스가 없다) 같은 합성
+            // 식별자를 오탐하지 않게 하면서, 실제 pdfrx `PdfPage`/`PdfDocument` 타입 사용은 잡는다.
+            for (final identifier in const ['PdfDocument', 'PdfPage']) {
+              final matched = RegExp('\\b$identifier\\b').hasMatch(codeOnly);
+              expect(
+                matched,
+                isFalse,
+                reason: '$path에 금지 식별자 "$identifier" 존재',
+              );
+            }
+          },
+        );
+      }
     },
   );
 
   group(
-    '§3.4-8 : image_pdf_builder.dart의 public 시그니처는 경로(String path류)를 받지 않는다',
+    '§3.4-8(+R1 stamp_builder.dart 확장) : public 시그니처는 경로(String path류)를 받지 않는다',
     () {
-      test("파일 경로로 보이는 'String ...[Pp]ath...' 파라미터가 코드에 없다", () {
-        final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
-        final matches = RegExp(
-          r'String\??\s+\w*[Pp]ath\w*',
-        ).allMatches(codeOnly).map((m) => m.group(0)).toList();
-        expect(
-          matches,
-          isEmpty,
-          reason:
-              'image_pdf_builder.dart가 경로 문자열 파라미터를 받음: $matches (바이트만 주고받아야 한다)',
-        );
-      });
+      for (final path in pdfImageOwnerFiles) {
+        test("$path -- 파일 경로로 보이는 'String ...[Pp]ath...' 파라미터가 코드에 없다", () {
+          final codeOnly = _codeOnly(_read(path));
+          final matches = RegExp(
+            r'String\??\s+\w*[Pp]ath\w*',
+          ).allMatches(codeOnly).map((m) => m.group(0)).toList();
+          expect(
+            matches,
+            isEmpty,
+            reason: '$path가 경로 문자열 파라미터를 받음: $matches (바이트만 주고받아야 한다)',
+          );
+        });
+      }
     },
   );
 
@@ -687,16 +771,17 @@ void main() {
   // (179~210줄) — W3-R1 잔여 작업. T6(문서 36 §7.2)이 요구한 자동 검사 2종을 여기서 신설한다.
   // 검사②는 문서 49가 정정한 명세를 그대로 따른다: `.inspect(`는 읽기 전용 호출이라 예외다
   // (open_pdf_flow.dart:92, edit_screen.dart:90가 정당하게 이 메서드를 쓴다).
-  group('§49 검사26 : image_pdf_builder.dart에 PdfPageRef 식별자가 없다(2-키 분리의 연장)', () {
-    test("코드(주석 제외)에 'PdfPageRef' 문자열이 0회다", () {
-      final codeOnly = _codeOnly(_read('lib/pdf/image_pdf_builder.dart'));
-      expect(
-        codeOnly.contains('PdfPageRef'),
-        isFalse,
-        reason:
-            'image_pdf_builder.dart가 qpdf의 PageRef 개념(PdfPageRef)을 참조함 -- 이미지 인코딩 전용 파일은 이를 몰라야 한다',
-      );
-    });
+  group('§49 검사26(+R1 stamp_builder.dart 확장) : PdfPageRef 식별자가 없다(2-키 분리의 연장)', () {
+    for (final path in pdfImageOwnerFiles) {
+      test("$path -- 코드(주석 제외)에 'PdfPageRef' 문자열이 0회다", () {
+        final codeOnly = _codeOnly(_read(path));
+        expect(
+          codeOnly.contains('PdfPageRef'),
+          isFalse,
+          reason: '$path가 qpdf의 PageRef 개념(PdfPageRef)을 참조함 -- 이 파일은 이를 몰라야 한다',
+        );
+      });
+    }
   });
 
   group(
@@ -950,4 +1035,144 @@ void main() {
       });
     },
   );
+
+  // ── `79_architect_v1.1_v2_design.md` §2.4(R1 개정) "검사 개정안"(신설 검사34·검사35) ──
+  group(
+    '§2.4 검사34(R1) : PdfTextRenderingMode는 stamp_builder.dart 단 한 파일에만 존재한다',
+    () {
+      test("'PdfTextRenderingMode' 식별자가 lib/pdf/stamp_builder.dart 밖에 없다", () {
+        final violations = <String>[];
+        for (final file in _dartFilesUnder('lib')) {
+          final normalized = file.path.replaceAll('\\', '/');
+          if (normalized.endsWith('lib/pdf/stamp_builder.dart')) continue;
+          if (file.readAsStringSync().contains('PdfTextRenderingMode')) {
+            violations.add(normalized);
+          }
+        }
+        expect(
+          violations,
+          isEmpty,
+          reason: 'lib/pdf/stamp_builder.dart 밖에서 PdfTextRenderingMode 발견: $violations',
+        );
+      });
+
+      test("'MemoryImage(' 식별자가 lib/pdf/** 밖에 없다", () {
+        final violations = <String>[];
+        for (final file in _dartFilesUnder('lib')) {
+          final normalized = file.path.replaceAll('\\', '/');
+          if (normalized.contains('lib/pdf/')) continue;
+          if (file.readAsStringSync().contains('MemoryImage(')) {
+            violations.add(normalized);
+          }
+        }
+        expect(
+          violations,
+          isEmpty,
+          reason: 'lib/pdf/** 밖에서 MemoryImage( 발견: $violations',
+        );
+      });
+
+      test("'PdfBlendMode' 식별자가 lib/pdf/** 밖에 없다", () {
+        final violations = <String>[];
+        for (final file in _dartFilesUnder('lib')) {
+          final normalized = file.path.replaceAll('\\', '/');
+          if (normalized.contains('lib/pdf/')) continue;
+          if (file.readAsStringSync().contains('PdfBlendMode')) {
+            violations.add(normalized);
+          }
+        }
+        expect(
+          violations,
+          isEmpty,
+          reason: 'lib/pdf/** 밖에서 PdfBlendMode 발견: $violations',
+        );
+      });
+    },
+  );
+
+  group(
+    '§2.4 검사35(R1) : StampBuilder.build( 호출부는 lib/pdf/** 안에만 있다(화면이 직접 스탬프를 만들지 않는다)',
+    () {
+      test('lib/pdf/** 밖에서 StampBuilder.build( 를 호출하지 않는다', () {
+        final violations = <String>[];
+        for (final file in _dartFilesUnder('lib')) {
+          final normalized = file.path.replaceAll('\\', '/');
+          if (normalized.contains('lib/pdf/')) continue;
+          if (file.readAsStringSync().contains('StampBuilder.build(')) {
+            violations.add(normalized);
+          }
+        }
+        expect(
+          violations,
+          isEmpty,
+          reason: 'lib/pdf/** 밖에서 StampBuilder.build( 호출: $violations -- 스탬프 조립은 엔진 내부의 책임이다',
+        );
+      });
+    },
+  );
+
+  // ── `79_architect_v1.1_v2_design.md` §7.6.3 "신설 검사39" — OCR 오프라인 강제(절대 규칙 1).
+  // 대상은 정확히 android/app/build.gradle.kts · pubspec.yaml 이 두 파일뿐이다. android/ 전체나
+  // third_party/doclens/**는 대상이 아니다(§7.6.2 판단 — doclens의 기존
+  // play-services-mlkit-text-recognition:19.0.1은 이번 라운드 범위 밖).
+  group('§7.6.3 검사39 : OCR 한국어 모델 번들 강제(절대 규칙 1)', () {
+    test('검사39-a : build.gradle.kts에 text-recognition-korean 번들 좌표가 1건 이상이다', () {
+      final source = _read('android/app/build.gradle.kts');
+      final matches = 'com.google.mlkit:text-recognition-korean'
+          .allMatches(source)
+          .length;
+      expect(
+        matches,
+        greaterThanOrEqualTo(1),
+        reason:
+            'android/app/build.gradle.kts에 com.google.mlkit:text-recognition-korean 번들 좌표가 없다'
+            ' -- 이 줄이 없으면 한국어 인식이 런타임에 실패한다(§7.6.1)',
+      );
+    });
+
+    test('검사39-b : build.gradle.kts에 다운로드 변형(play-services-mlkit-text-recognition)이 0건이다', () {
+      final source = _read('android/app/build.gradle.kts');
+      expect(
+        source.contains('play-services-mlkit-text-recognition'),
+        isFalse,
+        reason:
+            'android/app/build.gradle.kts가 play-services-mlkit-text-recognition(다운로드 변형)을 끌어옴'
+            ' -- 런타임에 모델을 내려받아 절대 규칙 1을 위반한다',
+      );
+    });
+
+    test('검사39-c : pubspec.yaml의 google_mlkit* 의존성이 google_mlkit_text_recognition 하나뿐이다', () {
+      final source = _read('pubspec.yaml');
+      final matches = RegExp(
+        r'^\s{2}(google_mlkit\w*):',
+        multiLine: true,
+      ).allMatches(source).map((m) => m.group(1)!).toSet();
+      expect(
+        matches,
+        equals({'google_mlkit_text_recognition'}),
+        reason:
+            'pubspec.yaml의 google_mlkit* 의존성이 하나가 아니다(실측: $matches)'
+            ' -- google_mlkit_document_scanner 등 과거 제거된 플러그인의 부활을 막는 검사다',
+      );
+    });
+  });
+
+  // T15(개정, §9) : OcrSource 격리 + 오프라인 강제. ①만으로는 규칙 1을 검증하지 못하므로(가드언
+  // C2) 위 검사39와 짝을 이룬다.
+  group('T15(개정) : OcrSource 격리 — google_mlkit 플러그인 import가 ocr_source.dart 1파일뿐이다', () {
+    test("lib/** 전체에서 'package:google_mlkit' import가 lib/pdf/ocr_source.dart에만 있다", () {
+      final callers = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        if (file.readAsStringSync().contains('package:google_mlkit')) {
+          callers.add(file.path.replaceAll('\\', '/'));
+        }
+      }
+      expect(
+        callers,
+        equals(['lib/pdf/ocr_source.dart']),
+        reason: 'google_mlkit 플러그인 import가 예상 밖에서 발견됨(실측: $callers)'
+            ' -- 플러그인 타입 격리는 ocr_source.dart 하나로 끝나야 한다',
+      );
+    });
+  });
 }

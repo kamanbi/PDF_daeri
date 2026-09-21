@@ -9,10 +9,12 @@
 /// 갖지 않는다.
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
@@ -21,6 +23,7 @@ import '../../core/app_error.dart';
 import '../../core/file_name.dart';
 import '../../core/size_guard.dart';
 import '../../data/repository/document_repository.dart';
+import '../../data/repository/draft_repository.dart';
 import '../../pdf/page_ref.dart';
 import '../../pdf/pdf_engine.dart';
 import '../common/failure_ui.dart';
@@ -28,6 +31,17 @@ import 'edit_controller.dart';
 import 'edit_document_pager.dart';
 import 'page_grid_editor.dart';
 import 'save_dialog.dart';
+
+/// 드래프트 복구 진입 시그널(`_workspace/76_architect_design.md` §4.7·§4.8).
+/// 홈 화면이 "이어서 편집"을 누르면 이 값을 채우고 S3로 이동한다. `EditScreen`은
+/// 로드 시 이 값을 한 번 소비(clear)하고 `EditController.fromDraft`로 진입한다.
+/// 일반 편집 진입(기존 경로)에는 관여하지 않는다. `lib/app/providers.dart`는
+/// 이번 라운드 수정 대상이 아니라서(플랫폼 담당 완료분) 여기(소비자 쪽 파일)에
+/// 선언한다.
+final resumeDraftProvider = StateProvider<DraftSnapshot?>((ref) => null);
+
+/// 디바운스 간격(설계 §4.5 결정 2 — `dirty == true`일 때만 500ms 디바운스).
+const _draftSaveDebounce = Duration(milliseconds: 500);
 
 class EditScreen extends ConsumerStatefulWidget {
   const EditScreen({super.key, required this.args});
@@ -45,6 +59,13 @@ class _EditScreenState extends ConsumerState<EditScreen> {
   int _baselineBytes = 0;
   bool _externalNoticeShown = false;
 
+  /// 이 편집 세션의 드래프트 id. 복구 진입이면 원래 드래프트 id를 그대로 쓴다
+  /// (새 id를 쓰면 §4.5 결정 3에 따라 `save()`가 원래 드래프트 디렉터리를
+  /// "다른 드래프트"로 보고 삭제해 버려 `added` 이미지가 날아간다).
+  String _draftId = const Uuid().v4();
+  Timer? _draftDebounceTimer;
+  bool _draftDiscarded = false;
+
   @override
   void initState() {
     super.initState();
@@ -53,11 +74,21 @@ class _EditScreenState extends ConsumerState<EditScreen> {
 
   @override
   void dispose() {
+    _draftDebounceTimer?.cancel();
     _controller?.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
+    // 드래프트 복구 진입이면 이 세션의 draftId를 원래 것으로 맞춘다(§4.5 결정 3 —
+    // 새 id를 쓰면 save()가 원래 드래프트 디렉터리를 "다른 드래프트"로 보고
+    // 지워버려 added 이미지가 사라진다).
+    final resume = ref.read(resumeDraftProvider);
+    if (resume != null) {
+      ref.read(resumeDraftProvider.notifier).state = null;
+      _draftId = resume.draftId;
+    }
+
     final source = widget.args.source;
     switch (source) {
       case EditSourceMyDocument(:final docId):
@@ -71,8 +102,12 @@ class _EditScreenState extends ConsumerState<EditScreen> {
         switch (result) {
           case PdfOk<DocumentDetail>(:final value):
             setState(() {
-              _controller = EditController(initial: value.pages)
-                ..addListener((_) => setState(() {}), fireImmediately: false);
+              _controller =
+                  (resume != null
+                      ? EditController.fromDraft(resume)
+                      : EditController(initial: value.pages))
+                    ..onChanged = _onControllerChanged
+                    ..addListener((_) => setState(() {}), fireImmediately: false);
               if (widget.args.initialMode == EditMode.select) {
                 _controller!.enterSelectModeOnly();
               }
@@ -98,8 +133,12 @@ class _EditScreenState extends ConsumerState<EditScreen> {
                 PdfPageRef(sourcePath: pdfPath, sourceIndex: i, rotation: 0),
             ];
             setState(() {
-              _controller = EditController(initial: pages)
-                ..addListener((_) => setState(() {}), fireImmediately: false);
+              _controller =
+                  (resume != null
+                      ? EditController.fromDraft(resume)
+                      : EditController(initial: pages))
+                    ..onChanged = _onControllerChanged
+                    ..addListener((_) => setState(() {}), fireImmediately: false);
               if (widget.args.initialMode == EditMode.select) {
                 _controller!.enterSelectModeOnly();
               }
@@ -114,6 +153,51 @@ class _EditScreenState extends ConsumerState<EditScreen> {
             _fail();
         }
     }
+  }
+
+  /// `EditController.onChanged`(§4.7) 구독. `dirty == true`일 때만 500ms
+  /// 디바운스로 `DraftRepository.save`를 호출한다(설계 §4.5 결정 2).
+  void _onControllerChanged(EditState state) {
+    _draftDebounceTimer?.cancel();
+    if (!state.dirty) return;
+    _draftDebounceTimer = Timer(_draftSaveDebounce, _saveDraft);
+  }
+
+  Future<void> _saveDraft() async {
+    final controller = _controller;
+    final draftRepo = ref.read(draftRepositoryProvider);
+    if (controller == null || draftRepo == null || _draftDiscarded) return;
+    final pages = [
+      for (final page in controller.current.pages)
+        DraftPageEntry(ref: page.ref, origin: page.origin),
+    ];
+    await draftRepo.save(
+      draftId: _draftId,
+      source: _editSourceDescriptor,
+      title: widget.args.title,
+      pages: pages,
+    );
+  }
+
+  /// 화면 진입 시점의 소스 정보로 `EditSourceDescriptor`(데이터 계층)를 구성한다.
+  /// `router.dart`의 `EditSource`(라우팅 계층)와 1:1 대응(설계 §4.6 주석 참조).
+  EditSourceDescriptor get _editSourceDescriptor => switch (widget.args.source) {
+    EditSourceMyDocument(:final docId) => EditSourceDescriptor.myDocument(docId),
+    EditSourceExternalPdf(:final pdfPath, :final title, :final recentId) =>
+      EditSourceDescriptor.externalPdf(
+        pdfPath: pdfPath,
+        title: title,
+        recentId: recentId,
+      ),
+  };
+
+  /// 드래프트 삭제 지점 ①·②(설계 §4.5 결정 4). ③(복구 카드 "삭제")은 그쪽
+  /// 화면(홈)에서 직접 `DraftRepository.discard`를 부른다.
+  Future<void> _discardDraft() async {
+    _draftDebounceTimer?.cancel();
+    if (_draftDiscarded) return;
+    _draftDiscarded = true;
+    await ref.read(draftRepositoryProvider)?.discard(_draftId);
   }
 
   void _fail() {
@@ -160,7 +244,10 @@ class _EditScreenState extends ConsumerState<EditScreen> {
         ],
       ),
     );
-    return result ?? false;
+    final discard = result ?? false;
+    // 드래프트 삭제 지점 ②: "저장하지 않고 나가기" 선택 직후.
+    if (discard) await _discardDraft();
+    return discard;
   }
 
   Future<void> _addPages() async {
@@ -202,7 +289,15 @@ class _EditScreenState extends ConsumerState<EditScreen> {
       case PdfOk<List<String>>(:final value):
         final insertion = await _chooseInsertionTarget(selectedIndex);
         if (!mounted || insertion == null) return;
-        controller.insertImages(value, at: insertion);
+        // adopt-at-insert(설계 §4.5 결정 1): 임시 캐시 경로는 부팅 정리 대상이라
+        // 크래시 후 복구가 불가능하다. 삽입 즉시 drafts/로 복사하고, 컨트롤러에는
+        // 복사된 경로만 넣는다(실패한 항목은 부분 성공으로 제외한다).
+        final draftRepo = ref.read(draftRepositoryProvider);
+        final imagePaths = draftRepo == null
+            ? value
+            : await draftRepo.adoptImages(_draftId, value);
+        if (!mounted || imagePaths.isEmpty) return;
+        controller.insertImages(imagePaths, at: insertion);
       case PdfErr<List<String>>(:final failure):
         if (failure is! Cancelled) {
           await FailureUi.showDialog(context, failure);
@@ -349,6 +444,9 @@ class _EditScreenState extends ConsumerState<EditScreen> {
   void _goToViewerAfterSave(DocumentSummary summary) {
     final workspace = ref.read(workspaceProvider);
     if (workspace == null) return;
+    // 드래프트 삭제 지점 ①: 저장 성공 직후. 완료를 기다리지 않고 화면 전환한다 —
+    // 실패해도 다음 부팅 reconcile()이 고아 디렉터리를 정리한다.
+    unawaited(_discardDraft());
     Navigator.of(context).pushReplacementNamed(
       AppRoutes.viewer,
       arguments: ViewerArgs(

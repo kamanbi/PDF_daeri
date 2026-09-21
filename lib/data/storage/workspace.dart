@@ -24,6 +24,7 @@ library;
 
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart'
     show MethodChannel, MissingPluginException, PlatformException;
@@ -139,6 +140,48 @@ abstract interface class Workspace {
   /// `cache/`가 이미 사라져도(경합) 조용히 성공해야 한다 — "항상 삭제해도 안전"
   /// 원칙을 지키려면 이 메서드 자체도 실패하지 않아야 한다.
   Future<void> clearShareStaging();
+
+  /// [`_workspace/76_architect_design.md` §4.3] 편집 드래프트 경로 API.
+  /// `drafts/`는 `cache/`가 **아니다** — 부팅 시 캐시 정리(`_cleanupStaleStaging`,
+  /// `clearCache`)의 삭제 대상이 아니며, `sources/`도 아니다(드래프트가 커밋되면
+  /// `docs/<docId>/sources/`로 복사된 뒤 통째로 삭제된다).
+  String draftDir(String draftId); // <root>/drafts/<draftId>
+  String draftImage(String draftId, int n); // drafts/<draftId>/pages/<NNN>.jpg
+
+  /// [79 §6.3] 마크 이미지(형광펜·서명 등 이미지형 `StampMark`)의 내구 사본 경로.
+  /// `drafts/<draftId>/marks/<NNN>.png` — `pages/`와 형제 디렉터리다. `drafts/`
+  /// 전체가 캐시 정리·부팅 정리 대상이 아니므로(§4.3 상단 주석) 이 경로도 동일하게
+  /// 제외된다 — 별도 예외 처리가 필요 없다.
+  String draftMarkImage(String draftId, int n); // drafts/<draftId>/marks/<NNN>.png
+
+  /// 드래프트 디렉터리(및 `pages/` 하위) 생성.
+  Future<void> beginDraft(String draftId);
+
+  /// `marks/` 하위 디렉터리 생성. `beginDraft`와 분리한다 — 마크가 없는 드래프트
+  /// 대다수(서명·주석을 쓰지 않는 일반 편집)에서 불필요한 디렉터리를 만들지 않는다.
+  Future<void> beginDraftMarks(String draftId);
+
+  /// 드래프트 디렉터리 통째 삭제. 존재하지 않아도 조용히 성공한다.
+  Future<void> discardDraft(String draftId);
+
+  /// 부팅 시 1회. `drafts/` 안에서 [liveDraftIds]에 없는 디렉터리를 고아로 보고 삭제한다.
+  Future<void> purgeOrphanDrafts(Set<String> liveDraftIds);
+
+  /// [79 §3.2] 재사용 서명 1개의 저장 경로. `<root>/signature/current.png`.
+  /// `drafts/`와 달리 캐시 정리(`clearCache`)·부팅 정리(`ensureLayout`의
+  /// `_cleanupStaleStaging`) 양쪽에서 제외된다 — 사용자가 지우기 전까지 유지된다.
+  String get signaturePath;
+
+  /// `signaturePath`에 파일이 존재하는지. 파일 존재 여부가 곧 "저장된 서명 있음"
+  /// 상태다 — `settings` 테이블에 컬럼을 두지 않는다(§3.2).
+  Future<bool> hasSignature();
+
+  /// 서명 PNG를 원자적으로 교체한다(`.tmp` → rename). 기존 서명이 있으면 덮어쓴다
+  /// (Q3 승인: 서명은 항상 1개만 저장·재사용).
+  Future<void> writeSignature(Uint8List png);
+
+  /// 저장된 서명을 삭제한다. 존재하지 않아도 조용히 성공한다.
+  Future<void> clearSignature();
 }
 
 class AppWorkspace implements Workspace {
@@ -168,10 +211,26 @@ class AppWorkspace implements Workspace {
   String get _recentRoot => p.join(root, 'recent');
   String get _cacheRoot => p.join(root, 'cache');
   String get _shareRoot => p.join(_cacheRoot, 'share');
+  // [§4.3] drafts/는 cache/가 아니다. `_cleanupStaleStaging`은 `_docsRoot` 하위
+  // (`.tmp`/`.old`)만 훑으므로 이 루트는 부팅 시 캐시 정리 대상에 들지 않는다
+  // (확인: 아래 `_cleanupStaleStaging` 본문). `clearCache()`도 `_cacheRoot`만
+  // 지우므로 마찬가지로 영향이 없다 — 정리 로직이 바뀌면 이 가정을 재검증해야 한다.
+  String get _draftsRoot => p.join(root, 'drafts');
+  // [79 §3.2] signature/는 drafts/와 마찬가지로 cache/가 아니다 — 캐시 정리·
+  // 부팅 정리 양쪽에서 제외된다(clearCache는 _cacheRoot만, _cleanupStaleStaging은
+  // _docsRoot 하위 .tmp/.old만 훑으므로 이 루트는 자연히 영향받지 않는다).
+  String get _signatureRoot => p.join(root, 'signature');
 
   @override
   Future<void> ensureLayout() async {
-    for (final dir in [_docsRoot, _thumbsRoot, _recentRoot, _cacheRoot]) {
+    for (final dir in [
+      _docsRoot,
+      _thumbsRoot,
+      _recentRoot,
+      _cacheRoot,
+      _draftsRoot,
+      _signatureRoot,
+    ]) {
       await Directory(dir).create(recursive: true);
     }
     // 앱 시작 시 이전 세션의 .tmp/.old 크래시 잔재 정리 (설계 §7.3).
@@ -405,6 +464,80 @@ class AppWorkspace implements Workspace {
         // "항상 삭제해도 안전" 원칙 — 정리 실패로 앱 기동/작업을 막지 않는다.
         // 다음 clearCache()/앱 재시작 때 다시 시도된다.
       }
+    }
+  }
+
+  @override
+  String draftDir(String draftId) => p.join(_draftsRoot, draftId);
+
+  @override
+  String draftImage(String draftId, int n) => p.join(
+    draftDir(draftId),
+    'pages',
+    '${n.toString().padLeft(3, '0')}.jpg',
+  );
+
+  @override
+  String draftMarkImage(String draftId, int n) => p.join(
+    draftDir(draftId),
+    'marks',
+    '${n.toString().padLeft(3, '0')}.png',
+  );
+
+  @override
+  Future<void> beginDraft(String draftId) async {
+    await Directory(p.join(draftDir(draftId), 'pages')).create(recursive: true);
+  }
+
+  @override
+  Future<void> beginDraftMarks(String draftId) async {
+    await Directory(p.join(draftDir(draftId), 'marks')).create(recursive: true);
+  }
+
+  @override
+  Future<void> discardDraft(String draftId) async {
+    final dir = Directory(draftDir(draftId));
+    if (await dir.exists()) {
+      await dir.delete(recursive: true);
+    }
+  }
+
+  @override
+  Future<void> purgeOrphanDrafts(Set<String> liveDraftIds) async {
+    final dir = Directory(_draftsRoot);
+    if (!await dir.exists()) return;
+    await for (final entry in dir.list()) {
+      final name = p.basename(entry.path);
+      if (liveDraftIds.contains(name)) continue;
+      try {
+        await entry.delete(recursive: true);
+      } catch (_) {
+        // 고아 정리 실패는 앱 기동을 막지 않는다. 다음 부팅 때 다시 시도된다.
+      }
+    }
+  }
+
+  @override
+  String get signaturePath => p.join(_signatureRoot, 'current.png');
+
+  @override
+  Future<bool> hasSignature() => File(signaturePath).exists();
+
+  @override
+  Future<void> writeSignature(Uint8List png) async {
+    await Directory(_signatureRoot).create(recursive: true);
+    final tmpFile = File('$signaturePath.tmp');
+    await tmpFile.writeAsBytes(png, flush: true);
+    // 원자적 교체: 기존 서명이 있어도 rename 한 번으로 덮어써진다(Q3 승인:
+    // 항상 1개만 저장·재사용).
+    await tmpFile.rename(signaturePath);
+  }
+
+  @override
+  Future<void> clearSignature() async {
+    final file = File(signaturePath);
+    if (await file.exists()) {
+      await file.delete();
     }
   }
 }

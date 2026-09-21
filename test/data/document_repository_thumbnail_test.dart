@@ -66,6 +66,17 @@ class _StubPdfEngine implements PdfEngine {
   @override
   Future<PdfResult<PdfDocInfo>> inspect(String pdfPath, {String? password}) =>
       throw UnimplementedError();
+
+  @override
+  Future<PdfResult<SaveOutcome>> stamp({
+    required String sourcePdfPath,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required String outputPath,
+    required GuardInput guardInput,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 /// 호출 횟수를 세고, 지정한 결과를 순서대로(또는 마지막 값을 반복) 돌려주는

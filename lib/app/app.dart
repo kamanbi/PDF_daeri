@@ -20,6 +20,7 @@ import 'package:flutter/services.dart';
 import '../ads/ad_gate.dart';
 import '../billing/billing_service.dart';
 import '../core/platform_features.dart';
+import '../data/repository/settings_repository.dart' show AppThemeMode;
 import '../features/home/home_screen.dart';
 import '../features/viewer/open_pdf_flow.dart';
 import 'providers.dart';
@@ -175,10 +176,14 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
 
   @override
   Widget build(BuildContext context) {
+    final appThemeMode =
+        ref.watch(themeModeProvider).valueOrNull ?? AppThemeMode.system;
     return MaterialApp(
       title: 'PDF 대리',
       navigatorKey: PdfDaeriApp.navigatorKey,
       theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: _toThemeMode(appThemeMode),
       initialRoute: AppRoutes.home,
       onGenerateRoute: onGenerateRoute,
       navigatorObservers: [_adRouteObserver],
@@ -188,6 +193,20 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
       onUnknownRoute: (settings) =>
           MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
+  }
+}
+
+/// [82 최종검증 M1 해소] `AppThemeMode`(도메인 enum) → `ThemeMode`(Flutter 표준
+/// enum) 매핑. `AppThemeMode.system`이 기본 폴백이다(provider 로딩 중·에러 시에도
+/// `build()`가 이미 `?? AppThemeMode.system`으로 흡수한다).
+ThemeMode _toThemeMode(AppThemeMode mode) {
+  switch (mode) {
+    case AppThemeMode.light:
+      return ThemeMode.light;
+    case AppThemeMode.dark:
+      return ThemeMode.dark;
+    case AppThemeMode.system:
+      return ThemeMode.system;
   }
 }
 

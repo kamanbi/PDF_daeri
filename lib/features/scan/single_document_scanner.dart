@@ -239,8 +239,33 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
   var _additionalCorrection = false;
   var _flattenFold = false;
   String? _failure;
-  Offset? _dragStartGlobalPosition;
+  Offset? _dragStartLocalPosition;
   Offset? _dragStartImagePoint;
+
+  /// 캔버스 확대/이동 상태의 단일 소유자. 핸들 좌표 변환은 이 값 하나만 참조한다.
+  final TransformationController _view = TransformationController();
+
+  /// 현재 확대 배율(=행렬의 스케일 성분). 핸들 드래그의 입력 스케일 보정과
+  /// 핸들 크기 역보정에 쓴다.
+  double get _zoom => _view.value.getMaxScaleOnAxis();
+
+  static const double _minZoom = 1.0;
+  static const double _maxZoom = 6.0; // 장변 4000px급 원본에서 1 논리픽셀 ≈ 1.5 원본픽셀
+
+  @override
+  void initState() {
+    super.initState();
+    _view.addListener(_onViewChanged);
+  }
+
+  @override
+  void dispose() {
+    _view.removeListener(_onViewChanged);
+    _view.dispose();
+    super.dispose();
+  }
+
+  void _onViewChanged() => setState(() {});
 
   Future<void> _save() async {
     if (_saving) return;
@@ -271,6 +296,8 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
 
   Future<void> _refreshCorners() async {
     if (_refreshingCorners || _saving) return;
+    // 확대 상태에서 쿼드가 통째로 바뀌면 사용자가 방향을 잃으므로 되돌린다.
+    _view.value = Matrix4.identity();
     setState(() {
       _refreshingCorners = true;
       _failure = null;
@@ -446,32 +473,51 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
 
   Widget _buildEditor(Size canvasSize) {
     final fit = _ImageFit.contain(widget.capture.rawImageSize, canvasSize);
-    return Stack(
-      children: [
-        Positioned(
-          left: fit.offset.dx,
-          top: fit.offset.dy,
-          width: fit.size.width,
-          height: fit.size.height,
-          child: Image.file(
-            File(widget.capture.rawImagePath),
-            fit: BoxFit.fill,
-          ),
+    final edgeInset = _zoom > 1.01 ? 0.0 : _cornerHandleEdgeInset;
+    return InteractiveViewer(
+      panEnabled: true,
+      scaleEnabled: true,
+      minScale: _minZoom,
+      maxScale: _maxZoom,
+      boundaryMargin: EdgeInsets.zero,
+      transformationController: _view,
+      clipBehavior: Clip.hardEdge,
+      child: SizedBox(
+        width: canvasSize.width,
+        height: canvasSize.height,
+        child: Stack(
+          children: [
+            Positioned(
+              left: fit.offset.dx,
+              top: fit.offset.dy,
+              width: fit.size.width,
+              height: fit.size.height,
+              child: Image.file(
+                File(widget.capture.rawImagePath),
+                fit: BoxFit.fill,
+              ),
+            ),
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _CornerPainter(
+                  quad: _quad,
+                  fit: fit,
+                  edgeInset: edgeInset,
+                ),
+              ),
+            ),
+            ..._handles(fit, edgeInset),
+          ],
         ),
-        Positioned.fill(
-          child: CustomPaint(
-            painter: _CornerPainter(quad: _quad, fit: fit),
-          ),
-        ),
-        ..._handles(fit),
-      ],
+      ),
     );
   }
 
-  List<Widget> _handles(_ImageFit fit) {
+  List<Widget> _handles(_ImageFit fit, double edgeInset) {
     return [
       _handle(
         fit,
+        edgeInset,
         _quad.topLeft,
         (point) => _quad = Quad(
           topLeft: point,
@@ -482,6 +528,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
       ),
       _handle(
         fit,
+        edgeInset,
         _quad.topRight,
         (point) => _quad = Quad(
           topLeft: _quad.topLeft,
@@ -492,6 +539,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
       ),
       _handle(
         fit,
+        edgeInset,
         _quad.bottomRight,
         (point) => _quad = Quad(
           topLeft: _quad.topLeft,
@@ -502,6 +550,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
       ),
       _handle(
         fit,
+        edgeInset,
         _quad.bottomLeft,
         (point) => _quad = Quad(
           topLeft: _quad.topLeft,
@@ -515,14 +564,12 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
 
   Widget _handle(
     _ImageFit fit,
+    double edgeInset,
     Offset imagePoint,
     void Function(Offset) update,
   ) {
     final documentCorner = fit.toCanvas(imagePoint);
-    final position = fit.handleAnchor(
-      documentCorner,
-      edgeInset: _cornerHandleEdgeInset,
-    );
+    final position = fit.handleAnchor(documentCorner, edgeInset: edgeInset);
     return Positioned(
       left: position.dx - _cornerHandleDiameter / 2,
       top: position.dy - _cornerHandleDiameter / 2,
@@ -530,14 +577,17 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
       height: _cornerHandleDiameter,
       child: GestureDetector(
         onPanStart: (details) {
-          _dragStartGlobalPosition = details.globalPosition;
+          // InteractiveViewer 내부(child) 좌표계로 들어오는 좌표를 쓴다 — 이
+          // 제스처의 히트테스트 변환은 팬 시작 시점에 고정되므로, 확대 중에도
+          // 화면 픽셀 이동이 자동으로 배율만큼 나뉘어 들어온다.
+          _dragStartLocalPosition = details.localPosition;
           _dragStartImagePoint = imagePoint;
         },
         onPanUpdate: (details) {
-          final pointerStart = _dragStartGlobalPosition;
+          final pointerStart = _dragStartLocalPosition;
           final imageStart = _dragStartImagePoint;
           if (pointerStart == null || imageStart == null) return;
-          final pointerDelta = details.globalPosition - pointerStart;
+          final pointerDelta = details.localPosition - pointerStart;
           final target =
               imageStart +
               Offset(
@@ -549,13 +599,16 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
         onPanEnd: (_) => _clearDrag(),
         onPanCancel: _clearDrag,
         child: Center(
-          child: Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.black, width: 2),
+          child: Transform.scale(
+            scale: 1 / _zoom,
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.black, width: 2),
+              ),
             ),
           ),
         ),
@@ -564,7 +617,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
   }
 
   void _clearDrag() {
-    _dragStartGlobalPosition = null;
+    _dragStartLocalPosition = null;
     _dragStartImagePoint = null;
   }
 }
@@ -627,10 +680,15 @@ class _ImageFit {
 }
 
 class _CornerPainter extends CustomPainter {
-  const _CornerPainter({required this.quad, required this.fit});
+  const _CornerPainter({
+    required this.quad,
+    required this.fit,
+    required this.edgeInset,
+  });
 
   final Quad quad;
   final _ImageFit fit;
+  final double edgeInset;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -641,8 +699,7 @@ class _CornerPainter extends CustomPainter {
       quad.bottomLeft,
     ].map(fit.toCanvas).toList();
     final handlePoints = [
-      for (final point in points)
-        fit.handleAnchor(point, edgeInset: _cornerHandleEdgeInset),
+      for (final point in points) fit.handleAnchor(point, edgeInset: edgeInset),
     ];
     final path = Path()
       ..moveTo(points[0].dx, points[0].dy)
@@ -675,5 +732,7 @@ class _CornerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CornerPainter oldDelegate) =>
-      oldDelegate.quad != quad || oldDelegate.fit != fit;
+      oldDelegate.quad != quad ||
+      oldDelegate.fit != fit ||
+      oldDelegate.edgeInset != edgeInset;
 }

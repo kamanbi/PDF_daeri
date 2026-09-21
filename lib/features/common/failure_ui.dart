@@ -23,7 +23,14 @@ import '../../core/app_error.dart';
 import '../../core/size_guard.dart';
 
 /// 실패에서 사용자가 할 수 있는 행동. §5.1.
-enum FailureAction { retry, removeFromList, goHome, dismiss, freeUpSpace }
+enum FailureAction {
+  retry,
+  removeFromList,
+  goHome,
+  dismiss,
+  freeUpSpace,
+  lowerQuality,
+}
 
 abstract final class FailureUi {
   /// 짧은 제목. 다이얼로그 타이틀.
@@ -67,6 +74,7 @@ abstract final class FailureUi {
           SaveOp.split => '발췌 결과가 예상보다 커서 저장을 중단했습니다',
           SaveOp.merge => '합친 결과가 원본 합계보다 커서 저장을 중단했습니다',
           SaveOp.compose => '페이지를 추가한 결과가 예상보다 커서 저장을 중단했습니다',
+          SaveOp.stamp => '얹은 내용이 예상보다 커서 저장을 중단했습니다',
         };
       case EngineUnsupported():
         return '이 파일은 처리할 수 없습니다';
@@ -97,7 +105,10 @@ abstract final class FailureUi {
     PermissionDenied() => const [FailureAction.goHome],
     OutOfSpace() => const [FailureAction.freeUpSpace, FailureAction.dismiss],
     Cancelled() => const [],
-    SizeGuardViolation() => const [FailureAction.dismiss],
+    SizeGuardViolation() => const [
+      FailureAction.lowerQuality,
+      FailureAction.dismiss,
+    ],
     EngineUnsupported() => const [FailureAction.goHome],
     ScannerUnavailable() => const [FailureAction.retry, FailureAction.goHome],
     UnknownFailure() => const [FailureAction.retry, FailureAction.goHome],
@@ -109,6 +120,7 @@ abstract final class FailureUi {
     FailureAction.goHome => '홈으로',
     FailureAction.dismiss => '확인',
     FailureAction.freeUpSpace => '정리하기',
+    FailureAction.lowerQuality => '화질을 낮춰 다시 저장',
   };
 
   /// 표준 에러 다이얼로그. 모든 화면이 이것을 쓴다.

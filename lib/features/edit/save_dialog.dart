@@ -280,6 +280,14 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
             selected: _quality == ImageQualityProfile.min.quality,
             onTap: () => setState(() => _quality = ImageQuality.min),
           ),
+          // §1.6: S5 기본값 목록과 달리 이 저장 다이얼로그에는 원본 옵션을 노출한다
+          // (여긴 매 저장마다 명시적으로 고르는 화면이라 기본값 확산 우려가 없다).
+          _QualityTile(
+            profile: ImageQualityProfile.original,
+            inputBytes: widget.spec.guardInput.baselineBytes,
+            selected: _quality == ImageQualityProfile.original.quality,
+            onTap: () => setState(() => _quality = ImageQuality.original),
+          ),
           const SizedBox(height: 8),
           const Text(
             '예상치는 선택한 사진의 크기 기준입니다. 이미 작은 사진·PDF 페이지는 원본과 비슷할 수 있습니다.',

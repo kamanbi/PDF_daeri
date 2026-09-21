@@ -15,6 +15,9 @@ import 'package:drift/drift.dart' as drift;
 import '../../pdf/image_quality.dart';
 import '../db/app_database.dart' as db;
 
+/// 화면 테마 선택지. (설계 §5.4) DB에는 `name`(`system`/`light`/`dark`)으로 저장한다.
+enum AppThemeMode { system, light, dark }
+
 /// 설정 스냅샷(읽기 전용 값 객체). `SettingsRows`의 도메인 표현.
 class Settings {
   const Settings({
@@ -68,6 +71,13 @@ abstract interface class SettingsRepository {
   /// 최소 연타 방지 간격의 기준 시각을 이 호출 시점으로 갱신한다. `show()` 호출만으로
   /// 갱신하지 않아 표시 실패가 다음 광고를 막지 않는다.
   Future<void> recordInterstitialShown();
+
+  /// 화면 테마 선택값 실시간 반영(§5.4/§5.5, S5 설정 화면·`app.dart`가 구독).
+  /// DB에 알 수 없는 값이 들어 있어도(ALTER TABLE CHECK 미소급) `AppThemeMode.system`으로
+  /// 폴백하며 크래시하지 않는다.
+  Stream<AppThemeMode> watchThemeMode();
+
+  Future<void> setThemeMode(AppThemeMode mode);
 }
 
 class DriftSettingsRepository implements SettingsRepository {
@@ -126,6 +136,7 @@ class DriftSettingsRepository implements SettingsRepository {
     drift.Value<bool> adsRemoved = const drift.Value.absent(),
     drift.Value<int> interstitialCountToday = const drift.Value.absent(),
     drift.Value<int> lastAdDate = const drift.Value.absent(),
+    drift.Value<String> themeMode = const drift.Value.absent(),
   }) {
     return _db
         .into(_db.settingsRows)
@@ -136,6 +147,7 @@ class DriftSettingsRepository implements SettingsRepository {
             adsRemoved: adsRemoved,
             interstitialCountToday: interstitialCountToday,
             lastAdDate: lastAdDate,
+            themeMode: themeMode,
           ),
         );
   }
@@ -169,5 +181,26 @@ class DriftSettingsRepository implements SettingsRepository {
   Future<void> recordInterstitialShown() {
     _lastShownAt = _now();
     return Future.value();
+  }
+
+  AppThemeMode _themeModeFromString(String value) {
+    for (final m in AppThemeMode.values) {
+      if (m.name == value) return m;
+    }
+    // 알 수 없는 값 방어(ALTER TABLE CHECK 미소급 대비, §5.4) — system으로 폴백한다.
+    return AppThemeMode.system;
+  }
+
+  @override
+  Stream<AppThemeMode> watchThemeMode() {
+    final query = _db.select(_db.settingsRows)..where((t) => t.id.equals(0));
+    return query.watchSingleOrNull().map(
+      (row) => row == null ? AppThemeMode.system : _themeModeFromString(row.themeMode),
+    );
+  }
+
+  @override
+  Future<void> setThemeMode(AppThemeMode mode) {
+    return _upsert(themeMode: drift.Value(mode.name));
   }
 }

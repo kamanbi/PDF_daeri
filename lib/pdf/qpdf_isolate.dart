@@ -10,9 +10,12 @@
 ///    `Map<String,Object?>`(원시 타입)뿐이다.
 /// 4. `package:image`, `package:pdf/`는 이 파일에 들이지 않는다(§5.6 2-키 분리).
 ///
-/// **잡 스펙 화이트리스트(§5.3)**: 공개된 6개 빌더(`buildSaveJob`/`buildRotateJob`/`buildMergeJob`/
-/// `buildSplitJob`/`buildCompressJob`/`buildComposeJob`)만 잡 스펙을 만든다. `buildComposeJob`은
-/// M-Q3(§5.6)에서 혼합(이미지+PDF, 또는 다중 PDF 소스 인터리브) 저장 조립을 위해 추가됐다. 이
+/// **잡 스펙 화이트리스트(§5.3, `79_architect_v1.1_v2_design.md` §2.5로 7번째 추가)**: 공개된
+/// 7개 빌더(`buildSaveJob`/`buildRotateJob`/`buildMergeJob`/`buildSplitJob`/`buildCompressJob`/
+/// `buildComposeJob`/`buildOverlayJob`)만 잡 스펙을 만든다. `buildComposeJob`은
+/// M-Q3(§5.6)에서 혼합(이미지+PDF, 또는 다중 PDF 소스 인터리브) 저장 조립을 위해 추가됐다.
+/// `buildOverlayJob`은 서명·주석·OCR 스탬프 레이어(`stamp_builder.dart`)를 대상 PDF에 얹는
+/// qpdf `overlay` 잡이다 — 대상 페이지의 콘텐츠 스트림을 읽지도 바꾸지도 않는다(§2.1). 이
 /// 함수들은 순수 함수이며 파일 경로·페이지 인덱스 같은 구조화된 값만 받는다 -- 외부에서 임의
 /// JSON 문자열이나 argv를 주입하는 공개 진입점은 없다. 아래 금지 키는 이 파일 어디에도 리터럴로
 /// 등장하지 않는다(자동 검사 16 대응):
@@ -144,6 +147,24 @@ class QpdfPageSource {
   final String sourcePath;
   final int sourceIndex;
   final int rotation;
+}
+
+/// `79_architect_v1.1_v2_design.md` §2.5 신설. 7번째 잡 빌더다(화이트리스트 6 → 7).
+/// [stampPath]는 [sourcePath]와 **페이지 수·페이지 크기가 일치**해야 한다(`StampBuilder.build`가
+/// 그 전제를 만든다). 1:1 매핑만 지원한다 — `repeat`는 쓰지 않는다(페이지 어긋남의 온상).
+Map<String, Object?> buildOverlayJob({
+  required String sourcePath,
+  required String stampPath,
+  required String outputPath,
+  required int pageCount,
+}) {
+  final all = '1-$pageCount';
+  return {
+    'inputFile': sourcePath,
+    'overlay': {'file': stampPath, 'to': all, 'from': all},
+    'outputFile': outputPath,
+    ..._commonWriteOptions,
+  };
 }
 
 Map<String, Object?> buildComposeJob({required List<QpdfPageSource> pages, required String outputPath}) {
@@ -298,6 +319,22 @@ Future<QpdfJobResult> runInspect({required String pdfPath, String? password, Str
     isolate?.kill(priority: Isolate.immediate);
   }
 }
+
+Future<QpdfJobResult> runOverlayJob({
+  required String sourcePath,
+  required String stampPath,
+  required String outputPath,
+  required int pageCount,
+  void Function(PdfProgress progress)? onProgress,
+  CancelToken? cancelToken,
+  String? libraryPathOverride,
+}) => _executeJob(
+  jobSpec: buildOverlayJob(sourcePath: sourcePath, stampPath: stampPath, outputPath: outputPath, pageCount: pageCount),
+  outputPath: outputPath,
+  onProgress: onProgress,
+  cancelToken: cancelToken,
+  libraryPathOverride: libraryPathOverride,
+);
 
 // ─────────────────────────────────────────────────────────────────────────
 // L2-ext(외부 PDF 임베디드 이미지 압축) 패스 A/C -- `_workspace/31_architect_external_compress_l2.md`

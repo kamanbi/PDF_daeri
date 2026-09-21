@@ -100,6 +100,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                   const _DefaultQualityTile(),
                   const _SettingsDivider(),
+                  const _ThemeModeTile(),
+                  const _SettingsDivider(),
                   const _StorageTile(),
                   const _SettingsDivider(),
                   const _HomepageTile(),
@@ -507,7 +509,13 @@ class _DefaultQualityTile extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              for (final q in ImageQuality.values)
+              // §1.6: S5 기본값 목록에는 `original`을 노출하지 않는다(Q2 미결).
+              // `ImageQuality.values` 순회 대신 명시적 3종 리스트를 쓴다.
+              for (final q in const [
+                ImageQuality.high,
+                ImageQuality.standard,
+                ImageQuality.min,
+              ])
                 RadioListTile<ImageQuality>(title: Text(_labels[q]!), value: q),
             ],
           ),
@@ -516,6 +524,71 @@ class _DefaultQualityTile extends ConsumerWidget {
     );
     if (selected != null && selected != current) {
       await repo.setDefaultQuality(selected);
+    }
+  }
+}
+
+/// [82 최종검증 M1 해소 · §5.5] 화면 테마. `_DefaultQualityTile`과 동일한 패턴
+/// (모달 바텀시트 + RadioGroup) — 새 위젯 스타일을 만들지 않는다.
+/// `SettingsRepository.watchThemeMode()`/`setThemeMode()`를 그대로 소비한다.
+class _ThemeModeTile extends ConsumerWidget {
+  const _ThemeModeTile();
+
+  static const _labels = {
+    AppThemeMode.light: '라이트',
+    AppThemeMode.dark: '다크',
+    AppThemeMode.system: '시스템 기본',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final repo = ref.watch(settingsRepositoryProvider);
+    if (repo == null) {
+      return const _SettingsRow(
+        title: '화면 테마',
+        subtitle: Text('지금 사용할 수 없습니다'),
+      );
+    }
+    return StreamBuilder<AppThemeMode>(
+      stream: repo.watchThemeMode(),
+      builder: (context, snapshot) {
+        final mode = snapshot.data ?? AppThemeMode.system;
+        return _SettingsRow(
+          title: '화면 테마',
+          subtitle: Text(_labels[mode]!),
+          onTap: () => _pick(context, repo, mode),
+        );
+      },
+    );
+  }
+
+  Future<void> _pick(
+    BuildContext context,
+    SettingsRepository repo,
+    AppThemeMode current,
+  ) async {
+    final selected = await showModalBottomSheet<AppThemeMode>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: RadioGroup<AppThemeMode>(
+          groupValue: current,
+          onChanged: (value) => Navigator.of(ctx).pop(value),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final m in const [
+                AppThemeMode.light,
+                AppThemeMode.dark,
+                AppThemeMode.system,
+              ])
+                RadioListTile<AppThemeMode>(title: Text(_labels[m]!), value: m),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && selected != current) {
+      await repo.setThemeMode(selected);
     }
   }
 }

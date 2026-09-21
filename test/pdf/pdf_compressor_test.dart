@@ -15,6 +15,7 @@ import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf_daeri/core/app_error.dart';
+import 'package:pdf_daeri/core/cancel_token.dart';
 import 'package:pdf_daeri/pdf/image_pdf_builder.dart';
 import 'package:pdf_daeri/pdf/image_quality.dart';
 import 'package:pdf_daeri/pdf/pdf_compressor.dart';
@@ -142,6 +143,19 @@ void main() {
       await File(path).writeAsBytes([1, 2, 3]);
 
       final result = await compressor.compress(pdfPath: path, outputPath: path, preset: ImageQuality.standard);
+      expect(result, isA<PdfErr<CompressOutcome>>());
+      expect((result as PdfErr<CompressOutcome>).failure, isA<UnknownFailure>());
+    });
+
+    // T2(§76 §7): "원본"은 저장 화질이지 압축 강도가 아니다(§76 §1.5) -- qpdf/파일 존재
+    // 여부와 무관하게 진입 즉시 거부돼야 한다. 존재하지 않는 경로로 호출해 이 거부가
+    // SourceMissing보다 먼저 일어난다는 것까지 확인한다.
+    test('T2: preset이 패스스루(original)이면 진입 즉시 PdfErr를 반환한다', () async {
+      final result = await compressor.compress(
+        pdfPath: '/no/such/file.pdf',
+        outputPath: '/tmp/out.pdf',
+        preset: ImageQuality.original,
+      );
       expect(result, isA<PdfErr<CompressOutcome>>());
       expect((result as PdfErr<CompressOutcome>).failure, isA<UnknownFailure>());
     });
@@ -500,5 +514,189 @@ void main() {
         await afterDoc.dispose();
       }
     }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 2)));
+  });
+
+  // ── T5(§76 §7): compressToTarget 반복 알고리즘 계약 ──────────────────────────────────
+  group('compressToTarget() — T5 계약', () {
+    // L1-only 경로(imagePagePaths/embeddedImageStagingDir 둘 다 지정하지 않음)를 쓴다 --
+    // 이 경로에서는 CompressRung이 결과에 영향을 주지 않으므로(§76 §3.3 _compressOnce가
+    // rung을 L2에서만 쓴다), 매 시도의 resultBytes가 항상 같아 완전히 결정론적으로
+    // "몇 번 실패하는지"를 설계할 수 있다. 실측(마커 PDF, 8~60페이지)으로 L1 압축비가
+        // 항상 원본의 약 0.55~0.58배로 나온다는 것을 확인했다 -- 이 사실에 기대어 targetBytes를
+    // 산술로 고른다(파일을 먼저 압축해 보지 않고도 시작 rung과 실패/성공을 예측한다).
+    Future<String> buildMarkerFile(Directory dir, int count) => _buildMarkerPdf(dir, 'target_src.pdf', count);
+
+    test('① targetBytes >= 원본이면 압축을 한 번도 실행하지 않는다', () async {
+      final tempDir = await Directory.systemTemp.createTemp('target_t1_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final srcPath = p.join(tempDir.path, 'src.pdf');
+      await File(srcPath).writeAsBytes(List.filled(1000, 7));
+      final originalBytes = await File(srcPath).length();
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = const QpdfCompressor();
+
+      var onAttemptCalls = 0;
+      final result = await compressor.compressToTarget(
+        pdfPath: srcPath,
+        outputPath: outputPath,
+        targetBytes: originalBytes, // ==원본이어도 "즉시 반환" 조건을 만족해야 한다.
+        onAttempt: (_) => onAttemptCalls++,
+      );
+
+      final target = (result as PdfOk<TargetCompressOutcome>).value;
+      expect(target.attempts, 0);
+      expect(target.reachedTarget, isTrue);
+      expect(target.outcome.keptOriginal, isTrue);
+      expect(target.outcome.originalBytes, originalBytes);
+      expect(target.outcome.resultBytes, originalBytes);
+      expect(onAttemptCalls, 0, reason: '시도 0회면 onAttempt도 호출되지 않아야 한다');
+      // 압축이 실행되지 않았으므로 outputPath에 새 파일이 생기지 않는다.
+      expect(File(outputPath).existsSync(), isFalse);
+      expect(File('$outputPath.prev').existsSync(), isFalse);
+    });
+
+    test('② 1회 시도로 목표를 달성하면 더 내려가지 않고 즉시 채택한다', () async {
+      final tempDir = await Directory.systemTemp.createTemp('target_t2_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final srcPath = await buildMarkerFile(tempDir, 20);
+      final originalBytes = await File(srcPath).length();
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = QpdfCompressor(libraryPathOverride: _dllPath);
+
+      // predictedBytes(standard)=0.65*원본 <= target이 되도록 넉넉히 잡는다 -- startIndexFor가
+      // standard(인덱스1)를 시작 단으로 고르고, 실측상 L1 결과(~0.56배)가 이보다 훨씬 작으므로
+      // 첫 시도에서 반드시 성공한다.
+      final targetBytes = (originalBytes * 0.75).round();
+      final attempts = <TargetAttempt>[];
+      final result = await compressor.compressToTarget(
+        pdfPath: srcPath,
+        outputPath: outputPath,
+        targetBytes: targetBytes,
+        onAttempt: attempts.add,
+      );
+
+      final target = (result as PdfOk<TargetCompressOutcome>).value;
+      expect(target.attempts, 1);
+      expect(target.reachedTarget, isTrue);
+      expect(target.outcome.keptOriginal, isFalse);
+      expect(target.outcome.resultBytes, lessThanOrEqualTo(targetBytes));
+      expect(attempts, hasLength(1));
+      expect(attempts.single.attempt, 1);
+      expect(attempts.single.lastResultBytes, isNull, reason: '첫 시도는 직전 결과가 없다');
+
+      // 최종 산출물은 outputPath 하나뿐이다(T5 ⑤).
+      expect(File(outputPath).existsSync(), isTrue);
+      expect(File('$outputPath.prev').existsSync(), isFalse);
+
+      final inspected = await runInspect(pdfPath: outputPath, libraryPathOverride: _dllPath);
+      expect(inspected['ok'], true);
+      expect(inspected['pageCount'], 20);
+    }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 1)));
+
+    test('③ maxAttempts 소진 후 reachedTarget:false로 종료한다(사다리 끝 도달이 아니다)', () async {
+      final tempDir = await Directory.systemTemp.createTemp('target_t3_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final srcPath = await buildMarkerFile(tempDir, 20);
+      final originalBytes = await File(srcPath).length();
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = QpdfCompressor(libraryPathOverride: _dllPath);
+
+      // targetBytes를 [predictedBytes(min)=0.45*원본, 실측 L1 결과~0.56*원본) 구간에 두면
+      // startIndexFor는 산술만으로 min(인덱스2)을 시작 단으로 고른다. 이 경로는 L1-only라
+      // rung이 결과에 영향을 주지 않으므로(위 설명) 어떤 rung을 시도해도 항상 target보다
+      // 큰 동일한 결과가 나와 반드시 실패한다 -- maxAttempts(2)를 다 쓸 때까지 사다리 끝
+      // (인덱스4)에는 닿지 않는다(2->3까지만 진행).
+      final targetBytes = (originalBytes * 0.5).round();
+      final attempts = <TargetAttempt>[];
+      final result = await compressor.compressToTarget(
+        pdfPath: srcPath,
+        outputPath: outputPath,
+        targetBytes: targetBytes,
+        maxAttempts: 2,
+        onAttempt: attempts.add,
+      );
+
+      final target = (result as PdfOk<TargetCompressOutcome>).value;
+      expect(target.attempts, 2, reason: 'maxAttempts(2)를 다 써야 한다');
+      expect(target.reachedTarget, isFalse);
+      expect(target.outcome.keptOriginal, isFalse);
+      expect(target.outcome.resultBytes, greaterThan(targetBytes));
+      expect(target.finalRungIndex, lessThan(4), reason: '사다리 끝(인덱스4)에 닿기 전에 시도 소진으로 멈춰야 한다');
+      expect(attempts, hasLength(2));
+      expect(attempts[0].attempt, 1);
+      expect(attempts[1].attempt, 2);
+      expect(attempts[1].lastResultBytes, isNotNull, reason: '2번째 시도부터는 직전 결과가 있어야 한다');
+
+      // 그때까지의 최선 결과가 outputPath 하나에만 남는다(T5 ⑤) -- .prev 잔재가 없어야 한다.
+      expect(File(outputPath).existsSync(), isTrue);
+      expect(File('$outputPath.prev').existsSync(), isFalse);
+    }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 1)));
+
+    test('④ 취소 토큰이 시도 사이에서도 듣는다(다음 시도를 시작하지 않는다)', () async {
+      final tempDir = await Directory.systemTemp.createTemp('target_t4_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final srcPath = await buildMarkerFile(tempDir, 20);
+      final originalBytes = await File(srcPath).length();
+      final outputPath = p.join(tempDir.path, 'out.pdf');
+      final compressor = QpdfCompressor(libraryPathOverride: _dllPath);
+
+      // ③과 같은 구간 -- 1회로는 목표를 달성하지 못해 2번째 시도가 예정된다.
+      final targetBytes = (originalBytes * 0.5).round();
+      final cancelToken = CancelToken();
+      final attempts = <TargetAttempt>[];
+
+      final result = await compressor.compressToTarget(
+        pdfPath: srcPath,
+        outputPath: outputPath,
+        targetBytes: targetBytes,
+        maxAttempts: 3,
+        cancelToken: cancelToken,
+        onAttempt: (a) {
+          attempts.add(a);
+          if (a.attempt == 1) {
+            // 1번째 시도가 보고된 직후 취소한다 -- 1번째 압축 자체는 이미 시작됐으므로 끝까지
+            // 돌지만, 2번째 시도는 루프 상단의 취소 확인에서 걸려 시작조차 하지 않아야 한다.
+            cancelToken.cancel();
+          }
+        },
+      );
+
+      expect(result, isA<PdfErr<TargetCompressOutcome>>());
+      expect((result as PdfErr<TargetCompressOutcome>).failure, isA<Cancelled>());
+      expect(attempts, hasLength(1), reason: '2번째 시도는 onAttempt조차 호출되지 않아야 한다(취소가 시도 사이에서 걸린다)');
+
+      // 취소 시 잔여 파일을 남기지 않는다(T5 ⑤와 같은 원칙 -- 실패 시에도 산출물이 없어야 한다).
+      expect(File(outputPath).existsSync(), isFalse);
+      expect(File('$outputPath.prev').existsSync(), isFalse);
+    }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 1)));
+
+    test('⑤ 최종 산출물은 항상 outputPath 하나뿐이다(여러 시나리오 교차 확인)', () async {
+      final tempDir = await Directory.systemTemp.createTemp('target_t5_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final srcPath = await buildMarkerFile(tempDir, 20);
+      final originalBytes = await File(srcPath).length();
+      final compressor = QpdfCompressor(libraryPathOverride: _dllPath);
+
+      // 성공 시나리오.
+      final outSuccess = p.join(tempDir.path, 'out_success.pdf');
+      await compressor.compressToTarget(
+        pdfPath: srcPath,
+        outputPath: outSuccess,
+        targetBytes: (originalBytes * 0.75).round(),
+      );
+      expect(File(outSuccess).existsSync(), isTrue);
+      expect(File('$outSuccess.prev').existsSync(), isFalse);
+
+      // 소진 시나리오(3회 시도, prev/cur가 여러 번 번갈아 쓰인다).
+      final outExhausted = p.join(tempDir.path, 'out_exhausted.pdf');
+      await compressor.compressToTarget(
+        pdfPath: srcPath,
+        outputPath: outExhausted,
+        targetBytes: (originalBytes * 0.5).round(),
+        maxAttempts: 3,
+      );
+      expect(File(outExhausted).existsSync(), isTrue);
+      expect(File('$outExhausted.prev').existsSync(), isFalse);
+    }, skip: !_canRunFfi ? 'Windows qpdf30.dll 필요' : false, timeout: const Timeout(Duration(minutes: 1)));
   });
 }

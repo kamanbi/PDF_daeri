@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf_daeri/pdf/image_pdf_builder.dart';
+import 'package:pdf_daeri/pdf/image_quality.dart';
 
 /// 단색에 가까운(=매우 잘 압축되는) 테스트 JPEG.
 Uint8List _solidJpeg(int width, int height, {int quality = 85}) {
@@ -89,6 +90,22 @@ void main() {
       expect(identical(result, original), isFalse, reason: '상한을 크게 넘으면 재인코딩 경로를 타야 한다');
       final decoded = img.decodeJpg(result)!;
       expect(max(decoded.width, decoded.height), 1000, reason: '리사이즈 후 긴 변은 정확히 longEdgeMaxPx여야 한다');
+    });
+  });
+
+  group('T1 — original 프리셋은 A-4 스킵 경로를 타 재인코딩 0회다(§76 §1.2/§1.3)', () {
+    test('ImageQualityProfile.original.longEdgeMaxPx로 호출하면 원본 바이트를 동일 객체로 반환한다', () {
+      final original = _gradientJpeg(4000, 3000, quality: 95);
+      final result = ImagePdfBuilder.encodeForEmbed(
+        original,
+        longEdgeMaxPx: ImageQualityProfile.original.longEdgeMaxPx,
+        jpegQuality: ImageQualityProfile.original.jpegQuality,
+      );
+      expect(
+        identical(result, original),
+        isTrue,
+        reason: 'unboundedLongEdgePx는 실사 이미지 어떤 장변보다 커서 A-4 스킵 조건을 항상 만족해야 한다',
+      );
     });
   });
 

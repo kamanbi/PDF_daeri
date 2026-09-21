@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -289,6 +290,75 @@ void main() {
         expect(ws.root, isNot(p.join(tempRoot.path, 'my-documents')));
       },
     );
+  });
+
+  group('signature/ (79 §3.2 · 전자서명 재사용 1개)', () {
+    test('ensureLayout: signature/ 디렉터리를 생성한다', () async {
+      expect(await Directory(p.join(tempRoot.path, 'signature')).exists(), isTrue);
+    });
+
+    test('signaturePath: <root>/signature/current.png를 가리킨다', () {
+      expect(
+        workspace.signaturePath,
+        p.join(tempRoot.path, 'signature', 'current.png'),
+      );
+    });
+
+    test('hasSignature: 저장 전에는 false', () async {
+      expect(await workspace.hasSignature(), isFalse);
+    });
+
+    test('writeSignature/hasSignature: 저장 후 true, 바이트 그대로 읽힌다', () async {
+      final bytes = Uint8List.fromList([1, 2, 3, 4]);
+      await workspace.writeSignature(bytes);
+
+      expect(await workspace.hasSignature(), isTrue);
+      expect(
+        await File(workspace.signaturePath).readAsBytes(),
+        bytes,
+      );
+    });
+
+    test('writeSignature: 두 번째 호출이 첫 번째 서명을 덮어쓴다(1개만 재사용)', () async {
+      await workspace.writeSignature(Uint8List.fromList([1, 2, 3]));
+      await workspace.writeSignature(Uint8List.fromList([9, 9]));
+
+      final result = await File(workspace.signaturePath).readAsBytes();
+      expect(result, Uint8List.fromList([9, 9]));
+    });
+
+    test('writeSignature: .tmp 잔재를 남기지 않는다', () async {
+      await workspace.writeSignature(Uint8List.fromList([1]));
+
+      expect(await File('${workspace.signaturePath}.tmp').exists(), isFalse);
+    });
+
+    test('clearSignature: 저장된 서명을 삭제하고 hasSignature가 false가 된다', () async {
+      await workspace.writeSignature(Uint8List.fromList([1, 2]));
+      await workspace.clearSignature();
+
+      expect(await workspace.hasSignature(), isFalse);
+    });
+
+    test('clearSignature: 서명이 없어도 조용히 성공한다', () async {
+      await expectLater(workspace.clearSignature(), completes);
+    });
+
+    test('clearCache는 signature/를 지우지 않는다(cache/ 하위가 아니므로)', () async {
+      await workspace.writeSignature(Uint8List.fromList([1, 2, 3]));
+
+      await workspace.clearCache();
+
+      expect(await workspace.hasSignature(), isTrue);
+    });
+
+    test('ensureLayout 재호출로 기존 서명이 지워지지 않는다(부팅 정리 제외)', () async {
+      await workspace.writeSignature(Uint8List.fromList([5, 5, 5]));
+
+      await workspace.ensureLayout();
+
+      expect(await workspace.hasSignature(), isTrue);
+    });
   });
 
   group('usage (4주차 D-2 · 설계 §6.3)', () {

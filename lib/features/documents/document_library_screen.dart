@@ -26,6 +26,46 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
   final Set<String> _selectedDocumentIds = {};
   bool _selectionMode = false;
 
+  // 제목 검색(설계 §4.1). 새 화면을 만들지 않고 이 화면의 앱바를 인라인
+  // TextField로 바꾼다. 검색은 "내 문서" 섹션에만 적용하고, 검색 중에는
+  // "최근 연 파일" 섹션을 숨긴다.
+  bool _searching = false;
+  final TextEditingController _searchController = TextEditingController();
+  Stream<List<DocumentSummary>>? _searchStream;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _startSearch() {
+    setState(() {
+      _searching = true;
+      _selectionMode = false;
+      _selectedDocumentIds.clear();
+      _searchStream = ref.read(documentRepositoryProvider)?.watchDocuments(
+        titleQuery: '',
+      );
+    });
+  }
+
+  void _stopSearch() {
+    setState(() {
+      _searching = false;
+      _searchController.clear();
+      _searchStream = null;
+    });
+  }
+
+  void _updateSearch(String value) {
+    setState(() {
+      _searchStream = ref.read(documentRepositoryProvider)?.watchDocuments(
+        titleQuery: value,
+      );
+    });
+  }
+
   void _toggleSelection(String documentId) {
     setState(() {
       if (!_selectedDocumentIds.add(documentId)) {
@@ -168,13 +208,30 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _selectionMode ? '${_selectedDocumentIds.length}개 선택' : '내 문서',
-        ),
-        leading: _selectionMode
+        title: _searching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '제목으로 검색',
+                  border: InputBorder.none,
+                ),
+                onChanged: _updateSearch,
+              )
+            : Text(
+                _selectionMode ? '${_selectedDocumentIds.length}개 선택' : '내 문서',
+              ),
+        leading: _searching
+            ? IconButton(
+                onPressed: _stopSearch,
+                icon: const Icon(Icons.arrow_back),
+              )
+            : _selectionMode
             ? TextButton(onPressed: _cancelSelection, child: const Text('취소'))
             : null,
-        actions: _selectionMode
+        actions: _searching
+            ? const []
+            : _selectionMode
             ? [
                 TextButton(
                   onPressed: documents.isEmpty
@@ -196,6 +253,10 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                 ),
               ]
             : [
+                IconButton(
+                  onPressed: _startSearch,
+                  icon: const Icon(Icons.search),
+                ),
                 TextButton(
                   onPressed: documents.isEmpty
                       ? null
@@ -204,25 +265,36 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                 ),
               ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        children: [
-          _SectionTitle(
-            title: '내 문서',
-            description: '앱에서 만든 문서입니다. 삭제하면 앱 안의 문서와 원본이 삭제됩니다.',
-          ),
-          if (documents.isEmpty)
-            const _EmptyRow('저장된 문서가 없습니다.')
-          else
-            for (final document in documents)
+      body: _searching ? _buildSearchResults() : _buildSections(documents, recentFiles),
+      bottomNavigationBar: const BannerHost(slot: BannerSlot.documents),
+    );
+  }
+
+  /// 검색 중(§4.1): 섹션 1(최근 연 파일)과 구분선을 숨기고 섹션 2(내 문서)의
+  /// 필터 결과만 보여준다. 결과 0건이면 빈 상태 일러스트 없이 한 줄 문구만 낸다.
+  Widget _buildSearchResults() {
+    final stream = _searchStream;
+    if (stream == null) return const SizedBox.shrink();
+    return StreamBuilder<List<DocumentSummary>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final results = snapshot.data ?? const <DocumentSummary>[];
+        if (results.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.fromLTRB(16, 24, 16, 20),
+            child: Text('검색 결과가 없습니다'),
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          children: [
+            for (final document in results)
               _DocumentRow(
                 document: document,
-                selected: _selectedDocumentIds.contains(document.id),
-                selectionMode: _selectionMode,
+                selected: false,
+                selectionMode: false,
                 onOpen: () => _openDocument(document),
-                onSelect: () => _selectionMode
-                    ? _toggleSelection(document.id)
-                    : _startSelection(document.id),
+                onSelect: () {},
                 onShare: () {
                   final workspace = ref.read(workspaceProvider);
                   if (workspace == null) return;
@@ -235,18 +307,57 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                 },
                 onDelete: () => _deleteDocument(document),
               ),
-          const Divider(height: 32),
-          const _SectionTitle(
-            title: '최근 연 파일',
-            description: '휴대폰에서 연 PDF의 앱 사본입니다. 제거해도 원본 파일은 남습니다.',
-          ),
-          if (recentFiles.isEmpty)
-            const _EmptyRow('최근 연 파일이 없습니다.')
-          else
-            for (final file in recentFiles) _RecentFileRow(file: file),
-        ],
-      ),
-      bottomNavigationBar: const BannerHost(slot: BannerSlot.documents),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSections(
+    List<DocumentSummary> documents,
+    List<RecentFile> recentFiles,
+  ) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        _SectionTitle(
+          title: '내 문서',
+          description: '앱에서 만든 문서입니다. 삭제하면 앱 안의 문서와 원본이 삭제됩니다.',
+        ),
+        if (documents.isEmpty)
+          const _EmptyRow('저장된 문서가 없습니다.')
+        else
+          for (final document in documents)
+            _DocumentRow(
+              document: document,
+              selected: _selectedDocumentIds.contains(document.id),
+              selectionMode: _selectionMode,
+              onOpen: () => _openDocument(document),
+              onSelect: () => _selectionMode
+                  ? _toggleSelection(document.id)
+                  : _startSelection(document.id),
+              onShare: () {
+                final workspace = ref.read(workspaceProvider);
+                if (workspace == null) return;
+                shareDocument(
+                  context: context,
+                  ref: ref,
+                  pdfPath: workspace.docPdf(document.id),
+                  title: document.title,
+                );
+              },
+              onDelete: () => _deleteDocument(document),
+            ),
+        const Divider(height: 32),
+        const _SectionTitle(
+          title: '최근 연 파일',
+          description: '휴대폰에서 연 PDF의 앱 사본입니다. 제거해도 원본 파일은 남습니다.',
+        ),
+        if (recentFiles.isEmpty)
+          const _EmptyRow('최근 연 파일이 없습니다.')
+        else
+          for (final file in recentFiles) _RecentFileRow(file: file),
+      ],
     );
   }
 }

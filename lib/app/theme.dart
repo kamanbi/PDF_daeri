@@ -13,10 +13,13 @@ abstract final class AppTheme {
   /// 포인트 컬러(프라이머리) — 딥 네이비 블루. (2026-08-26 사용자 확정)
   static const seedColor = Color(0xFF1B4B66);
 
-  static ThemeData light() {
+  static ThemeData light() => _build(Brightness.light);
+  static ThemeData dark() => _build(Brightness.dark);
+
+  static ThemeData _build(Brightness brightness) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: seedColor,
-      brightness: Brightness.light,
+      brightness: brightness,
     );
 
     return ThemeData(

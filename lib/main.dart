@@ -25,6 +25,7 @@ import 'core/korean_font.dart';
 import 'core/platform_features.dart';
 import 'data/db/app_database.dart';
 import 'data/repository/document_repository.dart';
+import 'data/repository/draft_repository.dart';
 import 'data/repository/recent_repository.dart';
 import 'data/repository/settings_repository.dart';
 import 'data/storage/saf_import.dart';
@@ -86,6 +87,7 @@ Future<void> main() async {
   PdfEngine? engine;
   RecentRepository? recentRepository;
   AppDatabase? appDatabase;
+  DraftRepository? draftRepository;
   if (appWorkspace != null) {
     try {
       final db = AppDatabase.open(appWorkspace.root);
@@ -110,6 +112,12 @@ Future<void> main() async {
         workspace: appWorkspace,
         importer: AppFeatures.intentImport ? MethodChannelSafImporter() : NoopSafImporter(),
       );
+      // [`_workspace/76_architect_design.md` §4.6·§10 신설] 편집 드래프트 저장소도
+      // 같은 db/workspace를 공유한다. 부팅 시 1회 `reconcile()` — DB 행 없는
+      // `drafts/*` 디렉터리와 소스가 사라진 드래프트 행을 정리한다(§4.3).
+      final drafts = DriftDraftRepository(db: db, workspace: appWorkspace);
+      await drafts.reconcile();
+      draftRepository = drafts;
     } catch (e, st) {
       developer.log('문서 저장소 초기화 실패', name: 'main', level: 1000, error: e, stackTrace: st);
       issues.add('문서 목록을 불러오지 못했습니다. 앱을 다시 시작해 주세요.');
@@ -117,6 +125,7 @@ Future<void> main() async {
       engine = null;
       recentRepository = null;
       appDatabase = null;
+      draftRepository = null;
     }
   }
 
@@ -162,6 +171,7 @@ Future<void> main() async {
           documentRepositoryProvider.overrideWithValue(repository),
           pdfEngineProvider.overrideWithValue(engine),
           recentRepositoryProvider.overrideWithValue(recentRepository),
+          draftRepositoryProvider.overrideWithValue(draftRepository),
           settingsRepositoryProvider.overrideWithValue(settingsRepository),
           bannerHeightProvider.overrideWithValue(bannerHeight),
           bootIssuesProvider.overrideWithValue(List.unmodifiable(issues)),

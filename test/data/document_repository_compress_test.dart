@@ -68,6 +68,17 @@ class _StubPdfEngine implements PdfEngine {
   @override
   Future<PdfResult<PdfDocInfo>> inspect(String pdfPath, {String? password}) =>
       throw UnimplementedError();
+
+  @override
+  Future<PdfResult<SaveOutcome>> stamp({
+    required String sourcePdfPath,
+    required Uint8List stampPdfBytes,
+    required int pageCount,
+    required String outputPath,
+    required GuardInput guardInput,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 /// `openPageCount`만 고정값을 돌려주는 스텁. `compressToNewDocument`가 압축 결과
@@ -162,6 +173,46 @@ class _FakePdfCompressor implements PdfCompressor {
     }
     return result;
   }
+
+  /// `compressToTargetSize`는 이 파일의 관심사가 아니다(그 계약은
+  /// `document_repository_compress_target_test.dart`가 검증한다) — 여기서는
+  /// 컴파일이 되도록 [compress]를 그대로 감싸는 최소 구현만 둔다: 목표 바이트는
+  /// 무시하고 [compress] 결과를 1회 시도로 포장한다.
+  @override
+  Future<PdfResult<TargetCompressOutcome>> compressToTarget({
+    required String pdfPath,
+    required String outputPath,
+    required int targetBytes,
+    List<String>? imagePagePaths,
+    String? embeddedImageStagingDir,
+    int maxAttempts = 3,
+    void Function(PdfProgress)? onProgress,
+    void Function(TargetAttempt)? onAttempt,
+    CancelToken? cancelToken,
+  }) async {
+    final compressResult = await compress(
+      pdfPath: pdfPath,
+      outputPath: outputPath,
+      preset: ImageQuality.standard,
+      imagePagePaths: imagePagePaths,
+      embeddedImageStagingDir: embeddedImageStagingDir,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    );
+    if (compressResult is PdfErr<CompressOutcome>) {
+      return PdfErr(compressResult.failure);
+    }
+    final outcome = (compressResult as PdfOk<CompressOutcome>).value;
+    return PdfOk(
+      TargetCompressOutcome(
+        outcome: outcome,
+        targetBytes: targetBytes,
+        attempts: 1,
+        finalRungIndex: 0,
+        reachedTarget: outcome.resultBytes <= targetBytes,
+      ),
+    );
+  }
 }
 
 /// `freeSpaceBytes()`만 고정값으로 바꾸는 얇은 위임 데코레이터(document_repository_test.dart의
@@ -177,6 +228,14 @@ class _FixedFreeSpaceWorkspace implements Workspace {
 
   @override
   Future<void> ensureLayout() => _inner.ensureLayout();
+  @override
+  String get signaturePath => _inner.signaturePath;
+  @override
+  Future<bool> hasSignature() => _inner.hasSignature();
+  @override
+  Future<void> writeSignature(Uint8List png) => _inner.writeSignature(png);
+  @override
+  Future<void> clearSignature() => _inner.clearSignature();
   @override
   String docDir(String docId) => _inner.docDir(docId);
   @override
@@ -217,6 +276,21 @@ class _FixedFreeSpaceWorkspace implements Workspace {
   Future<void> clearNativeCache() => _inner.clearNativeCache();
   @override
   Future<StorageUsage> usage() => _inner.usage();
+  @override
+  String draftDir(String draftId) => _inner.draftDir(draftId);
+  @override
+  String draftImage(String draftId, int n) => _inner.draftImage(draftId, n);
+  @override
+  String draftMarkImage(String draftId, int n) => _inner.draftMarkImage(draftId, n);
+  @override
+  Future<void> beginDraft(String draftId) => _inner.beginDraft(draftId);
+  @override
+  Future<void> beginDraftMarks(String draftId) => _inner.beginDraftMarks(draftId);
+  @override
+  Future<void> discardDraft(String draftId) => _inner.discardDraft(draftId);
+  @override
+  Future<void> purgeOrphanDrafts(Set<String> liveDraftIds) =>
+      _inner.purgeOrphanDrafts(liveDraftIds);
 }
 
 void main() {
@@ -550,6 +624,110 @@ void main() {
       // L2-ext 임시 스테이징 폴더는 최종 docDir에 남지 않는다.
       final leftover = Directory(p.join(workspace.docDir(summary.id), '_compress_staging'));
       expect(await leftover.exists(), isFalse);
+    });
+  });
+
+  group('compressToTargetSize — compressToNewDocument와 동일한 스테이징/커밋/롤백 경로(§76 §3.6)', () {
+    test('여유 공간 확인은 원본의 2.2배 기준이다(1.2배가 아님)', () async {
+      final originalBytes = await File(externalPdfPath).length();
+      final requiredBytes1_2 = (originalBytes * 1.2).ceil() + Workspace.spaceSafetyBufferBytes;
+      final requiredBytes2_2 = (originalBytes * 2.2).ceil() + Workspace.spaceSafetyBufferBytes;
+      // 1.2배 기준은 통과하지만 2.2배 기준은 통과하지 못하는 여유 공간을 준다.
+      final tightFreeSpace = _FixedFreeSpaceWorkspace(workspace, requiredBytes2_2 - 1);
+      expect(requiredBytes2_2 - 1, greaterThan(requiredBytes1_2), reason: '테스트 전제: 1.2배 기준은 이 여유량을 막지 않아야 한다');
+
+      final compressor = _FakePdfCompressor(
+        () => throw StateError('여유 공간 확인은 압축 호출보다 앞서야 한다'),
+      );
+      final repo = repoWith(compressor: compressor, workspaceOverride: tightFreeSpace);
+
+      final result = await repo.compressToTargetSize(
+        source: CompressSource.externalPdf(pdfPath: externalPdfPath, title: '외부 문서'),
+        targetBytes: 100,
+      );
+
+      expect(result, isA<PdfErr<CompressToTargetResult>>());
+      final failure = (result as PdfErr<CompressToTargetResult>).failure;
+      expect(failure, isA<OutOfSpace>());
+      expect((failure as OutOfSpace).requiredBytes, requiredBytes2_2);
+      expect(compressor.callCount, 0);
+
+      final docsDir = Directory(p.join(tempRoot.path, 'docs'));
+      expect(await docsDir.list().toList(), isEmpty);
+    });
+
+    test('2.2배 기준을 충족하는 여유 공간이면 정상 진행된다(양성 대조)', () async {
+      final originalBytes = await File(externalPdfPath).length();
+      final requiredBytes2_2 = (originalBytes * 2.2).ceil() + Workspace.spaceSafetyBufferBytes;
+      final enoughFreeSpace = _FixedFreeSpaceWorkspace(workspace, requiredBytes2_2);
+
+      final compressor = _FakePdfCompressor(
+        () => const PdfOk(CompressOutcome(originalBytes: 1000, resultBytes: 400, keptOriginal: false)),
+      );
+      final repo = repoWith(compressor: compressor, workspaceOverride: enoughFreeSpace);
+
+      final result = await repo.compressToTargetSize(
+        source: CompressSource.externalPdf(pdfPath: externalPdfPath, title: '외부 문서'),
+        targetBytes: 500,
+      );
+
+      expect(result, isA<PdfOk<CompressToTargetResult>>());
+    });
+
+    test('압축 실패 시 rollbackStaging으로 잔재가 없다(compressToNewDocument와 동일 경로)', () async {
+      final compressor = _FakePdfCompressor(() => const PdfErr(UnknownFailure('boom')));
+      final repo = repoWith(compressor: compressor);
+
+      final result = await repo.compressToTargetSize(
+        source: CompressSource.externalPdf(pdfPath: externalPdfPath, title: '외부 문서'),
+        targetBytes: 100,
+      );
+
+      expect(result, isA<PdfErr<CompressToTargetResult>>());
+      expect((result as PdfErr<CompressToTargetResult>).failure, isA<UnknownFailure>());
+      await expectNoResidue();
+    });
+
+    test('keptOriginal=true면 base.summary가 null이고 잔재 없이 정리된다', () async {
+      final compressor = _FakePdfCompressor(
+        () => const PdfOk(CompressOutcome(originalBytes: 1000, resultBytes: 1000, keptOriginal: true)),
+      );
+      final repo = repoWith(compressor: compressor);
+
+      final result = await repo.compressToTargetSize(
+        source: CompressSource.externalPdf(pdfPath: externalPdfPath, title: '외부 문서'),
+        targetBytes: 100,
+      );
+
+      expect(result, isA<PdfOk<CompressToTargetResult>>());
+      final value = (result as PdfOk<CompressToTargetResult>).value;
+      expect(value.base.keptOriginal, isTrue);
+      expect(value.base.summary, isNull);
+      await expectNoResidue();
+    });
+
+    test('성공 시 새 문서가 커밋되고 targetBytes·reachedTarget·attempts가 채워진다', () async {
+      final compressor = _FakePdfCompressor(
+        () => const PdfOk(CompressOutcome(originalBytes: 1000, resultBytes: 250, keptOriginal: false)),
+      );
+      final repo = repoWith(compressor: compressor, fixedPageCount: 5);
+
+      final result = await repo.compressToTargetSize(
+        source: CompressSource.externalPdf(pdfPath: externalPdfPath, title: '보고서'),
+        targetBytes: 300,
+      );
+
+      expect(result, isA<PdfOk<CompressToTargetResult>>());
+      final value = (result as PdfOk<CompressToTargetResult>).value;
+      expect(value.targetBytes, 300);
+      expect(value.reachedTarget, isTrue);
+      expect(value.attempts, 1);
+      final summary = value.base.summary!;
+      expect(summary.title, '보고서 (압축)');
+      expect(summary.pageCount, 5);
+      expect(summary.fileSize, 250);
+      expect(await File(workspace.docPdf(summary.id)).exists(), isTrue);
+      expect(await File(workspace.sourcePdf(summary.id, 1)).exists(), isTrue);
     });
   });
 }

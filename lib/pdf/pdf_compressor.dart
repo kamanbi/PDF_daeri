@@ -67,6 +67,51 @@ class CompressOutcome {
   double get reduction => 1 - resultBytes / originalBytes;
 }
 
+/// 목표 용량 모드의 결과. `CompressOutcome`을 감싼다 — 상속하지 않는다(§76 §3.3).
+class TargetCompressOutcome {
+  const TargetCompressOutcome({
+    required this.outcome,
+    required this.targetBytes,
+    required this.attempts,
+    required this.finalRungIndex,
+    required this.reachedTarget,
+  });
+
+  /// 최종 채택된 시도의 결과. `keptOriginal` 규칙은 여기서 그대로 유효하다.
+  final CompressOutcome outcome;
+  final int targetBytes;
+
+  /// 실제로 실행한 압축 횟수(1..maxAttempts). `targetBytes >= 원본`이면 0이다(§3.4 step 0).
+  final int attempts;
+
+  /// 채택된 사다리 단 인덱스. 3 이상이면 "프리셋보다 더 낮춘" 결과다.
+  /// [attempts]가 0(원본 유지 즉시 반환)이면 어떤 단도 시도하지 않았다는 뜻으로 -1이다
+  /// (§3.4가 이 경우의 값을 지정하지 않아 "시도 없음" 센티널로 둔다).
+  final int finalRungIndex;
+
+  /// `outcome.resultBytes <= targetBytes`인가. false면 §3.5 미달 흐름.
+  final bool reachedTarget;
+}
+
+/// 목표 용량 모드의 반복 진행 상황. `PdfProgress`(공유 타입)를 건드리지 않기 위해 별도로 둔다 —
+/// `PdfProgress`는 매 시도마다 0부터 다시 올라간다(§76 §3.3).
+class TargetAttempt {
+  const TargetAttempt({
+    required this.attempt,
+    required this.maxAttempts,
+    required this.rungIndex,
+    required this.lastResultBytes,
+  });
+
+  /// 1-base.
+  final int attempt;
+  final int maxAttempts;
+  final int rungIndex;
+
+  /// 직전 시도(보존된 최선 결과)의 바이트 수. 첫 시도면 null.
+  final int? lastResultBytes;
+}
+
 abstract interface class PdfCompressor {
   /// 압축 효과가 있는 문서인지 판별한다. PDF를 파싱하지 않는다 — [pageKinds]는 호출자가
   /// DB `pages.kind`(문서의 페이지 순서대로 `'image'`|`'pdf'`)를 그대로 옮긴 것이다(§6.3).
@@ -91,6 +136,27 @@ abstract interface class PdfCompressor {
     List<String>? imagePagePaths,
     String? embeddedImageStagingDir,
     void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  });
+
+  /// 목표 용량에 맞춰 사다리를 내려가며 반복 압축한다(§76 §3.3~§3.4).
+  ///
+  /// - [targetBytes] > 0. `targetBytes >= 원본 바이트`면 압축을 **한 번도 실행하지 않고**
+  ///   `reachedTarget: true, attempts: 0, outcome.keptOriginal: true`로 즉시 반환한다.
+  /// - [imagePagePaths] / [embeddedImageStagingDir]의 상호 배타 규약은 [compress]와 동일하며
+  ///   매 시도에 그대로 전달된다. 새 경로를 만들지 않는다.
+  /// - 최대 시도 횟수는 [maxAttempts](기본 3). 사다리 끝에 먼저 닿으면 그보다 적게 끝난다.
+  /// - 어떤 경우에도 **페이지를 래스터화하지 않는다**(절대 규칙 2). 목표 미달은 실패가 아니라
+  ///   `reachedTarget: false`로 보고되며, 그때까지의 최선 결과가 [outputPath]에 남는다.
+  Future<PdfResult<TargetCompressOutcome>> compressToTarget({
+    required String pdfPath,
+    required String outputPath,
+    required int targetBytes,
+    List<String>? imagePagePaths,
+    String? embeddedImageStagingDir,
+    int maxAttempts = 3,
+    void Function(PdfProgress)? onProgress,
+    void Function(TargetAttempt)? onAttempt,
     CancelToken? cancelToken,
   });
 }
@@ -142,6 +208,209 @@ class QpdfCompressor implements PdfCompressor {
     void Function(PdfProgress)? onProgress,
     CancelToken? cancelToken,
   }) async {
+    // §76 §1.5: "원본"은 저장 화질이지 압축 강도가 아니다. 패스스루 프리셋으로 압축을
+    // 요청하면 재인코딩 없이 원본을 그대로 베끼는 셈이라 압축 기능 자체가 무의미해진다 --
+    // 진입 즉시 거부한다(호출부가 UI를 잘못 배선해도 여기서 봉쇄된다). 이 판별은 `preset`에만
+    // 의존하므로 `_compressOnce`(rung 기반)로 넘기지 않고 공개 진입점에서 처리한다.
+    if (ImageQualityProfile.of(preset).isPassthrough) {
+      return const PdfErr(
+        UnknownFailure(
+          'passthrough preset is a save-path quality, not a compression strength (§76 §1.5)',
+        ),
+      );
+    }
+    final rung = CompressLadder.rungs[CompressLadder.indexOf(preset)];
+    return _compressOnce(
+      pdfPath: pdfPath,
+      outputPath: outputPath,
+      rung: rung,
+      imagePagePaths: imagePagePaths,
+      embeddedImageStagingDir: embeddedImageStagingDir,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    );
+  }
+
+  @override
+  Future<PdfResult<TargetCompressOutcome>> compressToTarget({
+    required String pdfPath,
+    required String outputPath,
+    required int targetBytes,
+    List<String>? imagePagePaths,
+    String? embeddedImageStagingDir,
+    int maxAttempts = 3,
+    void Function(PdfProgress)? onProgress,
+    void Function(TargetAttempt)? onAttempt,
+    CancelToken? cancelToken,
+  }) async {
+    final inputFile = File(pdfPath);
+    if (!inputFile.existsSync()) {
+      return PdfErr(SourceMissing(pdfPath));
+    }
+    final originalBytes = inputFile.lengthSync();
+
+    // §3.4 step 0: targetBytes >= originalBytes -- 압축을 한 번도 실행하지 않는다.
+    if (targetBytes >= originalBytes) {
+      return PdfOk(
+        TargetCompressOutcome(
+          outcome: CompressOutcome(
+            originalBytes: originalBytes,
+            resultBytes: originalBytes,
+            keptOriginal: true,
+          ),
+          targetBytes: targetBytes,
+          attempts: 0,
+          finalRungIndex: -1,
+          reachedTarget: true,
+        ),
+      );
+    }
+
+    if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
+
+    // §3.4: <cur>/<prev>는 outputPath와 outputPath+'.prev'를 번갈아 쓴다.
+    final altPath = '$outputPath.prev';
+    var curPath = outputPath;
+
+    var i = CompressLadder.startIndexFor(
+      originalBytes: originalBytes,
+      targetBytes: targetBytes,
+    );
+    var attempt = 1;
+
+    // 직전 시도 중 보존된 최선 결과(있으면). 매 루프에서 <prev> 역할을 한다.
+    String? keptPrevPath;
+    int? keptPrevBytes;
+    int? keptPrevRungIndex;
+
+    while (true) {
+      if (cancelToken?.isCancelled ?? false) {
+        await _bestEffortDeletePath(keptPrevPath);
+        return const PdfErr(Cancelled());
+      }
+
+      onAttempt?.call(
+        TargetAttempt(
+          attempt: attempt,
+          maxAttempts: maxAttempts,
+          rungIndex: i,
+          lastResultBytes: keptPrevBytes,
+        ),
+      );
+
+      final r = await _compressOnce(
+        pdfPath: pdfPath,
+        outputPath: curPath,
+        rung: CompressLadder.rungs[i],
+        imagePagePaths: imagePagePaths,
+        embeddedImageStagingDir: embeddedImageStagingDir,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
+
+      if (r is PdfErr<CompressOutcome>) {
+        // 취소·실패 -- 즉시 반환한다. 보존해 둔 <prev>와 이번 시도의 잔여물을 정리한다.
+        await _bestEffortDeletePath(keptPrevPath);
+        await _bestEffortDeletePath(curPath == outputPath ? null : curPath);
+        return PdfErr(r.failure);
+      }
+
+      final outcome = (r as PdfOk<CompressOutcome>).value;
+
+      if (outcome.keptOriginal) {
+        // 이 단은 효과가 없었다(`_compressOnce`가 이미 curPath 파일을 지웠다).
+        if (keptPrevPath != null) {
+          if (keptPrevPath != outputPath) {
+            await File(keptPrevPath).rename(outputPath);
+          }
+          return PdfOk(
+            TargetCompressOutcome(
+              outcome: CompressOutcome(
+                originalBytes: originalBytes,
+                resultBytes: keptPrevBytes!,
+                keptOriginal: false,
+              ),
+              targetBytes: targetBytes,
+              attempts: attempt,
+              finalRungIndex: keptPrevRungIndex!,
+              reachedTarget: keptPrevBytes <= targetBytes,
+            ),
+          );
+        }
+        return PdfOk(
+          TargetCompressOutcome(
+            outcome: outcome,
+            targetBytes: targetBytes,
+            attempts: attempt,
+            finalRungIndex: i,
+            reachedTarget: false,
+          ),
+        );
+      }
+
+      if (outcome.resultBytes <= targetBytes) {
+        // 채택. 더 내려가지 않는다.
+        await _bestEffortDeletePath(keptPrevPath);
+        if (curPath != outputPath) {
+          await File(curPath).rename(outputPath);
+        }
+        return PdfOk(
+          TargetCompressOutcome(
+            outcome: outcome,
+            targetBytes: targetBytes,
+            attempts: attempt,
+            finalRungIndex: i,
+            reachedTarget: true,
+          ),
+        );
+      }
+
+      // 미달 -- 최선 결과를 보존하고 다음 단으로 내려간다.
+      await _bestEffortDeletePath(keptPrevPath);
+      keptPrevPath = curPath;
+      keptPrevBytes = outcome.resultBytes;
+      keptPrevRungIndex = i;
+
+      i += 1;
+      attempt += 1;
+
+      if (i >= CompressLadder.rungs.length || attempt > maxAttempts) {
+        // 사다리 끝 또는 시도 소진 -- <prev>(마지막으로 보존한 결과)를 채택한다.
+        // 절대 규칙 2: 여기서 새 rung을 즉흥 생성하지 않는다.
+        if (keptPrevPath != outputPath) {
+          await File(keptPrevPath).rename(outputPath);
+        }
+        return PdfOk(
+          TargetCompressOutcome(
+            outcome: CompressOutcome(
+              originalBytes: originalBytes,
+              resultBytes: keptPrevBytes,
+              keptOriginal: false,
+            ),
+            targetBytes: targetBytes,
+            attempts: attempt - 1,
+            finalRungIndex: keptPrevRungIndex,
+            reachedTarget: false,
+          ),
+        );
+      }
+
+      // 다음 <cur>는 번갈아 쓴다.
+      curPath = (curPath == outputPath) ? altPath : outputPath;
+    }
+  }
+
+  /// [compress]/[compressToTarget]가 공유하는 단일 압축 실행 본체(§76 §3.3 리팩터).
+  /// [rung]은 이미 해상도 상한·JPEG 품질로 확정된 값이다 -- 프리셋 매핑은 호출자가 끝낸다.
+  Future<PdfResult<CompressOutcome>> _compressOnce({
+    required String pdfPath,
+    required String outputPath,
+    required CompressRung rung,
+    List<String>? imagePagePaths,
+    String? embeddedImageStagingDir,
+    void Function(PdfProgress)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
     // §2.6 신설 검사24: L2-app/L2-ext는 상호 배타다. 둘 다 지정되면 어느 쪽도 실행하지 않고 즉시
     // 거부한다 -- §22가 코드로 강제한 "외부 PDF에 imagePagePaths 금지" 경계를 완화하지 않는다.
     if (imagePagePaths != null && embeddedImageStagingDir != null) {
@@ -172,7 +441,7 @@ class QpdfCompressor implements PdfCompressor {
         final l2ExtResult = await _runEmbeddedImagePasses(
           pdfPath: pdfPath,
           stagingDir: embeddedImageStagingDir,
-          preset: preset,
+          rung: rung,
           cancelToken: cancelToken,
         );
         if (l2ExtResult is PdfErr<String?>) {
@@ -208,15 +477,14 @@ class QpdfCompressor implements PdfCompressor {
           );
         }
 
-        final (longEdgeMaxPx, jpegQuality) = _presetFor(preset);
         // 압축 경로는 크롭 개념이 없다 -- 전부 cropEncoded: null(설계 §2.5, ImageEncodeItem 전환).
         final encodeResult = await runImageEncodeBatch(
           items: [
             for (final p in imagePagePaths)
               ImageEncodeItem(imagePath: p, cropEncoded: null),
           ],
-          longEdgeMaxPx: longEdgeMaxPx,
-          jpegQuality: jpegQuality,
+          longEdgeMaxPx: rung.longEdgeMaxPx,
+          jpegQuality: rung.jpegQuality,
           cancelToken: cancelToken,
         );
         if (encodeResult['ok'] != true)
@@ -305,10 +573,11 @@ class QpdfCompressor implements PdfCompressor {
   Future<PdfResult<String?>> _runEmbeddedImagePasses({
     required String pdfPath,
     required String stagingDir,
-    required ImageQuality preset,
+    required CompressRung rung,
     CancelToken? cancelToken,
   }) async {
-    final (longEdgeMaxPx, jpegQuality) = _presetFor(preset);
+    final longEdgeMaxPx = rung.longEdgeMaxPx;
+    final jpegQuality = rung.jpegQuality;
 
     // 패스 A(M-E2): 추출. pdfPath는 읽기 전용으로만 열린다.
     final extractResult = await runImageExtractJob(
@@ -419,11 +688,16 @@ class QpdfCompressor implements PdfCompressor {
     }
   }
 
-  /// [preset] -> (longEdgeMaxPx, jpegQuality). 리터럴 숫자는 여기 없다 --
-  /// `image_quality.dart`의 프로필을 참조만 한다.
-  (int, int) _presetFor(ImageQuality preset) {
-    final profile = ImageQualityProfile.of(preset);
-    return (profile.longEdgeMaxPx, profile.jpegQuality);
+  /// [compressToTarget]의 `<prev>`/`<cur>` 파일 정리 전용 헬퍼. `path`가 null이면 아무것도
+  /// 하지 않는다(보존된 이전 결과가 없는 경우).
+  Future<void> _bestEffortDeletePath(String? path) async {
+    if (path == null) return;
+    try {
+      final f = File(path);
+      if (f.existsSync()) await f.delete();
+    } catch (_) {
+      // 최선 노력.
+    }
   }
 
   PdfFailure _failureFromErrorMap(Map<String, Object?> map) {

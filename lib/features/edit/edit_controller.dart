@@ -10,6 +10,7 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/size_guard.dart';
+import '../../data/repository/draft_repository.dart' show DraftSnapshot;
 import '../../pdf/page_ref.dart';
 
 /// 이 페이지가 원본에서 온 것인지(`existing`), 이번 편집에서 추가된 것인지(`added`).
@@ -77,6 +78,52 @@ class EditController extends StateNotifier<EditState> {
           dirty: false,
         ),
       );
+
+  /// 드래프트 복구 전용 생성자(`fromDraft`). [original]은 `origin == existing`
+  /// 페이지들만으로 재구성하고, [pages]는 스냅샷 전체(existing + added, 순서·회전·
+  /// 크롭 반영)를 그대로 받는다(설계 §4.7).
+  EditController._fromDraftState({
+    required this.original,
+    required List<EditPage> pages,
+    required int nextId,
+  }) : _nextId = nextId,
+       super(
+         EditState(
+           pages: pages,
+           selected: const {},
+           mode: EditMode.arrange,
+           dirty: false,
+         ),
+       );
+
+  /// 드래프트 복구로 만든 컨트롤러. `original`(SaveOp 판정의 before)은
+  /// `origin == existing` 페이지들로 재구성하고, `_nextId`는 충돌하지 않게 이어
+  /// 붙인다. **`existing` 페이지의 경로는 절대 바뀌지 않는다**(이미 `sources/`에
+  /// 있다) — `added` 이미지만 드래프트 경로(`drafts/<id>/pages/NNN.jpg`)를
+  /// 가리킨다(설계 §4.7).
+  factory EditController.fromDraft(DraftSnapshot snapshot) {
+    final entries = snapshot.pages;
+    final original = <PageRef>[
+      for (final entry in entries)
+        if (entry.origin == EditPageOrigin.existing) entry.ref,
+    ];
+    final pages = <EditPage>[
+      for (var i = 0; i < entries.length; i++)
+        EditPage(id: i, ref: entries[i].ref, origin: entries[i].origin),
+    ];
+    final controller = EditController._fromDraftState(
+      original: List.unmodifiable(original),
+      pages: pages,
+      nextId: pages.length,
+    );
+    controller._recomputeDirty();
+    return controller;
+  }
+
+  /// 상태가 바뀔 때마다 호출된다(§4.7). 구독자(화면)가 디바운스해
+  /// `DraftRepository.save`를 부른다. 컨트롤러는 저장소·파일·DB를 알지 못한다
+  /// (§1.5 계약 유지).
+  void Function(EditState state)? onChanged;
 
   /// 원본 페이지 목록. `SaveOp` 판정(§1.6)의 `before`가 된다. 변경되지 않는다.
   final List<PageRef> original;
@@ -255,10 +302,12 @@ class EditController extends StateNotifier<EditState> {
   void _apply(List<EditPage> pages) {
     state = state.copyWith(pages: pages);
     _recomputeDirty();
+    onChanged?.call(state);
   }
 
   void _recomputeDirty() {
     state = state.copyWith(dirty: !_sameAsOriginal(state.pages));
+    onChanged?.call(state);
   }
 
   bool _sameAsOriginal(List<EditPage> pages) {

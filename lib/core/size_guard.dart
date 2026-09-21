@@ -14,6 +14,7 @@ enum SaveOp {
   split, // 결과 <= 원본 * (선택/전체) * 1.2
   merge, // 결과 <= 원본 합계 * 1.05
   compose, // 결과 <= (원본 + 추가 이미지 바이트) * 1.15 — §7 Q-W5 승인 완료(3주차)
+  stamp, // 결과 <= (원본 + 스탬프 바이트) * 1.15 — `79_architect_v1.1_v2_design.md` §2.7
 }
 
 /// [SizeGuard.classify]의 편집 의도. 화면이 판단하지 않고 이 값 하나로 `split` 분기를
@@ -29,6 +30,7 @@ class GuardInput {
     this.totalPages,
     this.selectedPages,
     this.addedImageBytes = 0,
+    this.stampBytes = 0,
   });
 
   final SaveOp op;
@@ -40,6 +42,11 @@ class GuardInput {
   final int? totalPages; // split 전용
   final int? selectedPages; // split 전용
   final int addedImageBytes; // compose 전용 (§14 Q6)
+
+  /// `stamp` 전용. `StampBuilder.build`가 만든 스탬프 PDF의 **실제 바이트 수**.
+  /// 호출부가 추정하지 않는다 — 만들어진 바이트를 센다(`79_architect_v1.1_v2_design.md` §2.7).
+  /// 다른 `SaveOp`에서는 쓰이지 않으므로 [addedImageBytes]와 같은 관례로 기본값 0을 둔다.
+  final int stampBytes;
 }
 
 sealed class GuardResult {
@@ -74,6 +81,12 @@ abstract final class SizeGuard {
   /// [composeOverheadRatio]의 구 이름. 기존 호출부 호환을 위해 남긴다.
   static const double composeRatio = composeOverheadRatio;
 
+  /// `stamp`(서명·주석·OCR 오버레이) 결과 한계 = `(baselineBytes + stampBytes) * stampOverheadRatio`.
+  /// `composeOverheadRatio`와 **같은 값을 의도적으로 재사용**한다 — 두 작업 모두
+  /// "원본 + 새로 추가한 바이트 + PDF 구조 오버헤드" 구조가 동일하므로 새 상수를 발명하지 않는다.
+  /// [실측 필요 · M2] 초과 시 `GuardBlocked`가 정상 동작이다(`79_architect_v1.1_v2_design.md` §2.7 Q2).
+  static const double stampOverheadRatio = composeOverheadRatio;
+
   /// split 결과 하한(바이트). 1페이지만 발췌해도 PDF 구조 오버헤드가 있으므로
   /// 계산된 한계가 이보다 작으면 이 값을 하한으로 쓴다.
   /// [실측 필요 · M2b] — 잠정값. 측정 후 아키텍트 경유로 조정한다.
@@ -97,6 +110,8 @@ abstract final class SizeGuard {
         return (input.baselineBytes * mergeRatio).floor();
       case SaveOp.compose:
         return ((input.baselineBytes + input.addedImageBytes) * composeRatio).floor();
+      case SaveOp.stamp:
+        return ((input.baselineBytes + input.stampBytes) * stampOverheadRatio).floor();
     }
   }
 

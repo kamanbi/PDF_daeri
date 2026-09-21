@@ -56,6 +56,9 @@ dependencies:
   in_app_review: ^2.0.12
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
+  # OCR(기능 6, §7). 한국어 스크립트 모델은 번들 강제(android/app/build.gradle.kts) —
+  # `_workspace/79_architect_v1.1_v2_design.md` §7.6, 절대 규칙 1(네트워크 다운로드 금지).
+  google_mlkit_text_recognition: ^0.17.1
 
 dev_dependencies:
   flutter_test:

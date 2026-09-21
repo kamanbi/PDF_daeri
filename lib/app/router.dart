@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import '../core/platform_features.dart';
 import '../features/edit/edit_controller.dart' show EditMode;
 import '../features/edit/edit_screen.dart';
+import '../features/documents/document_library_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/scan/photo_to_pdf_screen.dart';
 import '../features/scan/scan_screen.dart';
@@ -26,12 +27,17 @@ abstract final class AppRoutes {
   static const edit = '/edit'; // S3
   static const viewer = '/viewer'; // S4
   static const settings = '/settings'; // S5
+  static const documents = '/documents'; // S6
 }
 
 /// S3 편집 화면 인자. 편집 대상은 **항상 앱 작업공간 안의 PDF**다. 외부 URI를
 /// 여기 넣지 않는다(2주차 `ViewerArgs`와 동일 규약, 설계 §1.1).
 class EditArgs {
-  const EditArgs({required this.source, required this.title, this.initialMode = EditMode.arrange});
+  const EditArgs({
+    required this.source,
+    required this.title,
+    this.initialMode = EditMode.arrange,
+  });
 
   final EditSource source;
   final String title;
@@ -50,8 +56,11 @@ sealed class EditSource {
 
   /// 외부에서 연 PDF(`recent/<id>.pdf`). `documents` 행이 없으므로 페이지 목록을
   /// `PdfEngine.inspect`의 pageCount로 합성한다.
-  const factory EditSource.externalPdf({required String pdfPath, required String title, String? recentId}) =
-      EditSourceExternalPdf;
+  const factory EditSource.externalPdf({
+    required String pdfPath,
+    required String title,
+    String? recentId,
+  }) = EditSourceExternalPdf;
 }
 
 final class EditSourceMyDocument extends EditSource {
@@ -60,7 +69,11 @@ final class EditSourceMyDocument extends EditSource {
 }
 
 final class EditSourceExternalPdf extends EditSource {
-  const EditSourceExternalPdf({required this.pdfPath, required this.title, this.recentId});
+  const EditSourceExternalPdf({
+    required this.pdfPath,
+    required this.title,
+    this.recentId,
+  });
   final String pdfPath;
   final String title;
   final String? recentId;
@@ -106,26 +119,49 @@ class ViewerArgs {
 Route<Object?>? onGenerateRoute(RouteSettings settings) {
   switch (settings.name) {
     case AppRoutes.home:
-      return MaterialPageRoute(builder: (_) => const HomeScreen(), settings: settings);
+      return MaterialPageRoute(
+        builder: (_) => const HomeScreen(),
+        settings: settings,
+      );
     case AppRoutes.scan:
       // 68 §6: AppFeatures.scan이 거짓인 플랫폼(Windows)에서는 홈으로 안전
       // 착지시킨다(onUnknownRoute와 같은 방침).
       if (!AppFeatures.scan) {
         return MaterialPageRoute(builder: (_) => const HomeScreen());
       }
-      return MaterialPageRoute(builder: (_) => const ScanScreen(), settings: settings);
+      return MaterialPageRoute(
+        builder: (_) => const ScanScreen(),
+        settings: settings,
+      );
     case AppRoutes.photoToPdf:
-      return MaterialPageRoute(builder: (_) => const PhotoToPdfScreen(), settings: settings);
+      return MaterialPageRoute(
+        builder: (_) => const PhotoToPdfScreen(),
+        settings: settings,
+      );
     case AppRoutes.openPdf:
-      return MaterialPageRoute(builder: (_) => const OpenPdfScreen(), settings: settings);
+      return MaterialPageRoute(
+        builder: (_) => const OpenPdfScreen(),
+        settings: settings,
+      );
     case AppRoutes.edit:
       final args = settings.arguments;
       if (args is! EditArgs) {
         return MaterialPageRoute(builder: (_) => const HomeScreen());
       }
-      return MaterialPageRoute(builder: (_) => EditScreen(args: args), settings: settings);
+      return MaterialPageRoute(
+        builder: (_) => EditScreen(args: args),
+        settings: settings,
+      );
     case AppRoutes.settings:
-      return MaterialPageRoute(builder: (_) => const SettingsScreen(), settings: settings);
+      return MaterialPageRoute(
+        builder: (_) => const SettingsScreen(),
+        settings: settings,
+      );
+    case AppRoutes.documents:
+      return MaterialPageRoute(
+        builder: (_) => const DocumentLibraryScreen(),
+        settings: settings,
+      );
     case AppRoutes.viewer:
       final args = settings.arguments;
       if (args is! ViewerArgs) {
@@ -133,7 +169,10 @@ Route<Object?>? onGenerateRoute(RouteSettings settings) {
         // 홈으로 안전 착지한다.
         return MaterialPageRoute(builder: (_) => const HomeScreen());
       }
-      return MaterialPageRoute(builder: (_) => ViewerScreen(args: args), settings: settings);
+      return MaterialPageRoute(
+        builder: (_) => ViewerScreen(args: args),
+        settings: settings,
+      );
     default:
       return null;
   }

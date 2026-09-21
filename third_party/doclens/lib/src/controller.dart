@@ -58,6 +58,8 @@ class DoclensController extends ChangeNotifier {
       StreamController.broadcast();
   final StreamController<bool> _lowLightCtrl = StreamController.broadcast();
   final StreamController<Size> _previewSizeCtrl = StreamController.broadcast();
+  final StreamController<int> _physicalRotationCtrl =
+      StreamController.broadcast();
 
   Stream<Quad?> get quadStream => _quadCtrl.stream;
   Stream<DetectionStatus> get statusStream => _statusCtrl.stream;
@@ -68,9 +70,13 @@ class DoclensController extends ChangeNotifier {
   /// (and again after orientation/lens changes). Use this to size your
   /// preview widget so the quad overlay aligns with the rendered pixels.
   Stream<Size> get previewSizeStream => _previewSizeCtrl.stream;
+  Stream<int> get physicalRotationStream => _physicalRotationCtrl.stream;
 
   Size? _previewSize;
   Size? get previewSize => _previewSize;
+
+  int _physicalRotationDegrees = 0;
+  int get physicalRotationDegrees => _physicalRotationDegrees;
 
   Quad? _lastQuad;
   Quad? get lastQuad => _lastQuad;
@@ -118,7 +124,14 @@ class DoclensController extends ChangeNotifier {
       _previewSizeCtrl.add(ps);
       notifyListeners();
     }
-    if (event.isPreviewSizeOnly) return;
+    final physicalRotation = event.physicalRotationDegrees;
+    if (physicalRotation != null &&
+        physicalRotation != _physicalRotationDegrees) {
+      _physicalRotationDegrees = physicalRotation;
+      _physicalRotationCtrl.add(physicalRotation);
+      notifyListeners();
+    }
+    if (event.isMetadataOnly) return;
 
     // Run the raw quad through a median filter so jitter doesn't reach the
     // overlay or the stability tracker. Smoothing is a no-op when disabled.
@@ -319,17 +332,22 @@ class DoclensController extends ChangeNotifier {
 
   /// Re-warp [rawImagePath] using a user-edited [quad]. Used by EditCornersScreen.
   ///
-  /// Applies the session's [ScannerConfig.imageEnhancement] and
-  /// [ScannerConfig.autoOrientation] to the result, so a re-warp matches the
-  /// original capture's processing.
-  Future<String> warpImage(String rawImagePath, Quad quad) {
+  /// Applies the session's processing settings unless [enhancement] overrides
+  /// the colour treatment for this individual export.
+  Future<String> warpImage(
+    String rawImagePath,
+    Quad quad, {
+    ImageEnhancement? enhancement,
+    bool flattenFold = false,
+  }) {
     _ensureReady();
     return DoclensPlatform.instance.warpImage(
       rawImagePath: rawImagePath,
       quad: quad,
       jpegQuality: _config.jpegQuality,
-      enhancement: _config.imageEnhancement,
+      enhancement: enhancement ?? _config.imageEnhancement,
       autoOrientation: _config.autoOrientation,
+      flattenFold: flattenFold,
     );
   }
 
@@ -482,6 +500,7 @@ class DoclensController extends ChangeNotifier {
     await _autoCaptureCtrl.close();
     await _lowLightCtrl.close();
     await _previewSizeCtrl.close();
+    await _physicalRotationCtrl.close();
     super.dispose();
   }
 }

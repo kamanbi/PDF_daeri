@@ -101,6 +101,8 @@ class MethodChannelSafImporter implements SafImporter {
     return switch (e.code) {
       'NOT_FOUND' => SourceMissing(e.message ?? contentUri),
       'PERMISSION_DENIED' => PermissionDenied(e.message ?? 'content URI 접근 거부: $contentUri'),
+      'INVALID_PDF' => SourceCorrupted(contentUri),
+      'FILE_TOO_LARGE' => UnknownFailure('PDF 파일 크기는 100MB 이하여야 합니다.'),
       _ => UnknownFailure(e.message ?? '${e.code}: $contentUri'),
     };
   }

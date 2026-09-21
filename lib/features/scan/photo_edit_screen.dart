@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repository/document_repository.dart';
+import '../../ads/banner_host.dart';
 import '../../pdf/page_ref.dart';
 import '../edit/crop_editor.dart';
 import '../edit/edit_controller.dart';
@@ -185,7 +186,9 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
             if (_allowCrop) EditAction.crop,
           },
           onCropRequested: _requestCrop,
+          bottomPadding: BannerHost.contentBottomPadding(ref),
         ),
+        bottomNavigationBar: const BannerHost(slot: BannerSlot.photoEdit),
       ),
     );
   }

@@ -10,6 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ads/banner_host.dart';
 import 'open_pdf_flow.dart';
 
 class OpenPdfScreen extends ConsumerStatefulWidget {
@@ -37,7 +38,10 @@ class _OpenPdfScreenState extends ConsumerState<OpenPdfScreen> {
 
     List<PlatformFile> files;
     try {
-      files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['pdf']);
+      files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -86,7 +90,11 @@ class _OpenPdfScreenState extends ConsumerState<OpenPdfScreen> {
         child: _picking
             ? const Column(
                 mainAxisSize: MainAxisSize.min,
-                children: [CircularProgressIndicator(), SizedBox(height: 16), Text('확인하는 중…')],
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('확인하는 중…'),
+                ],
               )
             : Column(
                 mainAxisSize: MainAxisSize.min,
@@ -97,10 +105,14 @@ class _OpenPdfScreenState extends ConsumerState<OpenPdfScreen> {
                     Text(_pickError!, textAlign: TextAlign.center),
                     const SizedBox(height: 20),
                   ],
-                  FilledButton(onPressed: _pickAndOpen, child: const Text('파일 선택')),
+                  FilledButton(
+                    onPressed: _pickAndOpen,
+                    child: const Text('파일 선택'),
+                  ),
                 ],
               ),
       ),
+      bottomNavigationBar: const BannerHost(slot: BannerSlot.openPdf),
     );
   }
 }

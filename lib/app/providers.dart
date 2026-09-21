@@ -23,6 +23,7 @@ import '../data/storage/public_pdf_exporter.dart';
 import '../data/storage/public_image_exporter.dart';
 import '../data/storage/workspace.dart';
 import '../features/scan/local_document_scan_source.dart';
+import '../features/scan/doclens_fallback_scan_source.dart';
 import '../pdf/pdf_engine.dart';
 import '../pdf/pdf_renderer.dart';
 import '../pdf/scan_source.dart';
@@ -85,13 +86,14 @@ final reviewPromptServiceProvider = Provider<ReviewPromptService>(
 final bootIssuesProvider = Provider<List<String>>((ref) => const []);
 
 final scanSourceProvider = Provider<ScanSource>(
-  (ref) => LocalDocumentScanSource(),
+  (ref) => ResilientDocumentScanSource(),
 );
 final photoSourceProvider = Provider<PhotoSource>(
   (ref) => FilePickerPhotoSource(),
 );
 final safImporterProvider = Provider<SafImporter>(
-  (ref) => AppFeatures.intentImport ? MethodChannelSafImporter() : NoopSafImporter(),
+  (ref) =>
+      AppFeatures.intentImport ? MethodChannelSafImporter() : NoopSafImporter(),
 );
 
 /// [2주차 신설] 뷰어·홈 그리드가 공유하는 렌더러. `PdfxRenderer()` 생성 자체는

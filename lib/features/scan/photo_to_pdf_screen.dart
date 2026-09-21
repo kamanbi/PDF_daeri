@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../ads/banner_host.dart';
 import '../../core/app_error.dart';
 import '../../data/repository/document_repository.dart';
 import 'photo_edit_screen.dart';
@@ -82,7 +83,9 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
         }
         setState(() {
           _state = _PickState.failed;
-          _errorMessage = failure is UnknownFailure ? failure.message : '사진을 선택하지 못했습니다.';
+          _errorMessage = failure is UnknownFailure
+              ? failure.message
+              : '사진을 선택하지 못했습니다.';
         });
     }
   }
@@ -100,41 +103,50 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
       body: Center(
         child: switch (_state) {
           _PickState.idle => Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.photo_library_outlined, size: 40, color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(height: 12),
-                  const Text('PDF로 만들 사진을 선택하세요.', textAlign: TextAlign.center),
-                  const SizedBox(height: 20),
-                  FilledButton(onPressed: _pick, child: const Text('사진 선택')),
-                ],
-              ),
-            ),
-          _PickState.picking => const Column(
+            padding: const EdgeInsets.all(24),
+            child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('사진을 선택하는 중…'),
+                Icon(
+                  Icons.photo_library_outlined,
+                  size: 40,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 12),
+                const Text('PDF로 만들 사진을 선택하세요.', textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+                FilledButton(onPressed: _pick, child: const Text('사진 선택')),
               ],
             ),
+          ),
+          _PickState.picking => const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('사진을 선택하는 중…'),
+            ],
+          ),
           _PickState.failed => Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.error_outline, size: 40, color: Theme.of(context).colorScheme.error),
-                  const SizedBox(height: 12),
-                  Text(_errorMessage ?? '알 수 없는 오류', textAlign: TextAlign.center),
-                  const SizedBox(height: 20),
-                  FilledButton(onPressed: _pick, child: const Text('다시 시도')),
-                ],
-              ),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 40,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(height: 12),
+                Text(_errorMessage ?? '알 수 없는 오류', textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+                FilledButton(onPressed: _pick, child: const Text('다시 시도')),
+              ],
             ),
+          ),
         },
       ),
+      bottomNavigationBar: const BannerHost(slot: BannerSlot.photoToPdf),
     );
   }
 }

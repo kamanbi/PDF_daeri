@@ -2,7 +2,7 @@
 ///
 /// 신뢰 순서(§3.5):
 /// ```
-/// 진실의 원천 :  Google Play (restorePurchases가 돌려주는 것)
+/// 진실의 원천 :  Google Play Developer API (서버 검증 결과)
 ///       ↓ 캐시
 /// 영속 캐시   :  settings.ads_removed  (Drift 단일 행, SettingsRepository)
 ///       ↓ 노출
@@ -38,7 +38,7 @@ final adsRemovedProvider = StreamProvider<bool>((ref) {
 });
 
 /// `adsRemoved` 캐시 갱신의 단일 진입점. `lib/billing/billing_service.dart`가
-/// Google Play에서 확인한 활성 구독 상태만 전달한다. 다른 코드는 이 클래스를
+/// 서버가 확인한 활성 구독 상태만 전달한다. 다른 코드는 이 클래스를
 /// 거치지 않고 `SettingsRepository.setAdsRemoved`를 직접 호출하지 않는다.
 class Entitlement {
   Entitlement({required SettingsRepository? settingsRepository})

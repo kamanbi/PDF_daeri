@@ -13,11 +13,17 @@ import android.os.StatFs
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.UpdateAvailability
-import io.flutter.embedding.android.FlutterActivity
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -50,9 +56,18 @@ import java.io.FileNotFoundException
  * "Could not find a generator for route" 예외를 유발한다(실기기 확인,
  * `_workspace/28_build-runner_intent_device.md`). 그래서 명시적으로 끈다.
  */
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     companion object {
+        private const val DOCUMENT_SCANNER_LOG_TAG = "PdfDaeriScanner"
         private const val IMMEDIATE_UPDATE_REQUEST_CODE = 4102
+        private const val DOCUMENT_SCANNER_REQUEST_CODE = 4103
+        private const val MAX_IMPORTED_PDF_BYTES = 100L * 1024L * 1024L
+        private val PDF_HEADER = "%PDF-".toByteArray(Charsets.US_ASCII)
+        private val ACCEPTED_PDF_MIME_TYPES = setOf(
+            "application/pdf",
+            "application/x-pdf",
+            "application/octet-stream",
+        )
     }
 
     override fun shouldHandleDeeplinking(): Boolean = false
@@ -61,11 +76,22 @@ class MainActivity : FlutterActivity() {
     private val safChannel = "com.kamanbi.pdf_daeri/saf"
     private val intentMethodChannel = "com.kamanbi.pdf_daeri/intent"
     private val intentEventChannel = "com.kamanbi.pdf_daeri/intent/stream"
+    private val documentScannerChannel = "com.kamanbi.pdf_daeri/document_scanner"
 
     // 콜드 스타트로 앱을 연 VIEW 인텐트의 URI. takeInitialUri() 1회 호출로 소비된다
     // (그 이후 재조회하면 null — 화면 재구성 시 같은 문서를 중복 임포트하지 않기 위함).
     private var pendingInitialUri: String? = null
     private var intentEventSink: EventChannel.EventSink? = null
+    private var pendingDocumentScanResult: MethodChannel.Result? = null
+    private val documentScannerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { activityResult ->
+        Log.i(
+            DOCUMENT_SCANNER_LOG_TAG,
+            "Scanner result received: resultCode=${activityResult.resultCode}, hasIntent=${activityResult.data != null}",
+        )
+        handleDocumentScannerResult(activityResult.resultCode, activityResult.data)
+    }
     private lateinit var appUpdateManager: AppUpdateManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -158,6 +184,16 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
+            documentScannerChannel,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> startDocumentScanner(result)
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
             safChannel,
         ).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -202,6 +238,93 @@ class MainActivity : FlutterActivity() {
                 }
             },
         )
+    }
+
+    private fun startDocumentScanner(result: MethodChannel.Result) {
+        if (pendingDocumentScanResult != null) {
+            Log.w(DOCUMENT_SCANNER_LOG_TAG, "Rejected a second scanner request while one is pending")
+            result.error("IN_PROGRESS", "문서 스캔이 이미 진행 중입니다.", null)
+            return
+        }
+
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(false)
+            .setPageLimit(1)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+
+        pendingDocumentScanResult = result
+        try {
+            Log.i(DOCUMENT_SCANNER_LOG_TAG, "Requesting ML Kit scanner intent")
+            GmsDocumentScanning.getClient(options)
+                .getStartScanIntent(this)
+                .addOnSuccessListener { intentSender ->
+                    try {
+                        Log.i(DOCUMENT_SCANNER_LOG_TAG, "Launching ML Kit scanner activity")
+                        documentScannerLauncher.launch(
+                            IntentSenderRequest.Builder(intentSender).build(),
+                        )
+                    } catch (error: Exception) {
+                        failDocumentScannerStart("Could not launch ML Kit scanner", error)
+                    }
+                }
+                .addOnFailureListener { error ->
+                    failDocumentScannerStart("Could not prepare ML Kit scanner", error)
+                }
+        } catch (error: Exception) {
+            failDocumentScannerStart("ML Kit scanner setup threw synchronously", error)
+        }
+    }
+
+    private fun failDocumentScannerStart(message: String, error: Exception) {
+        Log.e(DOCUMENT_SCANNER_LOG_TAG, message, error)
+        takePendingDocumentScanResult()?.error("UNAVAILABLE", error.message, null)
+    }
+
+    private fun handleDocumentScannerResult(resultCode: Int, intent: Intent?) {
+        val result = takePendingDocumentScanResult() ?: return
+        if (resultCode != RESULT_OK) {
+            Log.i(DOCUMENT_SCANNER_LOG_TAG, "Scanner was cancelled or closed")
+            result.success(null)
+            return
+        }
+
+        val scannedPage = GmsDocumentScanningResult
+            .fromActivityResultIntent(intent)
+            ?.pages
+            ?.firstOrNull()
+        if (scannedPage == null) {
+            Log.w(DOCUMENT_SCANNER_LOG_TAG, "Scanner completed without a JPEG page")
+            result.success(null)
+            return
+        }
+        Log.i(DOCUMENT_SCANNER_LOG_TAG, "Copying scanned JPEG to app cache")
+        copyScannedJpegToCache(scannedPage.imageUri, result)
+    }
+
+    private fun copyScannedJpegToCache(uri: Uri, result: MethodChannel.Result) {
+        var destination: File? = null
+        try {
+            destination = File(cacheDir, "mlkit_scan_${System.currentTimeMillis()}.jpg")
+            contentResolver.openInputStream(uri)?.use { input ->
+                destination.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw FileNotFoundException("스캔 결과 스트림을 열 수 없습니다.")
+            if (destination.length() == 0L) {
+                throw IllegalStateException("스캔 결과가 비어 있습니다.")
+            }
+            result.success(destination.absolutePath)
+        } catch (error: Exception) {
+            destination?.delete()
+            Log.e(DOCUMENT_SCANNER_LOG_TAG, "Could not copy scanned JPEG", error)
+            result.error("COPY_FAILED", error.message, null)
+        }
+    }
+
+    private fun takePendingDocumentScanResult(): MethodChannel.Result? {
+        val result = pendingDocumentScanResult
+        pendingDocumentScanResult = null
+        return result
     }
 
     private fun extractViewUri(intent: Intent?): String? {
@@ -379,6 +502,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun copyContentUriToPath(uriString: String, destinationPath: String, result: MethodChannel.Result) {
+        var destinationFile: File? = null
         try {
             val uri = Uri.parse(uriString)
             // M-2 대응: 진입점 2곳(`extractViewUri`도 검증) 모두 방어한다 — 이
@@ -387,9 +511,20 @@ class MainActivity : FlutterActivity() {
                 result.error("INVALID_SCHEME", "content:// URI만 허용됩니다: $uriString", null)
                 return
             }
+            val mimeType = contentResolver.getType(uri)?.lowercase()
+            if (mimeType != null && mimeType !in ACCEPTED_PDF_MIME_TYPES) {
+                result.error("INVALID_PDF", "PDF MIME type required: $mimeType", null)
+                return
+            }
+            val declaredBytes = queryContentSize(uri)
+            if (declaredBytes != null && declaredBytes > MAX_IMPORTED_PDF_BYTES) {
+                result.error("FILE_TOO_LARGE", "PDF files must be 100MB or smaller", null)
+                return
+            }
             val displayName = queryDisplayName(uri)
 
             val destFile = File(destinationPath)
+            destinationFile = destFile
             destFile.parentFile?.mkdirs()
 
             val input = contentResolver.openInputStream(uri)
@@ -399,7 +534,23 @@ class MainActivity : FlutterActivity() {
             }
             input.use { streamIn ->
                 destFile.outputStream().use { streamOut ->
-                    streamIn.copyTo(streamOut)
+                    val header = readPdfHeader(streamIn)
+                    if (!header.contentEquals(PDF_HEADER)) {
+                        throw InvalidPdfException("PDF header is missing")
+                    }
+                    streamOut.write(header)
+
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var copiedBytes = header.size.toLong()
+                    while (true) {
+                        val read = streamIn.read(buffer)
+                        if (read == -1) break
+                        copiedBytes += read
+                        if (copiedBytes > MAX_IMPORTED_PDF_BYTES) {
+                            throw PdfTooLargeException()
+                        }
+                        streamOut.write(buffer, 0, read)
+                    }
                 }
             }
 
@@ -409,14 +560,51 @@ class MainActivity : FlutterActivity() {
                     "bytes" to destFile.length(),
                 ),
             )
+        } catch (e: InvalidPdfException) {
+            destinationFile?.delete()
+            result.error("INVALID_PDF", e.message, null)
+        } catch (e: PdfTooLargeException) {
+            destinationFile?.delete()
+            result.error("FILE_TOO_LARGE", "PDF files must be 100MB or smaller", null)
         } catch (e: FileNotFoundException) {
+            destinationFile?.delete()
             result.error("NOT_FOUND", e.message, null)
         } catch (e: SecurityException) {
+            destinationFile?.delete()
             result.error("PERMISSION_DENIED", e.message, null)
         } catch (e: Exception) {
+            destinationFile?.delete()
             result.error("IO_ERROR", e.message, null)
         }
     }
+
+    private fun queryContentSize(uri: Uri): Long? {
+        contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (sizeIndex >= 0 && cursor.moveToFirst() && !cursor.isNull(sizeIndex)) {
+                return cursor.getLong(sizeIndex)
+            }
+        }
+        contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
+            if (descriptor.length >= 0) return descriptor.length
+        }
+        return null
+    }
+
+    private fun readPdfHeader(input: java.io.InputStream): ByteArray {
+        val header = ByteArray(PDF_HEADER.size)
+        var offset = 0
+        while (offset < header.size) {
+            val read = input.read(header, offset, header.size - offset)
+            if (read == -1) throw InvalidPdfException("PDF header is missing")
+            offset += read
+        }
+        return header
+    }
+
+    private class InvalidPdfException(message: String) : Exception(message)
+
+    private class PdfTooLargeException : Exception()
 
     /**
      * M-3 대응(`_workspace/64_security_review_full_app.md`): `third_party/doclens`가

@@ -47,3 +47,29 @@ Future<void> shareDocument({
       await FailureUi.showDialog(context, failure);
   }
 }
+
+/// 선택한 내 문서를 하나의 시스템 공유 시트에 넣는다.
+Future<void> shareDocuments({
+  required BuildContext context,
+  required WidgetRef ref,
+  required List<({String pdfPath, String title})> documents,
+}) async {
+  if (documents.isEmpty) return;
+  final export = ref.read(shareExportProvider);
+  if (export == null) {
+    await FailureUi.showDialog(
+      context,
+      const UnknownFailure('공유 기능을 사용할 수 없습니다.'),
+    );
+    return;
+  }
+
+  final result = await export.sharePdfs(documents);
+  if (!context.mounted) return;
+  switch (result) {
+    case PdfOk<void>():
+      unawaited(ref.read(adGateProvider).registerCompletedTask());
+    case PdfErr<void>(:final failure):
+      await FailureUi.showDialog(context, failure);
+  }
+}

@@ -48,14 +48,13 @@ Future<void> initializeMobileAds() async {
 /// `physicalSize.width / devicePixelRatio`로 구해 넘긴다(`MediaQuery`가 아직
 /// 없는 시점이므로 이 함수 자체는 위젯 컨텍스트에 의존하지 않는다).
 ///
-/// 실패(오프라인·SDK 초기화 실패) 또는 3초 타임아웃 시 `null`을 반환한다 —
+/// 실패(오프라인·SDK 초기화 실패) 또는 8초 타임아웃 시 `null`을 반환한다 —
 /// 실패-닫힘(fail closed): 높이 0 + 배너 없음.
 Future<int?> resolveAdaptiveBannerHeight(double screenWidthDp) async {
   try {
-    final size =
-        await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
-          screenWidthDp.truncate(),
-        ).timeout(const Duration(seconds: 3));
+    final size = await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+      screenWidthDp.truncate(),
+    ).timeout(const Duration(seconds: 8));
     return size?.height;
   } catch (e, st) {
     developer.log(

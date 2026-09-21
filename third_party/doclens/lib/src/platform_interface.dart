@@ -19,6 +19,7 @@ class DetectionEvent {
     this.lowLight = false,
     this.previewSize,
     this.sharpness,
+    this.physicalRotationDegrees,
   });
   final Quad? quad;
   final bool lowLight;
@@ -29,7 +30,15 @@ class DetectionEvent {
   /// does not provide it — consumers treat null as "no signal".
   final double? sharpness;
 
+  /// Physical device orientation reported by Android's orientation sensor.
+  /// This remains available while the Flutter activity is portrait-locked, so
+  /// callers can rotate controls without rotating the camera texture.
+  final int? physicalRotationDegrees;
+
   bool get isPreviewSizeOnly => previewSize != null && quad == null;
+
+  bool get isMetadataOnly =>
+      quad == null && (previewSize != null || physicalRotationDegrees != null);
 }
 
 /// Platform interface for the native pipeline. The default implementation
@@ -58,6 +67,7 @@ abstract class DoclensPlatform extends PlatformInterface {
     int jpegQuality = 100,
     ImageEnhancement enhancement = ImageEnhancement.none,
     AutoOrientation autoOrientation = AutoOrientation.none,
+    bool flattenFold = false,
   });
 
   /// Rotate the JPEG at [imagePath] by [quarterTurns] clockwise 90° steps and

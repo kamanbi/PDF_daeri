@@ -100,6 +100,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('작업공간 초기화에 실패했습니다.'), findsOneWidget);
+    expect(
+      find.text('서류를 스캔하고, 받은 PDF를 열고, 사진을 하나의 문서로 정리하세요.'),
+      findsNothing,
+    );
     await tester.scrollUntilVisible(find.text('PDF 열기'), 300);
     await tester.pump(const Duration(milliseconds: 300));
 

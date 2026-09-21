@@ -33,6 +33,12 @@ abstract interface class ShareExport {
     required String pdfPath,
     required String title,
   });
+
+  /// 여러 PDF를 하나의 시스템 공유 시트에서 전달한다. 각 항목은 공유용 사본으로
+  /// 변환되므로 앱 내부 파일명이나 경로를 노출하지 않는다.
+  Future<PdfResult<void>> sharePdfs(
+    List<({String pdfPath, String title})> documents,
+  );
 }
 
 /// [ShareExport]의 `share_plus` 구현체. (T6, 담당 P)
@@ -58,30 +64,45 @@ class SharePlusExport implements ShareExport {
   Future<PdfResult<void>> sharePdf({
     required String pdfPath,
     required String title,
-  }) async {
-    final source = File(pdfPath);
-    if (!await source.exists()) {
-      return PdfErr(SourceMissing(pdfPath));
+  }) => sharePdfs([(pdfPath: pdfPath, title: title)]);
+
+  @override
+  Future<PdfResult<void>> sharePdfs(
+    List<({String pdfPath, String title})> documents,
+  ) async {
+    if (documents.isEmpty) return const PdfOk(null);
+
+    for (final document in documents) {
+      if (!await File(document.pdfPath).exists()) {
+        return PdfErr(SourceMissing(document.pdfPath));
+      }
     }
 
     // 동일 파일명이 이전 공유에서 남아 있을 수 있으니(정리 실패 재시도 여지) 매번
     // 새로 정리하고 시작한다 — `cache/`는 언제 지워도 안전하다는 계약을 그대로 쓴다.
     await _workspace.clearShareStaging();
 
-    final fileName = FileName.toFileName(title);
-    final stagedPath = _workspace.shareFile(fileName);
     try {
-      await Directory(p.dirname(stagedPath)).create(recursive: true);
-      await source.copy(stagedPath);
-    } catch (e) {
-      return PdfErr(UnknownFailure('공유용 사본을 만들지 못했습니다: $e'));
-    }
+      final usedTitles = <String>{};
+      final stagedPaths = <String>[];
+      for (final document in documents) {
+        final title = FileName.dedupe(
+          FileName.normalize(document.title),
+          usedTitles,
+        );
+        usedTitles.add(title);
+        final stagedPath = _workspace.shareFile(FileName.toFileName(title));
+        await Directory(p.dirname(stagedPath)).create(recursive: true);
+        await File(document.pdfPath).copy(stagedPath);
+        stagedPaths.add(stagedPath);
+      }
 
-    try {
       await _share(
         ShareParams(
-          files: [XFile(stagedPath)],
-          title: '$fileName 공유',
+          files: stagedPaths.map(XFile.new).toList(growable: false),
+          title: documents.length == 1
+              ? '${FileName.toFileName(documents.single.title)} 공유'
+              : 'PDF ${documents.length}개 공유',
           text: 'PDF 대리에서 보낸 PDF입니다.',
         ),
       );

@@ -9,6 +9,7 @@ plugins {
 
 dependencies {
     implementation("com.google.android.play:app-update:2.1.0")
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     // Google Mobile Ads SDK 25.4.0이 전이 의존성으로 가져오는 2.7.0은 target SDK 36
     // 기기에서 WorkDatabase 초기화에 실패한다. 앱의 min SDK 24와 호환되는 안정판으로 고정한다.
     implementation("androidx.work:work-runtime:2.11.2")

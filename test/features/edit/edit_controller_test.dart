@@ -17,7 +17,12 @@ void main() {
     test('initial로 넘긴 PageRef 순서대로 EditPage가 만들어진다', () {
       final controller = EditController(initial: _threePdfPages());
       expect(controller.state.pages.map((p) => p.ref), _threePdfPages());
-      expect(controller.state.pages.every((p) => p.origin == EditPageOrigin.existing), isTrue);
+      expect(
+        controller.state.pages.every(
+          (p) => p.origin == EditPageOrigin.existing,
+        ),
+        isTrue,
+      );
       expect(controller.state.mode, EditMode.arrange);
       expect(controller.state.dirty, isFalse);
       expect(controller.state.selected, isEmpty);
@@ -33,7 +38,9 @@ void main() {
     test('앞에서 뒤로 이동(oldIndex < newIndex)', () {
       final controller = EditController(initial: _threePdfPages());
       controller.reorder(0, 2); // ReorderableList 규약: 제거 전 인덱스 기준
-      final indices = controller.state.pages.map((p) => (p.ref as PdfPageRef).sourceIndex).toList();
+      final indices = controller.state.pages
+          .map((p) => (p.ref as PdfPageRef).sourceIndex)
+          .toList();
       expect(indices, [1, 0, 2]);
       expect(controller.state.dirty, isTrue);
     });
@@ -41,7 +48,9 @@ void main() {
     test('뒤에서 앞으로 이동(oldIndex > newIndex)', () {
       final controller = EditController(initial: _threePdfPages());
       controller.reorder(2, 0);
-      final indices = controller.state.pages.map((p) => (p.ref as PdfPageRef).sourceIndex).toList();
+      final indices = controller.state.pages
+          .map((p) => (p.ref as PdfPageRef).sourceIndex)
+          .toList();
       expect(indices, [2, 0, 1]);
     });
 
@@ -148,7 +157,10 @@ void main() {
       controller.insertImages(['/tmp/a.jpg', '/tmp/b.jpg']);
       expect(controller.state.pages.length, 5);
       expect(controller.state.pages[3].ref, isA<ImagePageRef>());
-      expect((controller.state.pages[3].ref as ImagePageRef).imagePath, '/tmp/a.jpg');
+      expect(
+        (controller.state.pages[3].ref as ImagePageRef).imagePath,
+        '/tmp/a.jpg',
+      );
       expect(controller.state.pages[3].origin, EditPageOrigin.added);
       expect(controller.state.dirty, isTrue);
     });
@@ -187,10 +199,10 @@ void main() {
     test('toggleSelect는 선택을 켜고 끈다', () {
       final controller = EditController(initial: _threePdfPages());
       final id0 = controller.state.pages[0].id;
-      controller.toggleSelect(id0);
-      expect(controller.state.selected, {id0});
+      controller.enterSelectMode(id0);
       controller.toggleSelect(id0);
       expect(controller.state.selected, isEmpty);
+      expect(controller.state.mode, EditMode.arrange);
     });
 
     test('clearSelection은 선택을 비우고 arrange 모드로 되돌린다', () {
@@ -204,7 +216,10 @@ void main() {
     test('selectAll은 모든 페이지 id를 선택한다', () {
       final controller = EditController(initial: _threePdfPages());
       controller.selectAll();
-      expect(controller.state.selected, controller.state.pages.map((p) => p.id).toSet());
+      expect(
+        controller.state.selected,
+        controller.state.pages.map((p) => p.id).toSet(),
+      );
     });
   });
 
@@ -237,7 +252,11 @@ void main() {
 
     test('ImagePageRef의 crop 필드가 그대로 보존된다', () {
       const crop = CropRect(left: 0.1, top: 0.1, right: 0.9, bottom: 0.9);
-      final controller = EditController(initial: const [ImagePageRef(imagePath: '/tmp/a.jpg', rotation: 0, crop: crop)]);
+      final controller = EditController(
+        initial: const [
+          ImagePageRef(imagePath: '/tmp/a.jpg', rotation: 0, crop: crop),
+        ],
+      );
       final refs = controller.toPageRefs();
       expect((refs.single as ImagePageRef).crop, crop);
     });

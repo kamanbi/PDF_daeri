@@ -10,7 +10,7 @@ abstract final class AppFeatures {
   static final bool ads = Platform.isAndroid; // google_mobile_ads
   static final bool billing = Platform.isAndroid; // in_app_purchase
   static final bool storeUpdate = Platform.isAndroid; // PlayUpdateService, in_app_review
-  static final bool scan = Platform.isAndroid; // doclens 카메라 스캔
+  static final bool scan = Platform.isAndroid; // Google Play 서비스 문서 스캔
   static final bool intentImport = Platform.isAndroid; // content:// VIEW 인텐트
   static final bool publicExport = true; // 구현체만 갈린다(§3.4)
 }

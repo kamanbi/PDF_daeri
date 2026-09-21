@@ -4,11 +4,9 @@
 /// **이 파일 밖에서 `InAppPurchase.instance`를 부르지 않는다.** 구매 스트림·
 /// 상품 조회·구매·복원이 전부 여기 모인다.
 ///
-/// 검증 수준(§3.4, 확정): 서버 영수증 검증을 하지 않는다(절대 규칙 1 — 서버
-/// 없음). `PurchaseDetails.status`가 `purchased`/`restored`이고
-/// `productID == 'ads_removed'`인지만 확인한다. 수용 위험: 루팅 기기 + 결제
-/// 후킹 앱으로 위조 가능하나, 피해는 그 기기 1대의 광고 수익 손실로 한정된다
-/// (`ads.md` "기능 잠금 없음").
+/// 검증 수준: `PurchaseDetails`의 Google Play 구매 토큰을 서버에 전달하고,
+/// 서버가 Google Play Developer API로 활성 구독을 확인한 경우에만 광고 제거
+/// 권한을 반영한다. 서버 검증 실패는 권한을 부여하지 않는다.
 library;
 
 import 'dart:async';
@@ -20,25 +18,23 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 
 import 'entitlement.dart';
+import 'subscription_verifier.dart';
 
-/// 광고 제거 자동 갱신 구독 상품. Google Play Console에서 월간·연간 기본 요금제를
+/// 광고 제거 자동 갱신 구독 상품. Google Play Console에서 연간 기본 요금제를
 /// 활성화해야 한다.
 ///
-/// **[승인 대기 · 사용자 작업 필요]** 이 상품은 아직 Play Console에 존재하지
-/// 않는다(§3.2). 상품이 없으면 [BillingService.queryProducts]가 `notFoundIDs`를
+/// 상품이 비활성·미등록 상태면 [BillingService.queryProducts]가 `notFoundIDs`를
 /// 받아 [PurchaseUiState.notFound]로 떨어진다 — 앱이 죽지 않는다.
-const String kAdsRemovedProductId = 'ads_removed';
-const String kMonthlyBasePlanId = 'monthly';
 const String kYearlyBasePlanId = 'yearly';
 
-enum SubscriptionPeriod { monthly, yearly }
+/// 출시 전 등록된 `year` 기본 요금제를 연간 요금제로 계속 인식한다.
+const String kLegacyYearlyBasePlanId = 'year';
 
 /// Play가 반환한 구독 기본 요금제 하나. 같은 상품 ID라도 기본 요금제마다 오퍼 토큰과
 /// 가격이 다르므로 구매 시 이 객체를 함께 전달한다.
 class SubscriptionPlan {
-  const SubscriptionPlan({required this.period, required this.product});
+  const SubscriptionPlan({required this.product});
 
-  final SubscriptionPeriod period;
   final GooglePlayProductDetails product;
 
   String get basePlanId {
@@ -48,7 +44,7 @@ class SubscriptionPlan {
     return offers[subscriptionIndex].basePlanId;
   }
 
-  String get billingPeriod => period == SubscriptionPeriod.monthly ? '월' : '년';
+  String get billingPeriod => '년';
 }
 
 /// S5 설정 화면(§6.2, 다음 라운드 T9)이 구독할 구매 UI 상태.
@@ -77,20 +73,24 @@ enum PurchaseUiState {
 
 /// 수동 복원(S5 [구매 복원] 버튼, §3.6) 결과. `restorePurchases()`는 "복원할
 /// 게 없다"를 알려주지 않으므로 5초 타임아웃이 유일한 판정 수단이다.
-enum RestoreOutcome { restored, nothingToRestore }
+enum RestoreOutcome { restored, nothingToRestore, verificationUnavailable }
 
 class BillingService {
   BillingService({
     required Entitlement entitlement,
     InAppPurchase? inAppPurchase,
+    SubscriptionVerifier? subscriptionVerifier,
   }) : _entitlement = entitlement,
-       _iap = inAppPurchase ?? InAppPurchase.instance;
+       _iap = inAppPurchase ?? InAppPurchase.instance,
+       _subscriptionVerifier =
+           subscriptionVerifier ?? RemoteSubscriptionVerifier();
 
   final Entitlement _entitlement;
   final InAppPurchase _iap;
+  final SubscriptionVerifier _subscriptionVerifier;
 
   StreamSubscription<List<PurchaseDetails>>? _subscription;
-  final Map<SubscriptionPeriod, SubscriptionPlan> _plans = {};
+  SubscriptionPlan? _yearlyPlan;
   bool _available = false;
   bool _started = false;
   PurchaseUiState _state = PurchaseUiState.loading;
@@ -107,11 +107,8 @@ class BillingService {
   /// 스트림 구독 전에도 즉시 읽을 수 있는 현재 상태.
   PurchaseUiState get state => _state;
 
-  /// 조회된 월간 기본 요금제. `notFound`/`unavailable`/`loading` 상태에서는 null이다.
-  SubscriptionPlan? get monthlyPlan => _plans[SubscriptionPeriod.monthly];
-
   /// 조회된 연간 기본 요금제. `notFound`/`unavailable`/`loading` 상태에서는 null이다.
-  SubscriptionPlan? get yearlyPlan => _plans[SubscriptionPeriod.yearly];
+  SubscriptionPlan? get yearlyPlan => _yearlyPlan;
 
   void _emit(PurchaseUiState next) {
     _state = next;
@@ -173,15 +170,13 @@ class BillingService {
           level: 800,
         );
       }
-      final plans = _mapSubscriptionPlans(response.productDetails);
-      if (response.error != null || plans.isEmpty) {
-        _plans.clear();
+      final yearlyPlan = _findYearlySubscriptionPlan(response.productDetails);
+      if (response.error != null || yearlyPlan == null) {
+        _yearlyPlan = null;
         _emit(PurchaseUiState.notFound);
         return;
       }
-      _plans
-        ..clear()
-        ..addAll(plans);
+      _yearlyPlan = yearlyPlan;
       _emit(PurchaseUiState.available);
     } catch (e, st) {
       developer.log(
@@ -191,35 +186,27 @@ class BillingService {
         error: e,
         stackTrace: st,
       );
-      _plans.clear();
+      _yearlyPlan = null;
       _emit(PurchaseUiState.notFound);
     }
   }
 
-  Map<SubscriptionPeriod, SubscriptionPlan> _mapSubscriptionPlans(
-    List<ProductDetails> products,
-  ) {
-    final plans = <SubscriptionPeriod, SubscriptionPlan>{};
+  SubscriptionPlan? _findYearlySubscriptionPlan(List<ProductDetails> products) {
     for (final product in products.whereType<GooglePlayProductDetails>()) {
       if (product.id != kAdsRemovedProductId) continue;
 
       final basePlanId = _basePlanIdOf(product);
-      final period = switch (basePlanId) {
-        kMonthlyBasePlanId => SubscriptionPeriod.monthly,
-        kYearlyBasePlanId => SubscriptionPeriod.yearly,
-        _ => null,
-      };
-      if (period == null) {
-        developer.log(
-          '알 수 없는 구독 기본 요금제: $basePlanId',
-          name: 'billing_service',
-          level: 800,
-        );
-        continue;
+      if (basePlanId == kYearlyBasePlanId ||
+          basePlanId == kLegacyYearlyBasePlanId) {
+        return SubscriptionPlan(product: product);
       }
-      plans[period] = SubscriptionPlan(period: period, product: product);
+      developer.log(
+        '연간 구독 기본 요금제가 아님: $basePlanId',
+        name: 'billing_service',
+        level: 800,
+      );
     }
-    return plans;
+    return null;
   }
 
   String _basePlanIdOf(GooglePlayProductDetails product) {
@@ -233,7 +220,7 @@ class BillingService {
   /// 하며, 상품이 없거나 결제를 쓸 수 없으면 아무 것도 하지 않는다.
   Future<void> buy(SubscriptionPlan plan) async {
     final product = plan.product;
-    if (!_available || !_plans.containsValue(plan)) return;
+    if (!_available || plan != _yearlyPlan) return;
     if (Platform.isAndroid && product.offerToken == null) {
       developer.log(
         '구독 오퍼 토큰이 없어 결제를 시작하지 않음',
@@ -294,7 +281,7 @@ class BillingService {
     }
     return completer.isCompleted
         ? RestoreOutcome.restored
-        : RestoreOutcome.nothingToRestore;
+        : RestoreOutcome.verificationUnavailable;
   }
 
   /// 성공 시 활성 여부를 반환하고, Play 조회 실패 시 null을 반환한다. 실패 때
@@ -314,11 +301,27 @@ class BillingService {
         return null;
       }
 
-      final activeSubscription = response.pastPurchases.any(
-        (purchase) =>
-            purchase.productID == kAdsRemovedProductId &&
-            purchase.status == PurchaseStatus.purchased,
+      final verificationResults = <SubscriptionVerificationResult>[];
+      for (final purchase in response.pastPurchases) {
+        if (purchase.productID != kAdsRemovedProductId ||
+            purchase.status != PurchaseStatus.purchased) {
+          continue;
+        }
+        verificationResults.add(await _subscriptionVerifier.verify(purchase));
+      }
+      final verificationResult = resolveSubscriptionEntitlement(
+        verificationResults,
       );
+      if (verificationResult == SubscriptionVerificationResult.unavailable) {
+        developer.log(
+          '구독 서버 검증 불가: 기존 광고 제거 상태를 보존합니다',
+          name: 'billing_service',
+          level: 900,
+        );
+        return null;
+      }
+      final activeSubscription =
+          verificationResult == SubscriptionVerificationResult.active;
       await _entitlement.syncSubscriptionState(activeSubscription);
       return activeSubscription;
     } catch (e, st) {
@@ -341,11 +344,12 @@ class BillingService {
             _emit(PurchaseUiState.purchasePending);
           case PurchaseStatus.purchased:
           case PurchaseStatus.restored:
-            // §3.4: 로컬 검증 수준 — status + productID 일치만 확인한다.
-            // verificationData 서명은 앱에서 자체 검증하지 않는다.
-            await _entitlement.syncSubscriptionState(true);
-            _emit(PurchaseUiState.purchased);
-            _restoreProbe?.call();
+            if (await _subscriptionVerifier.verify(purchase) ==
+                SubscriptionVerificationResult.active) {
+              await _entitlement.syncSubscriptionState(true);
+              _emit(PurchaseUiState.purchased);
+              _restoreProbe?.call();
+            }
           case PurchaseStatus.canceled:
             // §3.3: 아무 것도 하지 않는다(스낵바도 없다).
             break;

@@ -3,24 +3,37 @@ import 'package:pdf_daeri/review/review_prompt_service.dart';
 
 void main() {
   test(
-    'requests a review only after the tenth successful PDF creation',
+    'requests a review once at each configured successful PDF creation threshold',
     () async {
       final preferences = _MemoryReviewPreferences();
       final reviewer = _FakeReviewRequester();
       final service = ReviewPromptService(preferences, reviewer);
 
-      for (var index = 0; index < 9; index += 1) {
+      for (var completedCount = 1; completedCount <= 100; completedCount += 1) {
         await service.recordSuccessfulPdfCreation();
+        final expectedRequestCount = switch (completedCount) {
+          < 10 => 0,
+          < 30 => 1,
+          < 50 => 2,
+          < 100 => 3,
+          _ => 4,
+        };
+        expect(reviewer.requestCount, expectedRequestCount);
       }
-
-      expect(reviewer.requestCount, 0);
-
-      await service.recordSuccessfulPdfCreation();
-      await service.recordSuccessfulPdfCreation();
-
-      expect(reviewer.requestCount, 1);
     },
   );
+
+  test('does not repeat the legacy tenth-creation review request', () async {
+    final preferences = _MemoryReviewPreferences()
+      ..writeInt('completed_pdf_count', 9)
+      ..writeBool('review_request_attempted', true);
+    final reviewer = _FakeReviewRequester();
+    final service = ReviewPromptService(preferences, reviewer);
+
+    await service.recordSuccessfulPdfCreation();
+
+    expect(reviewer.requestCount, 0);
+  });
 }
 
 class _MemoryReviewPreferences implements ReviewPreferences {

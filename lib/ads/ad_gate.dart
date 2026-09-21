@@ -87,7 +87,7 @@ class AdGate {
     await _interstitial.preload();
   }
 
-  /// 모달이 아닌 앱 화면 전환이 완료될 때만 호출한다. 광고가 없거나 5분 간격을
+  /// 모달이 아닌 앱 화면 전환이 완료될 때만 호출한다. 광고가 없거나 10분 간격을
   /// 만족하지 않으면 대기를 유지해 다음 화면 전환에서만 다시 시도한다.
   Future<void> consumePendingOnPageTransition() async {
     if (!AppFeatures.ads) return;

@@ -3,16 +3,17 @@ library;
 import 'package:in_app_review/in_app_review.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// PDF 생성 성공 횟수에 따라 Google Play 리뷰 요청을 한 번만 보낸다.
+/// PDF 생성 성공 횟수에 따라 정해진 시점마다 Google Play 리뷰 요청을 한 번씩 보낸다.
 ///
 /// 인앱 리뷰 창의 실제 표시는 Play가 사용량 제한에 따라 결정한다. 이 서비스는
 /// 저장 흐름을 막지 않으며, 요청 실패도 PDF 저장 결과에 영향을 주지 않는다.
 class ReviewPromptService {
   ReviewPromptService(this._preferences, this._reviewer);
 
-  static const int reviewRequestThreshold = 10;
+  static const Set<int> reviewRequestThresholds = {10, 30, 50, 100};
   static const String _completedPdfCountKey = 'completed_pdf_count';
-  static const String _reviewRequestAttemptedKey = 'review_request_attempted';
+  static const String _legacyTenReviewRequestAttemptedKey =
+      'review_request_attempted';
 
   final ReviewPreferences _preferences;
   final ReviewRequester _reviewer;
@@ -23,18 +24,26 @@ class ReviewPromptService {
           (await _preferences.readInt(_completedPdfCountKey) ?? 0) + 1;
       await _preferences.writeInt(_completedPdfCountKey, completedPdfCount);
 
-      if (completedPdfCount != reviewRequestThreshold) return;
+      if (!reviewRequestThresholds.contains(completedPdfCount)) return;
 
+      final reviewRequestAttemptedKey = _attemptedKeyFor(completedPdfCount);
       final reviewRequestAttempted =
-          await _preferences.readBool(_reviewRequestAttemptedKey) ?? false;
+          await _preferences.readBool(reviewRequestAttemptedKey) ?? false;
       if (reviewRequestAttempted) return;
 
-      await _preferences.writeBool(_reviewRequestAttemptedKey, true);
+      await _preferences.writeBool(reviewRequestAttemptedKey, true);
       if (!await _reviewer.isAvailable()) return;
       await _reviewer.requestReview();
     } catch (_) {
       // 리뷰 요청 실패는 문서 저장 성공을 되돌리지 않는다.
     }
+  }
+
+  static String _attemptedKeyFor(int completedPdfCount) {
+    if (completedPdfCount == 10) {
+      return _legacyTenReviewRequestAttemptedKey;
+    }
+    return 'review_request_attempted_$completedPdfCount';
   }
 }
 

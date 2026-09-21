@@ -56,6 +56,7 @@ class MethodChannelDoclens extends DoclensPlatform {
     int jpegQuality = 100,
     ImageEnhancement enhancement = ImageEnhancement.none,
     AutoOrientation autoOrientation = AutoOrientation.none,
+    bool flattenFold = false,
   }) async {
     try {
       final out = await _method.invokeMethod<String>('warpImage', {
@@ -64,6 +65,7 @@ class MethodChannelDoclens extends DoclensPlatform {
         'jpegQuality': jpegQuality,
         'enhancement': enhancement.name,
         'autoOrientation': autoOrientation.name,
+        'flattenFold': flattenFold,
       });
       if (out == null) {
         throw const ScannerCaptureException('Warp returned null path');
@@ -139,6 +141,8 @@ class MethodChannelDoclens extends DoclensPlatform {
         lowLight: (map['lowLight'] as bool?) ?? false,
         previewSize: previewSize,
         sharpness: (map['sharpness'] as num?)?.toDouble(),
+        physicalRotationDegrees:
+            (map['physicalRotationDegrees'] as num?)?.toInt(),
       );
     });
   }

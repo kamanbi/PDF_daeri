@@ -1,18 +1,16 @@
-# PDF 생성 10회 리뷰 요청 결과
+# PDF 대리 무료 유입 운영 계획
 
-## 완료
+1. `PDF 열기`는 구현되어 있으므로 실기기에서 파일 선택·암호 PDF·최근 파일 재열기만 회귀 점검한다.
+2. 네이버 서치어드바이저 수집·노출 리포트와 Google Search Console의 검색 실적이 생성되는지 7일 후 확인한다.
+3. Google Play 등록정보 검토 결과와 스토어 방문·획득을 확인한다.
+4. 블로그 글별 조회·검색 유입과 Threads 게시물 반응을 분리해 측정하고, 실제 반응이 높은 주제만 후속 콘텐츠로 확장한다.
 
-1. PDF 생성 성공 건만 기기별로 누적한다.
-2. 10번째 성공 생성 직후 Google Play 인앱 리뷰를 한 번 요청한다.
-3. 앱 데이터 삭제 전에는 다시 요청하지 않으며, 실패·취소·파일 열기는 집계하지 않는다.
-4. 공용 저장 다이얼로그와 단일 스캔 저장 경로 모두 같은 정책을 사용한다.
-5. 버전 `1.1.5+5`의 서명된 APK·AAB를 생성했다.
-6. 리뷰 기준 단위 테스트, APK 서명·16KB 정렬 검증을 통과했다.
+## 가독성
 
-## 가독성 설계
+- Early Return: 파일 선택 취소·검사 실패·암호 입력 취소에서는 뷰어 이동을 중단한다.
+- Contextual Naming: `PickedFileSource`, `ExistingRecentSource`, `openPdfAndGoToViewer`처럼 진입 출처와 결과를 함께 표기한다.
+- Magic Number Hunter: 7일은 첫 수집 상태 확인 주기이며, 코드 상수로 사용하지 않는다.
+- Parameter Object: `PdfOpenSource`가 파일 선택·공유 인텐트·최근 파일의 입력을 통일한다.
+- Complexity Check: PDF 열기 흐름 8/10 → 실기기 회귀 점검 후 8/10 유지.
 
-- Early Return: 10회 미만, 이미 요청 완료, 리뷰 미지원 기기는 즉시 종료한다.
-- Contextual Naming: `completedPdfCount`, `reviewRequested`, `requestReviewAfterPdfCreation`을 사용한다.
-- Magic Number Hunter: 리뷰 기준은 `reviewRequestThreshold` 상수로 관리한다.
-- Parameter Object: 해당 없음.
-- Complexity Check: 분산된 저장 성공 처리 6/10을 공통 서비스 호출 9/10으로 개선한다.
+완료 기준: PDF 열기 핵심 경로의 실기기 회귀 점검과 채널별 실제 수집·노출·방문·획득 데이터 확인을 끝낸다.

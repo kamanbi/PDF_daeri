@@ -1,6 +1,5 @@
-/// S2 스캔. 로컬 CameraX 문서 스캐너가 네 모서리를 검출·보정한 결과를 받고,
-/// 기존 사진 편집·PDF 생성 흐름으로 넘긴다. Google Play 서비스 스캐너는 호출하지
-/// 않는다. 이 화면에는 배너를 넣지 않는다(`ads.md`).
+/// S2 스캔. Google Play 서비스 문서 스캐너가 보정한 결과를 받고, 기존 사진
+/// 편집·PDF 생성 흐름으로 넘긴다. 이 화면에는 배너를 넣지 않는다(`ads.md`).
 library;
 
 import 'package:flutter/material.dart';

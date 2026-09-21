@@ -22,13 +22,12 @@ abstract final class AdIds {
     'ADMOB_INTERSTITIAL_UNIT_ID',
   );
 
-  /// **디버그 빌드에서는 정의가 주입돼 있어도 무조건 테스트 ID를 쓴다.**
-  /// 실기기 디버깅 중 실광고를 클릭해 AdMob 계정이 정지되는 사고를 구조적으로 막는다.
-  static String get banner =>
-      (kReleaseMode && _banner.isNotEmpty) ? _banner : _testBanner;
+  /// **디버그 빌드에서만** Google 테스트 ID를 쓴다. 릴리스는 빌드 스크립트가
+  /// 실제 단위 ID 누락을 실패로 처리하므로 테스트 광고로 폴백하지 않는다.
+  static String get banner => kReleaseMode ? _banner : _testBanner;
 
   static String get interstitial =>
-      (kReleaseMode && _interstitial.isNotEmpty) ? _interstitial : _testInterstitial;
+      kReleaseMode ? _interstitial : _testInterstitial;
 
   /// 릴리스인데 정의가 비어 있다 = 실수로 테스트 광고를 달고 출시하려는 상태.
   static bool get isMisconfiguredRelease =>

@@ -124,7 +124,7 @@ Future<void> main() async {
   // settings 행은 문서 저장소와 같은 db 연결을 공유한다(두 번째 연결을 열지 않는다).
   // SettingsRepository는 앱 전역에서 이 **단 하나의 인스턴스**만 만든다 — 최소 연타
   // 방지 간격(§2.5)의 `_lastShownAt`이 인스턴스 메모리 변수라, 인스턴스가 갈리면
-  // 300초 간격이 무력화된다(문서 60 §4 F-1).
+  // 600초 간격이 무력화된다(문서 60 §4 F-1).
   SettingsRepository? settingsRepository;
   if (appDatabase != null) {
     try {

@@ -27,7 +27,16 @@ import 'ads_bootstrap.dart';
 /// 배너를 붙일 수 있는 4개 지점. `ads.md` 노출 지점 표와 1:1 대응한다.
 /// **이 enum에 값을 추가하는 것은 광고 지점 추가**이므로 절대 규칙 7에 걸린다.
 /// S2(스캔)·시스템 파일 선택기는 여기에 없다 — 없는 것이 계약이다.
-enum BannerSlot { home, viewer, edit, settings }
+enum BannerSlot {
+  home,
+  viewer,
+  edit,
+  settings,
+  documents,
+  photoToPdf,
+  photoEdit,
+  openPdf,
+}
 
 /// "지금 드래그 중" 신호의 단일 소유 provider(§1.4 방어 3). [BannerHost]만 이
 /// 값을 소비한다. 화면(`page_grid_editor.dart`)은 set만 하고, 배너가 어떻게
@@ -64,7 +73,11 @@ class BannerHost extends ConsumerStatefulWidget {
 class _BannerHostState extends ConsumerState<BannerHost> {
   BannerAd? _ad;
   bool _loading = false;
-  bool _failed = false; // 로드 실패 후 재시도하지 않는다(§1.6) — reserved 유지.
+  static const _retryDelay = Duration(seconds: 12);
+  static const _maximumRetryCount = 3;
+
+  int _retryCount = 0;
+  Timer? _retryTimer;
   bool _lastDragAvoid = false;
 
   Timer? _suppressRebuildTimer;
@@ -74,6 +87,7 @@ class _BannerHostState extends ConsumerState<BannerHost> {
   void dispose() {
     _suppressRebuildTimer?.cancel();
     _dragSafetyTimer?.cancel();
+    _retryTimer?.cancel();
     _ad?.dispose();
     super.dispose();
   }
@@ -93,7 +107,7 @@ class _BannerHostState extends ConsumerState<BannerHost> {
 
   /// 방어 1 — 높이 선점(§1.2). 화면 진입당 로드 시도 1회, 재시도 없음(§1.6).
   void _maybeLoad(int height, double widthDp) {
-    if (_ad != null || _loading || _failed) return;
+    if (_ad != null || _loading || _retryTimer != null) return;
     _loading = true;
     final ad = BannerAd(
       adUnitId: AdIds.banner,
@@ -108,6 +122,7 @@ class _BannerHostState extends ConsumerState<BannerHost> {
           setState(() {
             _loading = false;
             _ad = loadedAd as BannerAd;
+            _retryCount = 0;
           });
         },
         onAdFailedToLoad: (failedAd, error) {
@@ -115,12 +130,23 @@ class _BannerHostState extends ConsumerState<BannerHost> {
           if (!mounted) return;
           setState(() {
             _loading = false;
-            _failed = true;
           });
+          _scheduleRetry();
         },
       ),
     );
     ad.load();
+  }
+
+  void _scheduleRetry() {
+    if (!mounted || _retryTimer != null || _retryCount >= _maximumRetryCount) {
+      return;
+    }
+    _retryCount++;
+    _retryTimer = Timer(_retryDelay, () {
+      _retryTimer = null;
+      if (mounted) setState(() {});
+    });
   }
 
   /// 방어 3 — 드래그 회피(§1.4). 신호 누수 방어: true가 10초 이상 지속되면
@@ -186,7 +212,10 @@ class _BannerHostState extends ConsumerState<BannerHost> {
           children: [
             // 방어 2 — 완충 밴드. 인터랙션 없음, 배경색 없음(§1.3).
             const IgnorePointer(
-              child: SizedBox(height: BannerHost.bufferBandHeight, width: double.infinity),
+              child: SizedBox(
+                height: BannerHost.bufferBandHeight,
+                width: double.infinity,
+              ),
             ),
             SizedBox(
               height: height.toDouble(),
@@ -195,7 +224,11 @@ class _BannerHostState extends ConsumerState<BannerHost> {
                 // 방어 3: 160ms easeOutCubic, 복귀도 동일(§1.4).
                 duration: const Duration(milliseconds: 160),
                 curve: Curves.easeOutCubic,
-                transform: Matrix4.translationValues(0, dragAvoid ? reservedHeight : 0, 0),
+                transform: Matrix4.translationValues(
+                  0,
+                  dragAvoid ? reservedHeight : 0,
+                  0,
+                ),
                 child: showAd
                     ? Center(
                         child: SizedBox(

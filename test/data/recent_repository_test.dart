@@ -13,7 +13,11 @@ import 'package:pdf_daeri/data/storage/workspace.dart';
 /// [destinationPath]에 실제로 써서 `Workspace.recentFile` 경로에 파일이 생기는지도
 /// 함께 검증할 수 있게 한다.
 class _FakeSafImporter implements SafImporter {
-  _FakeSafImporter({this.displayName, this.bytes = const [1, 2, 3], this.failWith});
+  _FakeSafImporter({
+    this.displayName,
+    this.bytes = const [1, 2, 3],
+    this.failWith,
+  });
 
   String? displayName;
   List<int> bytes;
@@ -35,7 +39,9 @@ class _FakeSafImporter implements SafImporter {
     }
     await Directory(p.dirname(destinationPath)).create(recursive: true);
     await File(destinationPath).writeAsBytes(bytes);
-    return PdfOk(SafImportResult(displayName: displayName, bytes: bytes.length));
+    return PdfOk(
+      SafImportResult(displayName: displayName, bytes: bytes.length),
+    );
   }
 }
 
@@ -70,7 +76,11 @@ void main() {
 
   /// quota 테스트용: DB 행 + 실제 recent/<id>.pdf 파일을 함께 만든다(엄격 재현,
   /// enforceQuota가 파일도 지우는지까지 확인하기 위함).
-  Future<void> insertRow({required String id, required int openedAt, required int size}) async {
+  Future<void> insertRow({
+    required String id,
+    required int openedAt,
+    required int size,
+  }) async {
     final path = workspace.recentFile(id);
     await Directory(p.dirname(path)).create(recursive: true);
     await File(path).writeAsBytes(List.filled(size, 0));
@@ -113,7 +123,9 @@ void main() {
     });
 
     test('importFromUri: SafImporter 실패는 그대로 전파된다(무음 실패 아님)', () async {
-      final repo = repoWith(importer: _FakeSafImporter(failWith: const PermissionDenied('거부')));
+      final repo = repoWith(
+        importer: _FakeSafImporter(failWith: const PermissionDenied('거부')),
+      );
       final result = await repo.importFromUri('content://com.example/doc/3');
       expect(result, isA<PdfErr<RecentFile>>());
       expect((result as PdfErr<RecentFile>).failure, isA<PermissionDenied>());
@@ -124,7 +136,16 @@ void main() {
 
     test('importFromLocalPath: 로컬 경로를 복사하고 행을 기록한다(동일 결과 타입)', () async {
       final localSource = File(p.join(tempRoot.path, 'picked.pdf'));
-      await localSource.writeAsBytes(List.filled(10, 0x41));
+      await localSource.writeAsBytes([
+        0x25,
+        0x50,
+        0x44,
+        0x46,
+        0x2d,
+        0x31,
+        0x2e,
+        0x37,
+      ]);
 
       final repo = repoWith();
       final result = await repo.importFromLocalPath(
@@ -133,8 +154,42 @@ void main() {
       );
       final recent = (result as PdfOk<RecentFile>).value;
       expect(recent.displayName, '피커로 고른 문서.pdf');
-      expect(recent.size, 10);
+      expect(recent.size, 8);
       expect(File(recent.copiedPath).existsSync(), isTrue);
+    });
+
+    test('importFromLocalPath: PDF 헤더가 아니면 복사 전에 거부한다', () async {
+      final localSource = File(p.join(tempRoot.path, 'spoofed.pdf'));
+      await localSource.writeAsBytes([0x50, 0x4b, 0x03, 0x04]);
+
+      final result = await repoWith().importFromLocalPath(
+        sourcePath: localSource.path,
+        displayName: '위장 문서.pdf',
+      );
+
+      expect(result, isA<PdfErr<RecentFile>>());
+      expect((result as PdfErr<RecentFile>).failure, isA<SourceCorrupted>());
+      expect(
+        await Directory(p.dirname(workspace.recentFile('_'))).list().isEmpty,
+        isTrue,
+      );
+    });
+
+    test('importFromLocalPath: 100MB를 넘으면 복사 전에 거부한다', () async {
+      final localSource = File(p.join(tempRoot.path, 'large.pdf'));
+      final handle = await localSource.open(mode: FileMode.write);
+      await handle.writeFrom([0x25, 0x50, 0x44, 0x46, 0x2d]);
+      await handle.setPosition(100 * 1024 * 1024);
+      await handle.writeByte(0);
+      await handle.close();
+
+      final result = await repoWith().importFromLocalPath(
+        sourcePath: localSource.path,
+        displayName: '큰 문서.pdf',
+      );
+
+      expect(result, isA<PdfErr<RecentFile>>());
+      expect((result as PdfErr<RecentFile>).failure, isA<UnknownFailure>());
     });
 
     test('importFromLocalPath: 원본이 없으면 SourceMissing으로 실패한다', () async {
@@ -152,7 +207,9 @@ void main() {
     test('복사본과 행만 지운다', () async {
       final repo = repoWith();
       final imported =
-          ((await repo.importFromUri('content://com.example/doc/4')) as PdfOk<RecentFile>).value;
+          ((await repo.importFromUri('content://com.example/doc/4'))
+                  as PdfOk<RecentFile>)
+              .value;
 
       await repo.removeFromList(imported.id);
 
@@ -163,16 +220,25 @@ void main() {
 
     test('원본 소스 파일(임포트 이전의 로컬 경로)은 손대지 않는다', () async {
       final localSource = File(p.join(tempRoot.path, 'original_untouched.pdf'));
-      await localSource.writeAsBytes([9, 9, 9]);
+      await localSource.writeAsBytes([
+        0x25,
+        0x50,
+        0x44,
+        0x46,
+        0x2d,
+        0x31,
+        0x2e,
+        0x37,
+      ]);
 
       final repo = repoWith();
       final imported =
           ((await repo.importFromLocalPath(
-                sourcePath: localSource.path,
-                displayName: '원본.pdf',
-              ))
-              as PdfOk<RecentFile>)
-          .value;
+                    sourcePath: localSource.path,
+                    displayName: '원본.pdf',
+                  ))
+                  as PdfOk<RecentFile>)
+              .value;
 
       await repo.removeFromList(imported.id);
 
@@ -185,7 +251,9 @@ void main() {
     test('opened_at만 갱신하고 복사본 경로는 그대로다', () async {
       final repo = repoWith();
       final imported =
-          ((await repo.importFromUri('content://com.example/doc/5')) as PdfOk<RecentFile>).value;
+          ((await repo.importFromUri('content://com.example/doc/5'))
+                  as PdfOk<RecentFile>)
+              .value;
       final beforeRows = await db.select(db.recentFiles).get();
       final beforeOpenedAt = beforeRows.single.openedAt;
       final beforeModified = File(imported.copiedPath).statSync().modified;
@@ -208,7 +276,11 @@ void main() {
       final repo = repoWith();
       // 25개를 만든다. id_00이 가장 오래됨(openedAt 가장 작음), id_24가 가장 최신.
       for (var i = 0; i < 25; i++) {
-        await insertRow(id: 'id_${i.toString().padLeft(2, '0')}', openedAt: i, size: 1024);
+        await insertRow(
+          id: 'id_${i.toString().padLeft(2, '0')}',
+          openedAt: i,
+          size: 1024,
+        );
       }
 
       await repo.enforceQuota();
@@ -219,12 +291,20 @@ void main() {
       // 최신 20개(openedAt 5..24)만 남고, 가장 오래된 5개(0..4)는 지워진다.
       for (var i = 0; i < 5; i++) {
         final oldId = 'id_${i.toString().padLeft(2, '0')}';
-        expect(remainingIds.contains(oldId), isFalse, reason: '$oldId 는 지워졌어야 한다');
+        expect(
+          remainingIds.contains(oldId),
+          isFalse,
+          reason: '$oldId 는 지워졌어야 한다',
+        );
         expect(File(workspace.recentFile(oldId)).existsSync(), isFalse);
       }
       for (var i = 5; i < 25; i++) {
         final keptId = 'id_${i.toString().padLeft(2, '0')}';
-        expect(remainingIds.contains(keptId), isTrue, reason: '$keptId 는 남아 있어야 한다');
+        expect(
+          remainingIds.contains(keptId),
+          isTrue,
+          reason: '$keptId 는 남아 있어야 한다',
+        );
       }
     });
 
@@ -253,7 +333,11 @@ void main() {
     test('경계값: 정확히 20개면 아무것도 지우지 않는다', () async {
       final repo = repoWith();
       for (var i = 0; i < 20; i++) {
-        await insertRow(id: 'id_${i.toString().padLeft(2, '0')}', openedAt: i, size: 1024);
+        await insertRow(
+          id: 'id_${i.toString().padLeft(2, '0')}',
+          openedAt: i,
+          size: 1024,
+        );
       }
       await repo.enforceQuota();
       final rows = await db.select(db.recentFiles).get();
@@ -263,7 +347,11 @@ void main() {
     test('임포트가 자동으로 enforceQuota를 호출한다', () async {
       final repo = repoWith();
       for (var i = 0; i < 20; i++) {
-        await insertRow(id: 'pre_${i.toString().padLeft(2, '0')}', openedAt: i, size: 1024);
+        await insertRow(
+          id: 'pre_${i.toString().padLeft(2, '0')}',
+          openedAt: i,
+          size: 1024,
+        );
       }
       // 21번째 임포트 — importFromUri 내부에서 enforceQuota()가 호출되어
       // 가장 오래된 것(pre_00)이 정리되어야 한다.
@@ -345,7 +433,9 @@ void main() {
       );
 
       // 정리 후에도 정상적으로 새 임포트가 가능해야 한다.
-      final result = await repo.importFromUri('content://com.example/doc/after-clear');
+      final result = await repo.importFromUri(
+        'content://com.example/doc/after-clear',
+      );
       expect(result, isA<PdfOk<RecentFile>>());
     });
 

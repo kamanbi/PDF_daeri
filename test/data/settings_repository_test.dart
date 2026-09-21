@@ -16,7 +16,7 @@ void main() {
   });
 
   DriftSettingsRepository repoWith({
-    int minIntervalSeconds = 300,
+    int minIntervalSeconds = 600,
     DateTime Function()? now,
   }) {
     return DriftSettingsRepository(
@@ -65,94 +65,46 @@ void main() {
     expect(settings.adsRemoved, isTrue);
   });
 
-  test('isInterstitialEligible: 초기 상태(행 없음)는 true(하루 상한 미달)', () async {
+  test('isInterstitialEligible: 초기 상태(행 없음)는 true', () async {
     final repo = repoWith();
     expect(await repo.isInterstitialEligible(), isTrue);
   });
 
-  test('§2.4 하루 상한: 같은 날 3회 표시 후 4번째는 false', () async {
+  test('같은 날 광고를 여러 번 본 이력이 있어도 일일 상한으로 차단하지 않는다', () async {
     final fixedNow = DateTime(2026, 8, 26, 10, 0, 0);
     final repo = repoWith(minIntervalSeconds: 0, now: () => fixedNow);
 
-    for (var i = 0; i < 3; i++) {
-      expect(await repo.isInterstitialEligible(), isTrue, reason: '${i + 1}번째는 허용');
+    for (var i = 0; i < 4; i++) {
+      expect(
+        await repo.isInterstitialEligible(),
+        isTrue,
+        reason: '${i + 1}번째도 일일 상한 없이 허용',
+      );
       await repo.recordInterstitialShown();
     }
-
-    expect(await repo.isInterstitialEligible(), isFalse); // 4번째는 상한 소진
-
-    final settings = await repo.load();
-    expect(settings.interstitialCountToday, 3);
-    expect(settings.lastAdDate, 20260826);
-  });
-
-  test('§2.4 자정 리셋: 날짜가 바뀌면(yyyyMMdd 다름) 카운트가 리셋된 것처럼 판정한다', () async {
-    var current = DateTime(2026, 8, 26, 23, 59, 0);
-    final repo = repoWith(minIntervalSeconds: 0, now: () => current);
-
-    for (var i = 0; i < 3; i++) {
-      await repo.recordInterstitialShown();
-    }
-    expect(await repo.isInterstitialEligible(), isFalse); // 상한 소진 상태
-
-    // 다음날로 시계를 넘긴다.
-    current = DateTime(2026, 8, 27, 0, 5, 0);
-    expect(await repo.isInterstitialEligible(), isTrue); // 리셋되어 다시 허용
-
-    await repo.recordInterstitialShown();
-    final settings = await repo.load();
-    expect(settings.interstitialCountToday, 1); // 리셋 후 1부터
-    expect(settings.lastAdDate, 20260827);
-  });
-
-  test('§2.4 판정은 부작용이 없다: isInterstitialEligible만 호출해선 DB가 바뀌지 않는다', () async {
-    var current = DateTime(2026, 8, 26, 23, 59, 0);
-    final repo = repoWith(minIntervalSeconds: 0, now: () => current);
-    await repo.recordInterstitialShown();
-    await repo.recordInterstitialShown();
-    await repo.recordInterstitialShown();
-
-    current = DateTime(2026, 8, 27, 9, 0, 0);
-    // 여러 번 판정만 해도 카운트가 바뀌지 않아야 한다(리셋은 표시 확정 시에만).
-    await repo.isInterstitialEligible();
-    await repo.isInterstitialEligible();
-
-    final settings = await repo.load();
-    expect(settings.interstitialCountToday, 3); // 여전히 전날 값 그대로
-    expect(settings.lastAdDate, 20260826);
-  });
-
-  test(
-    '§2.5 연타 방지(5분=300초, 2026-08-26 사용자 결정): 최근 표시 직후 재판정은 false',
-    () async {
-      final fixedNow = DateTime(2026, 8, 26, 10, 0, 0);
-      final repo = repoWith(minIntervalSeconds: 300, now: () => fixedNow);
-
-      await repo.recordInterstitialShown();
-      expect(await repo.isInterstitialEligible(), isFalse); // 0초 경과
-    },
-  );
-
-  test('§2.5 연타 방지: 300초 이상 지나면 다시 허용된다', () async {
-    var current = DateTime(2026, 8, 26, 10, 0, 0);
-    final repo = repoWith(minIntervalSeconds: 300, now: () => current);
-
-    await repo.recordInterstitialShown();
-    current = current.add(const Duration(seconds: 299));
-    expect(await repo.isInterstitialEligible(), isFalse); // 아직 미달
-
-    current = current.add(const Duration(seconds: 1)); // 정확히 300초
-    expect(await repo.isInterstitialEligible(), isTrue);
-  });
-
-  test('recordInterstitialShown: onAdShowedFullScreenContent 확인 후에만 증가(표시 실패는 증가 없음)', () async {
-    final repo = repoWith();
-    // showIfEligible에 해당하는 판정만 하고 표시 콜백(recordInterstitialShown)을
-    // 부르지 않으면 카운트가 그대로여야 한다.
-    await repo.isInterstitialEligible();
-    await repo.isInterstitialEligible();
 
     final settings = await repo.load();
     expect(settings.interstitialCountToday, 0);
+    expect(settings.lastAdDate, 0);
+  });
+
+  test('§2.5 연타 방지(10분=600초): 최근 표시 직후 재판정은 false', () async {
+    final fixedNow = DateTime(2026, 8, 26, 10, 0, 0);
+    final repo = repoWith(minIntervalSeconds: 600, now: () => fixedNow);
+
+    await repo.recordInterstitialShown();
+    expect(await repo.isInterstitialEligible(), isFalse); // 0초 경과
+  });
+
+  test('§2.5 연타 방지: 600초 이상 지나면 다시 허용된다', () async {
+    var current = DateTime(2026, 8, 26, 10, 0, 0);
+    final repo = repoWith(minIntervalSeconds: 600, now: () => current);
+
+    await repo.recordInterstitialShown();
+    current = current.add(const Duration(seconds: 599));
+    expect(await repo.isInterstitialEligible(), isFalse); // 아직 미달
+
+    current = current.add(const Duration(seconds: 1)); // 정확히 600초
+    expect(await repo.isInterstitialEligible(), isTrue);
   });
 }

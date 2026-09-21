@@ -57,12 +57,10 @@ void registerOpenSourceLicenses() {
   });
 }
 
-/// §6.5: 개인정보처리방침 공개 URL. **[2026-08-26 · 사용자 결정]** 별도 홈페이지가
-/// 아직 없다 — 앱 안에 전문을 담는 §6.5 원안 대신, URL이 생기면 이 상수 하나만
-/// 채우면 되는 구조로 둔다(하드코딩 문자열 분리). 비어 있는 동안 화면은 "준비 중"으로
-/// 대응한다.
-const String kPrivacyPolicyUrl =
-    'https://verdant-pixie-350067.netlify.app/privacy';
+const String kPrivacyPolicyUrl = 'https://pdf-daeri.netlify.app/privacy.html';
+const String kHomepageUrl = 'https://pdf-daeri.netlify.app/';
+const String kGooglePlayReviewUrl =
+    'https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri&showAllReviews=true';
 
 const String kSubscriptionManageUrl =
     'https://play.google.com/store/account/subscriptions?sku=ads_removed&package=com.kamanbi.pdf_daeri';
@@ -104,7 +102,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const _SettingsDivider(),
                   const _StorageTile(),
                   const _SettingsDivider(),
+                  const _HomepageTile(),
+                  const _SettingsDivider(),
                   const _PrivacyPolicyTile(),
+                  const _SettingsDivider(),
+                  const _AppReviewTile(),
                   const _SettingsDivider(),
                   const _LicenseTile(),
                 ],
@@ -310,9 +312,12 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
     setState(() => _restoring = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          outcome == RestoreOutcome.restored ? '활성 구독을 확인했습니다' : '활성 구독이 없습니다',
-        ),
+        content: Text(switch (outcome) {
+          RestoreOutcome.restored => '활성 구독을 확인했습니다',
+          RestoreOutcome.nothingToRestore => '활성 구독이 없습니다',
+          RestoreOutcome.verificationUnavailable =>
+            '구독 확인 서버에 연결하지 못했습니다. 광고 제거 상태는 유지됩니다.',
+        }),
       ),
     );
   }
@@ -332,7 +337,6 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
       case PurchaseUiState.unavailable:
         // §3.6: 구매·복원 항목을 비활성 + 안내 문구로 둔다. 항목 자체는 숨기지 않는다.
         return _buildPurchaseRows(
-          monthlyPlan: null,
           yearlyPlan: null,
           unavailableMessage: '이 기기에서는 구독을 사용할 수 없습니다',
           buyEnabled: false,
@@ -340,7 +344,6 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
         );
       case PurchaseUiState.notFound:
         return _buildPurchaseRows(
-          monthlyPlan: null,
           yearlyPlan: null,
           unavailableMessage: '지금 구독할 수 없습니다',
           buyEnabled: false,
@@ -348,7 +351,6 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
         );
       case PurchaseUiState.available:
         return _buildPurchaseRows(
-          monthlyPlan: _billing.monthlyPlan,
           yearlyPlan: _billing.yearlyPlan,
           unavailableMessage: '현재 이용할 수 없습니다',
           buyEnabled: true,
@@ -403,7 +405,6 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
   }
 
   Widget _buildPurchaseRows({
-    required SubscriptionPlan? monthlyPlan,
     required SubscriptionPlan? yearlyPlan,
     required String unavailableMessage,
     required bool buyEnabled,
@@ -412,13 +413,6 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildPlanPurchaseRow(
-          title: '월간 광고 제거',
-          plan: monthlyPlan,
-          unavailableMessage: unavailableMessage,
-          buyEnabled: buyEnabled,
-        ),
-        const _SettingsDivider(),
         _buildPlanPurchaseRow(
           title: '연간 광고 제거',
           plan: yearlyPlan,
@@ -715,24 +709,78 @@ class _UsageRow extends StatelessWidget {
   }
 }
 
-/// §6.5 [4] 개인정보처리방침. **[2026-08-26 · 사용자 결정]** URL이 아직 없어
-/// [kPrivacyPolicyUrl]이 비어 있는 동안은 "준비 중"으로 대응한다 — 크래시 없이,
-/// 외부 링크를 여는 새 의존성도 추가하지 않는다. URL이 채워지면 여기 문구·동작만
-/// 갈아끼우면 된다.
+class _HomepageTile extends StatelessWidget {
+  const _HomepageTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ExternalLinkTile(
+      title: '홈페이지',
+      subtitle: 'PDF 대리 홈페이지를 엽니다',
+      url: kHomepageUrl,
+      failureMessage: '홈페이지를 열 수 없습니다',
+    );
+  }
+}
+
 class _PrivacyPolicyTile extends StatelessWidget {
   const _PrivacyPolicyTile();
 
   @override
   Widget build(BuildContext context) {
-    final ready = kPrivacyPolicyUrl.isNotEmpty;
-    return _SettingsRow(
+    return const _ExternalLinkTile(
       title: '개인정보처리방침',
-      subtitle: Text(ready ? kPrivacyPolicyUrl : '준비 중'),
-      onTap: () {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ready ? '곧 지원합니다' : '준비 중입니다')));
-      },
+      subtitle: '수집·이용 정보를 확인합니다',
+      url: kPrivacyPolicyUrl,
+      failureMessage: '개인정보처리방침을 열 수 없습니다',
     );
+  }
+}
+
+class _AppReviewTile extends StatelessWidget {
+  const _AppReviewTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ExternalLinkTile(
+      title: '칭찬하기',
+      subtitle: 'Google Play에서 별점과 리뷰를 남겨 주세요',
+      url: kGooglePlayReviewUrl,
+      failureMessage: 'Google Play 리뷰 페이지를 열 수 없습니다',
+    );
+  }
+}
+
+class _ExternalLinkTile extends StatelessWidget {
+  const _ExternalLinkTile({
+    required this.title,
+    required this.subtitle,
+    required this.url,
+    required this.failureMessage,
+  });
+
+  final String title;
+  final String subtitle;
+  final String url;
+  final String failureMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsRow(
+      title: title,
+      subtitle: Text(subtitle),
+      onTap: () => _open(context),
+    );
+  }
+
+  Future<void> _open(BuildContext context) async {
+    final opened = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!context.mounted || opened) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(failureMessage)));
   }
 }

@@ -15,6 +15,7 @@ import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
 import '../ads/ad_gate.dart';
 import '../billing/billing_service.dart';
@@ -45,6 +46,11 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
   @override
   void initState() {
     super.initState();
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]),
+    );
     WidgetsBinding.instance.addObserver(this);
     _adRouteObserver = _AppPageRouteObserver(
       onPageTransition: () =>

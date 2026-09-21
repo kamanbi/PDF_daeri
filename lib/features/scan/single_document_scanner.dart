@@ -34,7 +34,9 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
       enablePerspectiveWarp: false,
       captureResolution: Resolution.max,
       jpegQuality: scanJpegQuality,
-      imageEnhancement: ImageEnhancement.enhanced,
+      // 실사 컬러를 보존한다. 원근 보정과 약한 선명화는 네이티브 warp 단계에서
+      // 계속 적용되며, 이 값만 배경 흰색화·탈색 보정을 끈다.
+      imageEnhancement: ImageEnhancement.none,
       autoOrientation: AutoOrientation.none,
       initialFlashMode: FlashMode.auto,
     ),
@@ -42,11 +44,13 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
 
   StreamSubscription<Quad?>? _quadSubscription;
   StreamSubscription<DetectionStatus>? _statusSubscription;
+  StreamSubscription<int>? _physicalRotationSubscription;
   Quad? _quad;
   DetectionStatus _status = DetectionStatus.searching;
   Object? _initializationError;
   bool _initializing = true;
   bool _openingAdjustment = false;
+  int _physicalRotationDegrees = 0;
 
   @override
   void initState() {
@@ -58,15 +62,18 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
   void dispose() {
     _quadSubscription?.cancel();
     _statusSubscription?.cancel();
+    _physicalRotationSubscription?.cancel();
     unawaited(_controller.dispose());
-    unawaited(SystemChrome.setPreferredOrientations(const []));
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]),
+    );
     super.dispose();
   }
 
   Future<void> _openScanner() async {
-    await SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.portraitUp,
-    ]);
+    // 카메라 Texture와 모서리 좌표는 세로 좌표계를 유지한다. 물리 방향은
+    // 네이티브 센서 이벤트로 별도 받아 조작 UI·저장 JPEG에만 반영한다.
+    await SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     try {
       await _controller.initialize();
       _quadSubscription = _controller.quadStream.listen((quad) {
@@ -74,6 +81,9 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
       });
       _statusSubscription = _controller.statusStream.listen((status) {
         if (mounted) setState(() => _status = status);
+      });
+      _physicalRotationSubscription = _controller.physicalRotationStream.listen((degrees) {
+        if (mounted) setState(() => _physicalRotationDegrees = degrees);
       });
       if (mounted) setState(() => _initializing = false);
     } catch (error) {
@@ -156,10 +166,12 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
                     : DetectionStatus.tooFar,
                 accent: Colors.white,
               ),
-              captureButtonBuilder: (context, capture) => TextButton(
-                onPressed: _canCapture ? capture : null,
-                style: TextButton.styleFrom(foregroundColor: Colors.white),
-                child: Text(_openingAdjustment ? '보정 화면을 여는 중…' : '촬영'),
+              captureButtonBuilder: (context, capture) => _rotatedControl(
+                TextButton(
+                  onPressed: _canCapture ? capture : null,
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: Text(_openingAdjustment ? '보정 화면을 여는 중…' : '촬영'),
+                ),
               ),
               onCapture: (capture) => unawaited(_openAdjustment(capture)),
               onError: (error, stackTrace) {
@@ -175,14 +187,16 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
-                    child: const Text('취소'),
+                    child: _rotatedControl(const Text('취소')),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      _guidance,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white),
+                    child: _rotatedControl(
+                      Text(
+                        _guidance,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 56),
@@ -194,6 +208,15 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
       ),
     );
   }
+
+  Widget _rotatedControl(Widget child) => AnimatedRotation(
+    // 센서 각도는 기기 자체가 회전한 방향이다. 세로 고정 화면 안에서 글자를
+    // 사용자의 눈에 똑바로 보이게 하려면 조작 UI는 반대 방향으로 회전해야 한다.
+    // JPEG EXIF·캡처에는 네이티브의 원래 센서 각도를 그대로 사용한다.
+    turns: -_physicalRotationDegrees / 360,
+    duration: const Duration(milliseconds: 150),
+    child: child,
+  );
 }
 
 class _CornerAdjustmentPage extends StatefulWidget {
@@ -212,6 +235,9 @@ class _CornerAdjustmentPage extends StatefulWidget {
 class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
   late Quad _quad = widget.capture.detectedQuad;
   var _saving = false;
+  var _refreshingCorners = false;
+  var _additionalCorrection = false;
+  var _flattenFold = false;
   String? _failure;
   Offset? _dragStartGlobalPosition;
   Offset? _dragStartImagePoint;
@@ -226,6 +252,10 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
       final imagePath = await widget.controller.warpImage(
         widget.capture.rawImagePath,
         _quad,
+        enhancement: _additionalCorrection
+            ? ImageEnhancement.enhanced
+            : ImageEnhancement.none,
+        flattenFold: _flattenFold,
       );
       if (mounted) {
         Navigator.of(context).pop(imagePath);
@@ -236,6 +266,35 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _refreshCorners() async {
+    if (_refreshingCorners || _saving) return;
+    setState(() {
+      _refreshingCorners = true;
+      _failure = null;
+    });
+    try {
+      final detection = await widget.controller.detectInImage(
+        widget.capture.rawImagePath,
+      );
+      final detectedQuad = detection?.quad;
+      if (detectedQuad == null) {
+        if (mounted) {
+          setState(() => _failure = '문서 윤곽을 찾지 못했습니다. 현재 핀을 조정하세요.');
+        }
+        return;
+      }
+      if (mounted) {
+        setState(() => _quad = detectedQuad.scaleToSize(widget.capture.rawImageSize));
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _failure = '윤곽을 다시 찾지 못했습니다. 현재 핀을 조정하세요.');
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingCorners = false);
     }
   }
 
@@ -265,7 +324,13 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 84),
+                  TextButton(
+                    onPressed: _refreshingCorners || _saving
+                        ? null
+                        : _refreshCorners,
+                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    child: Text(_refreshingCorners ? '윤곽 찾는 중…' : '윤곽 다시 찾기'),
+                  ),
                 ],
               ),
             ),
@@ -287,6 +352,75 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                   style: const TextStyle(color: Colors.white),
                 ),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => setState(() {
+                        _additionalCorrection = false;
+                        _flattenFold = false;
+                      }),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: _additionalCorrection
+                            ? Colors.transparent
+                            : const Color(0xFF2B6E94),
+                        side: const BorderSide(color: Color(0xFF8AA6B5)),
+                      ),
+                      child: const Text('원본 컬러'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => setState(() {
+                        _additionalCorrection = true;
+                        _flattenFold = false;
+                      }),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: _additionalCorrection
+                            ? const Color(0xFF2B6E94)
+                            : Colors.transparent,
+                        side: const BorderSide(color: Color(0xFF8AA6B5)),
+                      ),
+                      child: const Text('추가 보정'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => setState(() {
+                        _additionalCorrection = true;
+                        _flattenFold = true;
+                      }),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: _flattenFold
+                            ? const Color(0xFF2B6E94)
+                            : Colors.transparent,
+                        side: const BorderSide(color: Color(0xFF8AA6B5)),
+                      ),
+                      child: const Text('평탄화 보정'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+              child: Text(
+                _flattenFold
+                    ? '접힘 골이 확인되면 종이를 펴 보이도록 보정합니다.'
+                    : _additionalCorrection
+                    ? '컬러를 유지하며 그림자와 접힌 자국의 명암을 완화합니다.'
+                    : '실사 컬러와 원본 명암을 유지합니다.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ),
             const Divider(height: 1, color: Color(0xFF484848)),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

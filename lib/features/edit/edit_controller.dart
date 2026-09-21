@@ -27,19 +27,30 @@ class EditPage {
   final PageRef ref;
   final EditPageOrigin origin;
 
-  EditPage copyWith({PageRef? ref}) => EditPage(id: id, ref: ref ?? this.ref, origin: origin);
+  EditPage copyWith({PageRef? ref}) =>
+      EditPage(id: id, ref: ref ?? this.ref, origin: origin);
 }
 
 /// S3와 사진→PDF 생성 편집이 **공유하는** 편집 상태. 두 화면이 같은 컨트롤러를 쓴다(§2.1).
 class EditState {
-  const EditState({required this.pages, required this.selected, required this.mode, required this.dirty});
+  const EditState({
+    required this.pages,
+    required this.selected,
+    required this.mode,
+    required this.dirty,
+  });
 
   final List<EditPage> pages; // 화면에 보이는 순서 = 저장 시 페이지 순서
   final Set<int> selected; // EditPage.id 집합
   final EditMode mode;
   final bool dirty; // 원본과 달라졌는가 (뒤로가기 확인 판단에만 쓴다)
 
-  EditState copyWith({List<EditPage>? pages, Set<int>? selected, EditMode? mode, bool? dirty}) => EditState(
+  EditState copyWith({
+    List<EditPage>? pages,
+    Set<int>? selected,
+    EditMode? mode,
+    bool? dirty,
+  }) => EditState(
     pages: pages ?? this.pages,
     selected: selected ?? this.selected,
     mode: mode ?? this.mode,
@@ -58,7 +69,8 @@ class EditController extends StateNotifier<EditState> {
       super(
         EditState(
           pages: [
-            for (var i = 0; i < initial.length; i++) EditPage(id: i, ref: initial[i], origin: EditPageOrigin.existing),
+            for (var i = 0; i < initial.length; i++)
+              EditPage(id: i, ref: initial[i], origin: EditPageOrigin.existing),
           ],
           selected: const {},
           mode: EditMode.arrange,
@@ -96,7 +108,10 @@ class EditController extends StateNotifier<EditState> {
     if (state.selected.isEmpty) return;
     final pages = [
       for (final page in state.pages)
-        if (state.selected.contains(page.id)) page.copyWith(ref: _rotate90(page.ref)) else page,
+        if (state.selected.contains(page.id))
+          page.copyWith(ref: _rotate90(page.ref))
+        else
+          page,
     ];
     _apply(pages);
   }
@@ -104,7 +119,11 @@ class EditController extends StateNotifier<EditState> {
   static PageRef _rotate90(PageRef ref) {
     final newRotation = (ref.rotation + 90) % 360;
     return switch (ref) {
-      ImagePageRef(:final imagePath, :final crop) => ImagePageRef(imagePath: imagePath, rotation: newRotation, crop: crop),
+      ImagePageRef(:final imagePath, :final crop) => ImagePageRef(
+        imagePath: imagePath,
+        rotation: newRotation,
+        crop: crop,
+      ),
       PdfPageRef(:final sourcePath, :final sourceIndex) => PdfPageRef(
         sourcePath: sourcePath,
         sourceIndex: sourceIndex,
@@ -138,7 +157,8 @@ class EditController extends StateNotifier<EditState> {
   void undoDelete(List<({int index, EditPage page})> removed) {
     if (removed.isEmpty) return;
     final pages = List<EditPage>.of(state.pages);
-    final ordered = List<({int index, EditPage page})>.of(removed)..sort((a, b) => a.index.compareTo(b.index));
+    final ordered = List<({int index, EditPage page})>.of(removed)
+      ..sort((a, b) => a.index.compareTo(b.index));
     for (final entry in ordered) {
       final at = entry.index <= pages.length ? entry.index : pages.length;
       pages.insert(at, entry.page);
@@ -152,10 +172,19 @@ class EditController extends StateNotifier<EditState> {
   /// 경로는 아직 `sources/` 밖의 임시 경로다 — 복사는 저장 시 Repository가 한다(§1.5).
   void insertImages(List<String> imagePaths, {int? at}) {
     if (imagePaths.isEmpty) return;
-    final newPages = [for (final path in imagePaths) EditPage(id: _nextId++, ref: ImagePageRef(imagePath: path, rotation: 0), origin: EditPageOrigin.added)];
+    final newPages = [
+      for (final path in imagePaths)
+        EditPage(
+          id: _nextId++,
+          ref: ImagePageRef(imagePath: path, rotation: 0),
+          origin: EditPageOrigin.added,
+        ),
+    ];
     final pages = List<EditPage>.of(state.pages);
     final requested = at ?? pages.length;
-    final insertAt = requested < 0 ? 0 : (requested > pages.length ? pages.length : requested);
+    final insertAt = requested < 0
+        ? 0
+        : (requested > pages.length ? pages.length : requested);
     pages.insertAll(insertAt, newPages);
     _apply(pages);
   }
@@ -197,7 +226,12 @@ class EditController extends StateNotifier<EditState> {
   void toggleSelect(int id) {
     final selected = Set<int>.of(state.selected);
     if (!selected.remove(id)) selected.add(id);
-    state = state.copyWith(selected: selected);
+    state = state.copyWith(
+      selected: selected,
+      // 마지막 선택을 해제하면 선택 도구를 유지할 이유가 없다. 일반 편집 모드로
+      // 돌아가 사진→PDF 화면의 저장 버튼도 즉시 다시 노출한다.
+      mode: selected.isEmpty ? EditMode.arrange : EditMode.select,
+    );
   }
 
   void clearSelection() {
@@ -238,7 +272,9 @@ class EditController extends StateNotifier<EditState> {
   /// `dirty` 판정 전용 키. `SizeGuard.classify`의 동일성 키(rotation 제외)와 달리
   /// 여기서는 rotation도 포함한다 — 회전만 바뀌어도 "저장하지 않고 나갈까요?"를 물어야 한다.
   static String _key(PageRef ref) => switch (ref) {
-    ImagePageRef(:final imagePath, :final crop, :final rotation) => 'img|$imagePath|${crop?.encode() ?? ''}|$rotation',
-    PdfPageRef(:final sourcePath, :final sourceIndex, :final rotation) => 'pdf|$sourcePath|$sourceIndex|$rotation',
+    ImagePageRef(:final imagePath, :final crop, :final rotation) =>
+      'img|$imagePath|${crop?.encode() ?? ''}|$rotation',
+    PdfPageRef(:final sourcePath, :final sourceIndex, :final rotation) =>
+      'pdf|$sourcePath|$sourceIndex|$rotation',
   };
 }

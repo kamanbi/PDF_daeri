@@ -10,8 +10,7 @@ import kotlin.math.min
  * Document quadrilateral detector that runs entirely on a downscaled
  * luma buffer. Strategy:
  *
- * 1. Compute mean luma; build a mask of "bright" pixels (paper, typically).
- *    Falls back to Sobel-edge boundary if contrast is poor.
+ * 1. Compute local luma; build a shadow-tolerant paper mask.
  * 2. Find the largest connected component in the mask.
  * 3. Walk the component's boundary, then approximate to a 4-point convex
  *    hull via Douglas-Peucker on the boundary polygon.
@@ -25,14 +24,61 @@ import kotlin.math.min
 object QuadDetector {
     fun detect(luma: ByteArray, width: Int, height: Int): Quad? {
         if (width < 16 || height < 16) return null
-        val mask = buildMask(luma, width, height) ?: return null
-        val component = bestDocumentComponent(mask, width, height) ?: return null
+        detectFromMask(buildMask(luma, width, height), width, height)?.let { return it }
+
+        // 접힌 종이의 그림자·진한 표·약한 조명은 보통의 밝은 종이 마스크를
+        // 여러 조각으로 나눈다. 기본 검출에 실패한 경우에만 임계값을 낮추고
+        // 조금 넓게 닫은 마스크를 다시 시도한다. 따라서 일반적인 장면에서
+        // 배경을 문서로 오인하는 회귀를 피한다.
+        return detectFromMask(
+            buildMask(
+                luma = luma,
+                w = width,
+                h = height,
+                globalOffset = 5,
+                localOffset = -5,
+                closeRadius = 2,
+            ),
+            width,
+            height,
+            includeDiagonal = true,
+        )
+    }
+
+    private fun detectFromMask(
+        mask: BooleanArray?,
+        width: Int,
+        height: Int,
+        includeDiagonal: Boolean = false,
+    ): Quad? {
+        if (mask == null) return null
+        val component = bestDocumentComponent(mask, width, height, includeDiagonal) ?: return null
         if (component.size < (width * height) / 50) return null
         val boundary = traceBoundary(component, width, height) ?: return null
         val hull = convexHull(boundary)
         if (hull.size < 4) return null
         val quad = approximateQuad(hull) ?: return null
         return normalizeAndOrder(quad, width.toFloat(), height.toFloat())
+    }
+
+    /**
+     * Detect on a captured upright bitmap. The returned quad stays normalized,
+     * so callers can safely scale it into the original capture dimensions.
+     */
+    fun detectInBitmap(bitmap: Bitmap, target: Int): Quad? {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w < 16 || h < 16) return null
+        val scale = min(1.0, target.toDouble() / max(w, h))
+        val dw = max(16, (w * scale).toInt())
+        val dh = max(16, (h * scale).toInt())
+        val small = if (dw == w && dh == h) bitmap
+        else Bitmap.createScaledBitmap(bitmap, dw, dh, true)
+        return try {
+            detect(lumaOf(small, dw, dh), dw, dh)
+        } finally {
+            if (small !== bitmap) small.recycle()
+        }
     }
 
     /**
@@ -53,30 +99,13 @@ object QuadDetector {
         try {
             val w = upright.width
             val h = upright.height
-            // Downscale for detection; the largest side caps at ~480 px. The
-            // detector emits normalized [0,1] coords, so this is purely a
-            // speed/memory optimisation and doesn't affect the result space.
-            val target = 480
-            val scale = min(1.0, target.toDouble() / max(w, h))
-            val dw = max(16, (w * scale).toInt())
-            val dh = max(16, (h * scale).toInt())
-            val small = if (dw == w && dh == h) upright
-                        else Bitmap.createScaledBitmap(upright, dw, dh, true)
-            val pixels = IntArray(dw * dh)
-            small.getPixels(pixels, 0, dw, 0, 0, dw, dh)
-            if (small !== upright) small.recycle()
-
-            val luma = ByteArray(dw * dh)
-            for (i in pixels.indices) {
-                val p = pixels[i]
-                val r = (p shr 16) and 0xFF
-                val g = (p shr 8) and 0xFF
-                val b = p and 0xFF
-                // Rec.601 luma, integer weights (77/150/29 ≈ /256).
-                luma[i] = (((r * 77 + g * 150 + b * 29) shr 8) and 0xFF).toByte()
-            }
-
-            val quad = detect(luma, dw, dh)
+            // The detector emits normalized [0,1] coordinates, so the
+            // downscale is only a speed/memory optimisation.
+            // Corner adjustment needs pins as close as possible to the paper
+            // boundary. Use the same high-resolution analysis target as a
+            // freshly captured still instead of the lower gallery preview.
+            val target = 960
+            val quad = detectInBitmap(upright, target)
             return mapOf(
                 "quad" to quad?.toMap(),
                 "imageSize" to listOf(w.toDouble(), h.toDouble()),
@@ -87,23 +116,98 @@ object QuadDetector {
         }
     }
 
-    private fun buildMask(luma: ByteArray, @Suppress("UNUSED_PARAMETER") w: Int, @Suppress("UNUSED_PARAMETER") h: Int): BooleanArray? {
+    private fun lumaOf(bitmap: Bitmap, width: Int, height: Int): ByteArray {
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        return ByteArray(pixels.size) { index ->
+            val p = pixels[index]
+            val r = (p shr 16) and 0xFF
+            val g = (p shr 8) and 0xFF
+            val b = p and 0xFF
+            (((r * 77 + g * 150 + b * 29) shr 8) and 0xFF).toByte()
+        }
+    }
+
+    private fun buildMask(
+        luma: ByteArray,
+        w: Int,
+        h: Int,
+        globalOffset: Int = 20,
+        localOffset: Int = 7,
+        closeRadius: Int = 1,
+    ): BooleanArray? {
         var sum = 0L
         for (b in luma) sum += b.toInt() and 0xFF
         val mean = (sum / luma.size).toInt()
-        // Bias slightly above the mean to favor paper-bright.
-        val threshold = (mean + 20).coerceIn(60, 220)
-        val mask = BooleanArray(luma.size)
-        for (i in luma.indices) {
-            mask[i] = (luma[i].toInt() and 0xFF) > threshold
+        // 전역 밝기만 쓰면 문서 한쪽 그림자가 배경으로 빠진다. 적분 영상으로
+        // 주변 조도를 구해 더 낮은 쪽 임계값을 쓰되, 너무 어두운 배경은 전역
+        // 기준으로 계속 제외한다.
+        val stride = w + 1
+        val integral = IntArray(stride * (h + 1))
+        for (y in 1..h) {
+            var rowSum = 0
+            for (x in 1..w) {
+                rowSum += luma[(y - 1) * w + (x - 1)].toInt() and 0xFF
+                integral[y * stride + x] = integral[(y - 1) * stride + x] + rowSum
+            }
         }
-        return mask
+        val radius = (min(w, h) / 10).coerceAtLeast(12)
+        val globalThreshold = (mean + globalOffset).coerceIn(50, 220)
+        val mask = BooleanArray(luma.size)
+        for (y in 0 until h) {
+            val top = (y - radius).coerceAtLeast(0)
+            val bottom = (y + radius + 1).coerceAtMost(h)
+            for (x in 0 until w) {
+                val left = (x - radius).coerceAtLeast(0)
+                val right = (x + radius + 1).coerceAtMost(w)
+                val localSum = integral[bottom * stride + right] -
+                    integral[top * stride + right] -
+                    integral[bottom * stride + left] + integral[top * stride + left]
+                val localMean = localSum / ((bottom - top) * (right - left))
+                val threshold = min(globalThreshold, (localMean + localOffset).coerceIn(45, 220))
+                val index = y * w + x
+                mask[index] = (luma[index].toInt() and 0xFF) > threshold
+            }
+        }
+        return closeMask(mask, w, h, closeRadius)
     }
 
-    private fun bestDocumentComponent(mask: BooleanArray, w: Int, h: Int): IntArray? {
+    /** Close small shadow/text gaps so a paper region remains connected. */
+    private fun closeMask(mask: BooleanArray, w: Int, h: Int, radius: Int): BooleanArray {
+        val dilated = BooleanArray(mask.size)
+        for (y in 0 until h) for (x in 0 until w) {
+            var any = false
+            for (dy in -radius..radius) for (dx in -radius..radius) {
+                val px = x + dx
+                val py = y + dy
+                if (px in 0 until w && py in 0 until h && mask[py * w + px]) any = true
+            }
+            dilated[y * w + x] = any
+        }
+        val closed = BooleanArray(mask.size)
+        for (y in 0 until h) for (x in 0 until w) {
+            var all = true
+            for (dy in -radius..radius) for (dx in -radius..radius) {
+                val px = x + dx
+                val py = y + dy
+                if (px !in 0 until w || py !in 0 until h || !dilated[py * w + px]) all = false
+            }
+            closed[y * w + x] = all
+        }
+        return closed
+    }
+
+    private fun bestDocumentComponent(
+        mask: BooleanArray,
+        w: Int,
+        h: Int,
+        includeDiagonal: Boolean,
+    ): IntArray? {
         val labels = IntArray(mask.size) { -1 }
         var best: IntArray? = null
         var bestScore = Double.NEGATIVE_INFINITY
+        var closeDocumentFallback: IntArray? = null
+        var closeDocumentFallbackScore = Double.NEGATIVE_INFINITY
         val stack = IntArray(mask.size)
         for (start in mask.indices) {
             if (!mask[start] || labels[start] != -1) continue
@@ -118,7 +222,16 @@ object QuadDetector {
                 collected[collectedSize++] = idx
                 val x = idx % w
                 val y = idx / w
-                val neighbors = intArrayOf(
+                val neighbors = if (includeDiagonal) intArrayOf(
+                    if (x > 0) idx - 1 else -1,
+                    if (x < w - 1) idx + 1 else -1,
+                    if (y > 0) idx - w else -1,
+                    if (y < h - 1) idx + w else -1,
+                    if (x > 0 && y > 0) idx - w - 1 else -1,
+                    if (x < w - 1 && y > 0) idx - w + 1 else -1,
+                    if (x > 0 && y < h - 1) idx + w - 1 else -1,
+                    if (x < w - 1 && y < h - 1) idx + w + 1 else -1,
+                ) else intArrayOf(
                     if (x > 0) idx - 1 else -1,
                     if (x < w - 1) idx + 1 else -1,
                     if (y > 0) idx - w else -1,
@@ -143,18 +256,30 @@ object QuadDetector {
             val area = collectedSize.toDouble() / (w * h)
             val touchesFrame = (if (minX == 0) 1 else 0) + (if (maxX == w - 1) 1 else 0) +
                 (if (minY == 0) 1 else 0) + (if (maxY == h - 1) 1 else 0)
+            // 전체 프레임이 하나의 밝은 덩어리인 경우는 흰 배경이지 문서
+            // 외곽이 아니다. 보조 검출에서도 이를 사각형으로 확정하지 않는다.
+            if (touchesFrame == 4 && area > 0.92) continue
             // 바닥처럼 넓게 퍼진 반사보다, 화면 중앙을 적당히 채우는 밀도 높은
-            // 종이 후보를 우선한다. 너무 큰 영역은 문서가 아니라 배경일 확률이 높다.
-            if (area > 0.82 && fill < 0.92) continue
+            // 종이 후보를 우선한다. 다만 가까이 든 종이는 세 변에 닿을 수 있으므로
+            // 이를 바로 버리면 "윤곽 없음"이 된다. 일반 후보가 없을 때만 쓰는
+            // fallback으로 보존하면 Flutter가 "조금 더 멀리" 안내를 줄 수 있다.
             val preferredArea = 0.45
             val areaFit = 1.0 - kotlin.math.abs(area - preferredArea)
             val score = fill * areaFit * if (touchesFrame >= 2) 0.12 else 1.0
+            val isCloseDocument = touchesFrame >= 3 || (area > 0.82 && fill < 0.92)
+            if (isCloseDocument) {
+                if (fill >= 0.55 && score > closeDocumentFallbackScore) {
+                    closeDocumentFallbackScore = score
+                    closeDocumentFallback = collected.copyOf(collectedSize)
+                }
+                continue
+            }
             if (score > bestScore) {
                 bestScore = score
                 best = collected.copyOf(collectedSize)
             }
         }
-        return best
+        return best ?: closeDocumentFallback
     }
 
     private fun traceBoundary(component: IntArray, w: Int, h: Int): List<PointF>? {

@@ -125,4 +125,34 @@ void main() {
     final sharedFile = captured!.files!.single;
     expect(p.basename(sharedFile.path), '2026_8월_보고서_.pdf');
   });
+
+  test('여러 문서는 하나의 공유 시트에 제목별 사본으로 전달한다', () async {
+    final firstPath = p.join(tempRoot.path, 'docs', 'first', 'document.pdf');
+    final secondPath = p.join(tempRoot.path, 'docs', 'second', 'document.pdf');
+    await Directory(p.dirname(firstPath)).create(recursive: true);
+    await Directory(p.dirname(secondPath)).create(recursive: true);
+    await File(firstPath).writeAsBytes([1]);
+    await File(secondPath).writeAsBytes([2]);
+
+    ShareParams? captured;
+    final export = SharePlusExport(
+      workspace,
+      share: (params) async {
+        captured = params;
+        return const ShareResult('ok', ShareResultStatus.success);
+      },
+    );
+
+    final result = await export.sharePdfs([
+      (pdfPath: firstPath, title: '계약서'),
+      (pdfPath: secondPath, title: '계약서'),
+    ]);
+
+    expect(result, isA<PdfOk<void>>());
+    expect(captured!.files!.map((file) => p.basename(file.path)), [
+      '계약서.pdf',
+      '계약서 (2).pdf',
+    ]);
+    expect(captured!.title, 'PDF 2개 공유');
+  });
 }

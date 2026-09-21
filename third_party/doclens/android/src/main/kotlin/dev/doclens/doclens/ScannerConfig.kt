@@ -40,6 +40,13 @@ data class Quad(
     val bottomRight: PointF,
     val bottomLeft: PointF,
 ) {
+    fun scaleTo(size: android.util.Size): Quad = Quad(
+        PointF(topLeft.x * size.width, topLeft.y * size.height),
+        PointF(topRight.x * size.width, topRight.y * size.height),
+        PointF(bottomRight.x * size.width, bottomRight.y * size.height),
+        PointF(bottomLeft.x * size.width, bottomLeft.y * size.height),
+    )
+
     fun toMap(): Map<String, Any?> = mapOf(
         "topLeft" to listOf(topLeft.x.toDouble(), topLeft.y.toDouble()),
         "topRight" to listOf(topRight.x.toDouble(), topRight.y.toDouble()),

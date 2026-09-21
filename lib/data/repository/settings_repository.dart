@@ -6,7 +6,7 @@
 /// 다른 파일이 `SettingsRows`를 직접 쿼리하지 않는다.
 ///
 /// **[2026-08-26 · 사용자 결정]** 전면광고 최소 연타 방지 간격은 설계서 §2.5가
-/// 제안한 60초가 아니라 **300초(5분)**로 확정됐다. §2.5 원문대로 DB 컬럼을 추가하지
+/// 제안한 60초가 아니라 **600초(10분)**로 확정됐다. §2.5 원문대로 DB 컬럼을 추가하지
 /// 않고 **메모리 변수**로만 유지한다(앱 재시작 시 초기화 = 관대한 쪽).
 library;
 
@@ -34,15 +34,15 @@ class Settings {
 
   final ImageQuality defaultQuality;
 
-  /// **캐시.** 진실의 원천은 Google Play다(§3.5). 이 값 자체는 저장된 그대로를
+  /// **캐시.** 진실의 원천은 서버가 확인한 Google Play 상태다(§3.5). 이 값 자체는 저장된 그대로를
   /// 반영할 뿐 신뢰 순서를 판단하지 않는다 — 판단은 `lib/billing/entitlement.dart`
   /// (다음 라운드)의 책임이다.
   final bool adsRemoved;
 
-  /// `lastAdDate`가 가리키는 날짜에 **실제로 표시된** 전면광고 횟수.
+  /// 이전 버전의 일일 광고 횟수 기록. 현재 광고 적격 판정에는 사용하지 않는다.
   final int interstitialCountToday;
 
-  /// 로컬 날짜 `yyyyMMdd`(예: 20260826). 기본값 0 = 아직 없음.
+  /// 이전 버전의 광고 노출 날짜 기록. 현재 광고 적격 판정에는 사용하지 않는다.
   final int lastAdDate;
 }
 
@@ -61,28 +61,19 @@ abstract interface class SettingsRepository {
   /// — 이 메서드 자체는 순수 쓰기이며 호출 여부를 스스로 판단하지 않는다.
   Future<void> setAdsRemoved(bool removed);
 
-  /// 전면광고를 지금 띄워도 되는가 — 하루 상한(§2.4 자정 리셋) **+** 최소 연타
-  /// 방지 간격(§2.5, 300초로 확정)을 함께 판정한다.
-  ///
-  /// 자정이 지났으면 판정에는 리셋된 값(카운트 0)을 쓰지만, **DB에는 쓰지 않는다**
-  /// — 리셋이 실제로 확정되는 시점은 [recordInterstitialShown] 호출 시다(순수
-  /// 판정 함수로 유지해 판정만 하고 표시로 이어지지 않는 호출이 카운터를
-  /// 오염시키지 않게 한다).
-  ///
-  /// DB 조회가 실패하면 카운트를 신뢰할 수 없으므로 **실패-닫힘**(false)한다(§2.3).
+  /// 전면광고를 지금 띄워도 되는가 — 최소 연타 방지 간격(600초)만 판정한다.
   Future<bool> isInterstitialEligible();
 
   /// 전면광고가 **실제로 표시된 직후**(`onAdShowedFullScreenContent`) 호출한다.
-  /// 자정 리셋이 필요했으면 함께 반영해 카운트를 저장하고, 최소 연타 방지 간격의
-  /// 기준 시각을 이 호출 시점으로 갱신한다. `show()` 호출만으로는 증가시키지
-  /// 않는다 — 표시 실패 시 횟수만 깎이는 것을 막기 위함(§2.4).
+  /// 최소 연타 방지 간격의 기준 시각을 이 호출 시점으로 갱신한다. `show()` 호출만으로
+  /// 갱신하지 않아 표시 실패가 다음 광고를 막지 않는다.
   Future<void> recordInterstitialShown();
 }
 
 class DriftSettingsRepository implements SettingsRepository {
   DriftSettingsRepository({
     required db.AppDatabase database,
-    int minIntervalSeconds = 300, // §2.5 확정값(300초=5분). 사유는 클래스 상단 doc 참조.
+    int minIntervalSeconds = 600, // §2.5 확정값(600초=10분). 사유는 클래스 상단 doc 참조.
     DateTime Function() now = DateTime.now,
   }) : _db = database,
        _minIntervalSeconds = minIntervalSeconds,
@@ -95,9 +86,6 @@ class DriftSettingsRepository implements SettingsRepository {
   /// §2.5: DB 컬럼이 아니라 메모리 변수로만 유지한다. 리포지토리 인스턴스는
   /// 앱 전역 1개(Provider, 다음 라운드)를 전제한다.
   DateTime? _lastShownAt;
-
-  /// `ads.md`: 저장 또는 공유 완료 직후 1회, 하루 최대 3회.
-  static const int _dailyCap = 3;
 
   ImageQuality _qualityFromString(String value) {
     for (final q in ImageQuality.values) {
@@ -114,8 +102,9 @@ class DriftSettingsRepository implements SettingsRepository {
     lastAdDate: row.lastAdDate,
   );
 
-  Future<db.SettingsRow?> _readRow() =>
-      (_db.select(_db.settingsRows)..where((t) => t.id.equals(0))).getSingleOrNull();
+  Future<db.SettingsRow?> _readRow() => (_db.select(
+    _db.settingsRows,
+  )..where((t) => t.id.equals(0))).getSingleOrNull();
 
   @override
   Future<Settings> load() async {
@@ -161,24 +150,9 @@ class DriftSettingsRepository implements SettingsRepository {
     return _upsert(adsRemoved: drift.Value(removed));
   }
 
-  /// §2.4 산식 그대로: `todayKey = year*10000 + month*100 + day`(로컬 시각, UTC 아님).
-  int _todayKey() {
-    final now = _now();
-    return now.year * 10000 + now.month * 100 + now.day;
-  }
-
   @override
   Future<bool> isInterstitialEligible() async {
     try {
-      final row = await _readRow();
-      final todayKey = _todayKey();
-      // row.lastAdDate != todayKey 이면 리셋된 것으로 간주(§2.4) — 시계
-      // 되돌림·타임존 변경도 "날짜 값이 다르다"는 같은 규칙으로 처리된다.
-      final effectiveCount = (row == null || row.lastAdDate != todayKey)
-          ? 0
-          : row.interstitialCountToday;
-      if (effectiveCount >= _dailyCap) return false;
-
       final lastShown = _lastShownAt;
       if (lastShown != null) {
         final elapsed = _now().difference(lastShown).inSeconds;
@@ -192,16 +166,8 @@ class DriftSettingsRepository implements SettingsRepository {
   }
 
   @override
-  Future<void> recordInterstitialShown() async {
-    final todayKey = _todayKey();
-    final row = await _readRow();
-    final nextCount = (row == null || row.lastAdDate != todayKey)
-        ? 1
-        : row.interstitialCountToday + 1;
-    await _upsert(
-      interstitialCountToday: drift.Value(nextCount),
-      lastAdDate: drift.Value(todayKey),
-    );
+  Future<void> recordInterstitialShown() {
     _lastShownAt = _now();
+    return Future.value();
   }
 }

@@ -86,6 +86,8 @@ class DriftRecentRepository implements RecentRepository {
   /// 사용자 확정: 총 300MB 또는 20개 중 먼저 닿는 쪽.
   static const int quotaBytes = 300 * 1024 * 1024;
   static const int quotaCount = 20;
+  static const int _maxImportedPdfBytes = 100 * 1024 * 1024;
+  static const List<int> _pdfHeader = [0x25, 0x50, 0x44, 0x46, 0x2d];
 
   RecentFile _toDomain(db.RecentFile row) => RecentFile(
     id: row.id,
@@ -99,7 +101,10 @@ class DriftRecentRepository implements RecentRepository {
   Stream<List<RecentFile>> watchRecent() {
     final query = _db.select(_db.recentFiles)
       ..orderBy([
-        (t) => drift.OrderingTerm(expression: t.openedAt, mode: drift.OrderingMode.desc),
+        (t) => drift.OrderingTerm(
+          expression: t.openedAt,
+          mode: drift.OrderingMode.desc,
+        ),
       ]);
     return query.watch().map((rows) => rows.map(_toDomain).toList());
   }
@@ -137,6 +142,8 @@ class DriftRecentRepository implements RecentRepository {
     if (!await srcFile.exists()) {
       return PdfErr(SourceMissing(sourcePath));
     }
+    final validationFailure = await _validateLocalPdf(srcFile);
+    if (validationFailure != null) return PdfErr(validationFailure);
 
     int size;
     try {
@@ -154,6 +161,30 @@ class DriftRecentRepository implements RecentRepository {
       copiedPath: destinationPath,
       size: size,
     );
+  }
+
+  Future<PdfFailure?> _validateLocalPdf(File source) async {
+    try {
+      if (await source.length() > _maxImportedPdfBytes) {
+        return const UnknownFailure('PDF 파일 크기는 100MB 이하여야 합니다.');
+      }
+      final header = await source
+          .openRead(0, _pdfHeader.length)
+          .fold<List<int>>(<int>[], (bytes, chunk) => bytes..addAll(chunk));
+      if (header.length != _pdfHeader.length || !_hasPdfHeader(header)) {
+        return SourceCorrupted(source.path);
+      }
+      return null;
+    } on FileSystemException {
+      return SourceMissing(source.path);
+    }
+  }
+
+  bool _hasPdfHeader(List<int> header) {
+    for (var index = 0; index < _pdfHeader.length; index++) {
+      if (header[index] != _pdfHeader[index]) return false;
+    }
+    return true;
   }
 
   /// 두 진입점([importFromUri]/[importFromLocalPath])이 합류하는 공통 경로.
@@ -203,9 +234,7 @@ class DriftRecentRepository implements RecentRepository {
   @override
   Future<void> touch(String id) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await (_db.update(
-      _db.recentFiles,
-    )..where((t) => t.id.equals(id))).write(
+    await (_db.update(_db.recentFiles)..where((t) => t.id.equals(id))).write(
       db.RecentFilesCompanion(openedAt: drift.Value(now)),
     );
   }
@@ -227,7 +256,10 @@ class DriftRecentRepository implements RecentRepository {
     // 지점 이후는 전부 정리한다 — 300MB 또는 20개, 먼저 닿는 쪽(사용자 확정).
     final rows =
         await (_db.select(_db.recentFiles)..orderBy([
-              (t) => drift.OrderingTerm(expression: t.openedAt, mode: drift.OrderingMode.desc),
+              (t) => drift.OrderingTerm(
+                expression: t.openedAt,
+                mode: drift.OrderingMode.desc,
+              ),
             ]))
             .get();
 
@@ -244,7 +276,9 @@ class DriftRecentRepository implements RecentRepository {
     }
 
     for (final row in toRemove) {
-      await (_db.delete(_db.recentFiles)..where((t) => t.id.equals(row.id))).go();
+      await (_db.delete(
+        _db.recentFiles,
+      )..where((t) => t.id.equals(row.id))).go();
       await _deleteCopyIfExists(row.copiedPath);
     }
   }

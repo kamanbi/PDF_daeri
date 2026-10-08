@@ -13,6 +13,10 @@ workflows:
     scripts:
       - name: Flutter 의존성 설치
         script: flutter pub get
+      - name: qpdf iOS 정적 라이브러리 빌드
+        script: bash tool/build_qpdf_ios.sh
+      - name: iOS 컴파일 (서명 없음)
+        script: flutter build ios --release --no-codesign
       - name: 정적 분석
         script: flutter analyze --no-fatal-infos lib test
         # CI의 최신 Flutter가 로컬에 없는 린트 경고를 추가로 낸다 — 기록만 하고 빌드는 막지 않는다.
@@ -22,9 +26,5 @@ workflows:
         # PDFium 렌더러 테스트(pdf_renderer_geometry_test)가 macOS 호스트에서 실패한다 — 환경 차이로
         # 로컬 Windows 전체 통과가 기준이다. 결과는 기록만 하고 빌드는 막지 않는다.
         ignore_failure: true
-      - name: qpdf iOS 정적 라이브러리 빌드
-        script: bash tool/build_qpdf_ios.sh
-      - name: iOS 컴파일 (서명 없음)
-        script: flutter build ios --release --no-codesign
     artifacts:
       - build/ios/iphoneos/Runner.app

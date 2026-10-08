@@ -5,12 +5,13 @@
 library;
 
 import 'dart:developer' as developer;
-import 'dart:io' show Platform;
+
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/app_error.dart';
+import '../../core/platform_features.dart';
 
 abstract interface class ScanSource {
   Future<bool> isAvailable();
@@ -42,7 +43,7 @@ class GoogleDocumentScanSource implements ScanSource {
     DocumentScanLauncher? launcher,
     bool Function()? isSupported,
   }) : _launcher = launcher ?? const MethodChannelDocumentScanLauncher(),
-       _isSupported = isSupported ?? (() => Platform.isAndroid);
+       _isSupported = isSupported ?? (() => AppFeatures.scan);
 
   final DocumentScanLauncher _launcher;
   final bool Function() _isSupported;

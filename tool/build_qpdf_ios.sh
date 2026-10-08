@@ -23,7 +23,16 @@ OUT_LIB="$OUT_DIR/libqpdf_all.a"
 if [ "${1:-}" = "--verify-only" ]; then
   [ -f "$OUT_LIB" ] || { echo "없음: $OUT_LIB"; exit 1; }
   lipo -info "$OUT_LIB"
-  nm -g "$OUT_LIB" 2>/dev/null | grep -q "qpdfjob_run_from_json" && echo "OK: qpdfjob 심볼 확인" || { echo "qpdfjob 심볼 없음"; exit 1; }
+  # 앱(lib/pdf/qpdf_ffi.dart)이 DynamicLibrary.process()로 찾는 qpdf C API 핵심 심볼이 정의돼 있는지 본다.
+  # (pipefail 환경에서 nm | grep -q는 조기 종료로 실패하므로 결과를 변수에 받아 here-string으로 검사한다.)
+  SYMS="$(nm -g "$OUT_LIB" 2>/dev/null || true)"
+  MISSING=""
+  for s in qpdf_init qpdf_cleanup qpdf_init_write qpdf_get_num_pages qpdf_get_page_n \
+           qpdf_oh_get_type_code qpdf_oh_get_stream_data qpdf_is_encrypted; do
+    grep -Eq " T _${s}\$" <<<"$SYMS" || MISSING="$MISSING $s"
+  done
+  if [ -n "$MISSING" ]; then echo "누락된 qpdf 심볼:$MISSING"; exit 1; fi
+  echo "OK: qpdf C API 핵심 심볼 확인"
   exit 0
 fi
 

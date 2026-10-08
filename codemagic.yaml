@@ -41,3 +41,48 @@ workflows:
         ignore_failure: true
     artifacts:
       - build/ios/iphoneos/Runner.app
+
+  # 서명한 IPA를 만들어 TestFlight에 올린다. 수동 실행 전용(규칙 9: 실행 전 사용자 확인).
+  # 사전 준비(사용자): Codemagic Team integrations → App Store Connect에 API 키를 `pdf_daeri_asc`
+  # 이름으로 등록. App Store Connect에 앱(번들 ID com.kamanbi.pdfdaeri)을 만들어 둘 것.
+  ios-release:
+    name: iOS Release (TestFlight)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: pdf_daeri_asc
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.kamanbi.pdfdaeri
+    scripts:
+      - name: Flutter 의존성 설치
+        script: flutter pub get
+      - name: qpdf iOS 정적 라이브러리 빌드
+        script: bash tool/build_qpdf_ios.sh
+      - name: 서명 프로파일 적용
+        script: xcode-project use-profiles
+      - name: IPA 빌드
+        # 빌드 번호는 Codemagic 카운터($BUILD_NUMBER, TestFlight는 업로드마다 증가해야 한다).
+        # iOS는 광고·결제가 아직 꺼져 있어(AppFeatures) 광고 ID dart-define이 필요 없다 — 켤 때 추가한다.
+        script: flutter build ipa --release --build-number=$BUILD_NUMBER --export-options-plist=/Users/builder/export_options.plist
+      - name: 최종 바이너리 qpdf 심볼 검사
+        script: |
+          APP="$(ls -d build/ios/archive/Runner.xcarchive/Products/Applications/*.app | head -1)"
+          SYMS="$(nm -gU "$APP/Runner" 2>/dev/null || true)"
+          MISSING=""
+          for s in qpdf_init qpdf_cleanup qpdf_init_write qpdf_get_num_pages qpdf_get_page_n \
+                   qpdf_oh_get_type_code qpdf_oh_get_stream_data qpdf_is_encrypted; do
+            grep -Eq " T _${s}\$" <<<"$SYMS" || MISSING="$MISSING $s"
+          done
+          if [ -n "$MISSING" ]; then echo "누락된 qpdf 심볼:$MISSING"; exit 1; fi
+          echo "OK: qpdf 심볼 보존됨"
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

@@ -13,14 +13,10 @@ import 'package:pdf_daeri/data/storage/workspace.dart';
 /// [destinationPath]에 실제로 써서 `Workspace.recentFile` 경로에 파일이 생기는지도
 /// 함께 검증할 수 있게 한다.
 class _FakeSafImporter implements SafImporter {
-  _FakeSafImporter({
-    this.displayName,
-    this.bytes = const [1, 2, 3],
-    this.failWith,
-  });
+  _FakeSafImporter({this.displayName, this.failWith});
 
   String? displayName;
-  List<int> bytes;
+  List<int> bytes = const [1, 2, 3];
   PdfFailure? failWith;
 
   @override

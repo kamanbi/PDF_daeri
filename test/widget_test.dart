@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pdf_daeri/app/app.dart';
+import 'package:pdf_daeri/app/app_locale.dart';
 import 'package:pdf_daeri/app/providers.dart';
 import 'package:pdf_daeri/core/app_error.dart';
 import 'package:pdf_daeri/core/cancel_token.dart';
@@ -118,6 +119,7 @@ void main() {
       ProviderScope(
         overrides: [
           bootIssuesProvider.overrideWithValue(const ['작업공간 초기화에 실패했습니다.']),
+          appLocaleProvider.overrideWithValue(const Locale('ko')),
         ],
         child: const PdfDaeriApp(),
       ),
@@ -156,7 +158,11 @@ void main() {
         overrides: [
           scanSourceProvider.overrideWithValue(_FakeUnsupportedScanSource()),
         ],
-        child: const MaterialApp(home: ScanScreen()),
+        child: const MaterialApp(
+          locale: Locale('ko'),
+          supportedLocales: [Locale('ko'), Locale('en')],
+          home: ScanScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -180,6 +186,8 @@ void main() {
           ),
         ],
         child: MaterialApp(
+          locale: const Locale('ko'),
+          supportedLocales: const [Locale('ko'), Locale('en')],
           home: Consumer(
             builder: (context, ref, _) => Scaffold(
               body: Center(

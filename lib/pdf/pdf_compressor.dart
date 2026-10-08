@@ -34,6 +34,7 @@ import '../core/app_error.dart';
 import '../core/cancel_token.dart';
 import '../core/progress.dart';
 import 'image_encode_isolate.dart';
+import 'image_pdf_assembly.dart';
 import 'image_pdf_builder.dart';
 import 'image_quality.dart';
 import 'qpdf_isolate.dart';
@@ -478,33 +479,21 @@ class QpdfCompressor implements PdfCompressor {
         }
 
         // 압축 경로는 크롭 개념이 없다 -- 전부 cropEncoded: null(설계 §2.5, ImageEncodeItem 전환).
-        final encodeResult = await runImageEncodeBatch(
+        final assembly = await encodeAndAssembleImagePdf(
           items: [
             for (final p in imagePagePaths)
               ImageEncodeItem(imagePath: p, cropEncoded: null),
           ],
           longEdgeMaxPx: rung.longEdgeMaxPx,
           jpegQuality: rung.jpegQuality,
+          progressTotal: imagePagePaths.length,
+          onErrorMap: _failureFromErrorMap,
+          onProgress: onProgress,
           cancelToken: cancelToken,
         );
-        if (encodeResult['ok'] != true)
-          return PdfErr(_failureFromErrorMap(encodeResult));
-        if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
-
-        final encodedImages = (encodeResult['images']! as List)
-            .cast<EncodedImage>();
-        onProgress?.call(
-          PdfProgress(
-            phase: PdfPhase.composing,
-            done: encodedImages.length,
-            total: imagePagePaths.length,
-          ),
-        );
-
-        final builtBytes = await ImagePdfBuilder.build(
-          jpegPages: [for (final e in encodedImages) e.bytes],
-          title: null,
-        );
+        if (assembly.failure != null) return PdfErr(assembly.failure!);
+        if (assembly.cancelled) return const PdfErr(Cancelled());
+        final builtBytes = assembly.bytes!;
 
         // qpdf(L1) 입력으로만 쓰는 임시 파일. 성공/실패 모두 finally에서 지운다(pdf_engine.dart의
         // `_images.pdf` 처리와 같은 규약 — 최종 산출물은 [outputPath] 하나뿐이다).

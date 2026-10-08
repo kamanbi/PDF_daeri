@@ -136,6 +136,7 @@ class BillingService {
     }
 
     if (!_available) {
+      _started = false;
       _emit(PurchaseUiState.unavailable);
       return;
     }
@@ -276,6 +277,15 @@ class BillingService {
         const Duration(seconds: 5),
         onTimeout: () {},
       );
+    } catch (error, stackTrace) {
+      developer.log(
+        '수동 구독 복원 실패',
+        name: 'billing_service',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return RestoreOutcome.verificationUnavailable;
     } finally {
       _restoreProbe = null;
     }

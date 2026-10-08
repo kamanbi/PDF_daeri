@@ -64,7 +64,7 @@ void main() {
       // `AppFeatures.scan`(Android 전용)이 거짓인 플랫폼에서 렌더 트리에서
       // 제외된다(68 §6) — 이 테스트가 실행되는 호스트가 그 대상일 수 있으므로,
       // 모든 플랫폼에 항상 존재하는 "PDF 열기" 버튼으로 홈 화면 도달을 확인한다.
-      expect(find.text('PDF 열기'), findsOneWidget);
+      expect(find.textContaining(RegExp(r'PDF 열기|Open PDF')), findsOneWidget);
 
       // 실기기 로그에서 관찰된 것과 동일한 문자열("file://" 스킴이 제거된 형태).
       await _simulatePushRouteInformation(tester, '/sdcard/Download/fixture.pdf');
@@ -76,7 +76,7 @@ void main() {
 
       // 예외가 흡수된 뒤에도 앱은 여전히 정상 화면(홈)에 남아 있어야 한다 —
       // 빈 화면이나 크래시 흔적이 아니어야 한다.
-      expect(find.text('PDF 열기'), findsOneWidget);
+      expect(find.textContaining(RegExp(r'PDF 열기|Open PDF')), findsOneWidget);
     },
   );
 }

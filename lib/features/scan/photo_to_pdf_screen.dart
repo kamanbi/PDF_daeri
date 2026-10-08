@@ -3,6 +3,7 @@
 /// 다이얼로그, 3주차 설계 §2.1)으로 넘긴다.
 library;
 
+import '../../app/app_locale.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -66,12 +67,15 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
       case PdfOk<List<String>>():
         final images = result.value;
         _busyHandedOff = true;
+        // 제목은 전환 전에 계산한다 — 라우트 빌더는 pushReplacement로 이 화면이
+        // 사라진 뒤에 실행되므로, 그 안에서 context(appText)를 쓰면 예외가 난다.
+        final suggestedTitle = _suggestedTitle();
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => PhotoEditScreen(
               imagePaths: images,
               origin: DocOrigin.photo,
-              suggestedTitle: _suggestedTitle(),
+              suggestedTitle: suggestedTitle,
             ),
           ),
         );
@@ -93,13 +97,13 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
   String _suggestedTitle() {
     final now = DateTime.now();
     String two(int n) => n.toString().padLeft(2, '0');
-    return '사진 ${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}${two(now.minute)}';
+    return '${appText(context, '사진')} ${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}${two(now.minute)}';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('사진 → PDF')),
+      appBar: AppBar(title: Text(appText(context, '사진 → PDF'))),
       body: Center(
         child: switch (_state) {
           _PickState.idle => Padding(
@@ -113,18 +117,18 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
                   color: Theme.of(context).colorScheme.primary,
                 ),
                 const SizedBox(height: 12),
-                const Text('PDF로 만들 사진을 선택하세요.', textAlign: TextAlign.center),
+                Text(appText(context, 'PDF로 만들 사진을 선택하세요.'), textAlign: TextAlign.center),
                 const SizedBox(height: 20),
-                FilledButton(onPressed: _pick, child: const Text('사진 선택')),
+                FilledButton(onPressed: _pick, child: Text(appText(context, '사진 선택'))),
               ],
             ),
           ),
-          _PickState.picking => const Column(
+          _PickState.picking => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('사진을 선택하는 중…'),
+              Text(appText(context, '사진을 선택하는 중…')),
             ],
           ),
           _PickState.failed => Padding(
@@ -138,9 +142,9 @@ class _PhotoToPdfScreenState extends ConsumerState<PhotoToPdfScreen> {
                   color: Theme.of(context).colorScheme.error,
                 ),
                 const SizedBox(height: 12),
-                Text(_errorMessage ?? '알 수 없는 오류', textAlign: TextAlign.center),
+                Text(appText(context, _errorMessage ?? '알 수 없는 오류'), textAlign: TextAlign.center),
                 const SizedBox(height: 20),
-                FilledButton(onPressed: _pick, child: const Text('다시 시도')),
+                FilledButton(onPressed: _pick, child: Text(appText(context, '다시 시도'))),
               ],
             ),
           ),

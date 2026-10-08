@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="ko">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="스캔부터 PDF 열기, 사진 PDF 변환과 편집까지. PDF 대리 하나로 간단하게 처리하세요.">
-    <meta name="theme-color" content="#101010">
-    <meta name="google-site-verification" content="TVjXl6s7Xmi6AlHHhzQhh_3EgRIicL0pcMudlYV5JAs">
-    <meta name="msvalidate.01" content="302719EEB0B30AED31C3DA90C5DECA98">
-    <meta name="naver-site-verification" content="0d1cb87b8cdc7233e22a17d8ba0c0796fa8abb08">
-    <title>PDF 대리 — 무료 사진 PDF 변환·문서 스캔·페이지 편집</title>
-    <meta property="og:type" content="website">
+  <html lang="ko">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="스캔부터 PDF 열기, 사진 PDF 변환과 편집까지. PDF 대리 하나로 간단하게 처리하세요.">
+      <meta name="theme-color" content="#101010">
+      <meta name="google-site-verification" content="TVjXl6s7Xmi6AlHHhzQhh_3EgRIicL0pcMudlYV5JAs">
+      <meta name="msvalidate.01" content="302719EEB0B30AED31C3DA90C5DECA98">
+      <meta name="naver-site-verification" content="0d1cb87b8cdc7233e22a17d8ba0c0796fa8abb08">
+      <title>PDF 대리 — 무료 사진 PDF 변환·문서 스캔·페이지 편집</title>
+      <meta property="og:type" content="website">
 <meta property="og:title" content="PDF 대리 — 사진을 PDF로, 필요한 페이지는 간편하게">
 <meta property="og:description" content="사진 PDF 변환과 페이지 정리 기능은 무료. Android용 PDF 대리를 만나보세요.">
 <meta property="og:image" content="https://pdf-daeri.netlify.app/assets/MAIN.png">
@@ -44,7 +44,7 @@
   ]
 }
 </script>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="favicon.ico?v=2" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2"><link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png?v=2"><link rel="apple-touch-icon" href="apple-touch-icon.png?v=2"><link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <header class="site-header">
@@ -53,25 +53,32 @@
         <span>PDF 대리</span>
       </a>
       <nav aria-label="주요 메뉴">
-        <a href="#features">기능</a>
+        <div class="nav-item">
+          <button type="button" aria-haspopup="true">기능</button>
+          <div class="nav-dropdown">
+            <a href="#spotlight-ocr-title">텍스트 인식(OCR)</a>
+            <a href="photo-pdf.html">사진 → PDF</a>
+            <a href="pdf-pages.html">페이지 편집</a>
+            <a href="#features">전체 기능</a>
+          </div>
+        </div>
         <a href="guide.html">사용 방법</a>
-        <a href="privacy.html">개인정보처리방침</a>
         <a href="contact.html">문의하기</a>
         <div class="visitor-count" id="visitor-count" aria-live="polite">
           <span>오늘 <strong data-visit-count="today">0</strong></span>
           <span>누적 <strong data-visit-count="total">0</strong></span>
         </div>
       </nav>
-      <a class="header-install" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">Google Play에서 설치</a>
+      <a class="header-install" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">설치하기</a>
     </header>
 
     <main id="top">
       <section class="hero" aria-labelledby="hero-title">
         <img class="hero-art" src="assets/MAIN.png" alt="PDF 대리 앱의 스캔, PDF 열기, 사진 PDF, PDF 수정 기능 소개">
         <div class="hero-copy">
-          <p class="eyebrow">ALL-IN-ONE PDF SOLUTION</p>
-          <h1 id="hero-title">보고, 스캔하고, <em>정리하는 PDF 대리.</em></h1>
-          <p>복잡한 PDF 작업을 휴대폰에서 바로 끝내세요.<br>스캔부터 사진 변환, 편집과 공유까지 한 흐름으로 이어집니다.</p>
+          <p class="eyebrow">ALL-IN-ONE PDF</p>
+          <h1 id="hero-title">문서 작업을, <em>휴대폰 하나로.</em></h1>
+          <p>스캔하고, 사진을 PDF로 만들고, 필요한 페이지만 남기세요.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">무료로 설치하기</a>
             <a class="button button-text" href="#features">기능 살펴보기</a>
@@ -79,47 +86,74 @@
         </div>
       </section>
 
-      <section class="statement">
-        <div class="statement-content">
-          <div class="statement-copy">
-            <p>필요한 순간에, 필요한 기능만.</p>
-            <h2>문서 작업은 더 단순해야 합니다.</h2>
-            <p>가입이나 복잡한 설정 없이 PDF를 열고, 문서를 스캔하고, 사진을 PDF로 만들 수 있습니다.</p>
+      <section class="spotlight" aria-labelledby="spotlight-ocr-title">
+        <div class="spotlight-row">
+          <div class="spotlight-copy">
+            <p>TEXT RECOGNITION</p>
+            <h2 id="spotlight-ocr-title">스캔한 문서, <em>이제 검색됩니다.</em></h2>
+            <p class="spotlight-desc">스캔·사진 문서와 이미지형 PDF에 OCR을 적용하면 글자를 선택·복사·검색할 수 있습니다. OCR 생성은 연간 구독 혜택이며, 이미 글자가 있는 PDF의 선택·검색은 무료입니다.</p>
           </div>
-          <a class="statement-qr" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">
-            <img src="qr-play.svg" alt="PDF 대리 Google Play 설치 QR 코드">
-            <span>휴대폰으로 바로 설치</span>
-          </a>
+          <figure class="spotlight-media reveal">
+            <img src="assets/3.png" alt="PDF 대리 텍스트 인식 기능이 적용되는 문서 화면" loading="lazy">
+          </figure>
+        </div>
+      </section>
+
+      <section class="spotlight" aria-labelledby="spotlight-sign-title">
+        <div class="spotlight-row spotlight-row--reverse">
+          <div class="spotlight-copy">
+            <p>SIGNATURE &amp; MARKUP</p>
+            <h2 id="spotlight-sign-title">서명하고, 표시하고, <em>바로 공유.</em></h2>
+            <p class="spotlight-desc">저장해둔 서명을 문서 위에 얹고, 형광펜과 메모로 중요한 부분을 표시하세요.</p>
+          </div>
+          <figure class="spotlight-media">
+            <img src="assets/6.png" alt="PDF 대리 서명과 형광펜 기능이 적용된 문서 화면" loading="lazy">
+          </figure>
+        </div>
+      </section>
+
+      <section class="spotlight" aria-labelledby="spotlight-compress-title">
+        <div class="spotlight-row">
+          <div class="spotlight-copy">
+            <p>SMART COMPRESSION</p>
+            <h2 id="spotlight-compress-title">용량은 줄이고, <em>화질은 지키고.</em></h2>
+            <p class="spotlight-desc">원하는 용량을 정하면 그 기준에 맞춰 자동으로 압축합니다.</p>
+          </div>
+          <figure class="spotlight-media">
+            <img src="assets/7.png" alt="PDF 대리 압축 기능이 적용된 문서 화면" loading="lazy">
+          </figure>
         </div>
       </section>
 
       <section class="features" id="features" aria-labelledby="feature-title">
         <div class="section-heading">
-          <p class="eyebrow">WHAT YOU CAN DO</p>
-          <h2 id="feature-title">PDF에 필요한 기본을 제대로 담았습니다.</h2>
+          <p class="eyebrow">MORE FEATURES</p>
+          <h2 id="feature-title">그 밖에도 필요한 건 다 있습니다.</h2>
         </div>
         <div class="feature-grid">
           <article><span>01</span><h3>문서 스캔</h3><p>문서 가장자리를 맞추고 선명한 PDF로 저장합니다.</p></article>
           <article><span>02</span><h3>PDF 열기</h3><p>받은 PDF와 저장한 문서를 한곳에서 확인합니다.</p></article>
-          <article><span>03</span><h3><a href="photo-pdf.html">사진 → PDF</a></h3><p>여러 장의 사진을 한 개의 정돈된 문서로 만듭니다.</p></article>
-          <article><span>04</span><h3><a href="pdf-pages.html">페이지 편집</a></h3><p>페이지를 추가하고, 회전하고, 순서를 바꿉니다.</p></article>
+          <article><span>03</span><h3>다크 모드</h3><p>화면 밝기에 맞춰 자동으로, 또는 직접 전환합니다.</p></article>
+          <article><span>04</span><h3>문서함 검색</h3><p>저장해둔 문서를 제목으로 빠르게 찾습니다.</p></article>
+          <article><span>05</span><h3><a href="pdf-pages.html">페이지 편집</a></h3><p>페이지를 추가하고, 회전하고, 순서를 바꿉니다.</p></article>
+          <article><span>06</span><h3><a href="photo-pdf.html">사진 → PDF</a></h3><p>여러 장의 사진을 한 개의 정돈된 문서로 만듭니다.</p></article>
+          <article><span>07</span><h3>모서리 확대 보정</h3><p>스캔 모서리를 확대해서 더 정교하게 조정합니다.</p></article>
+          <article><span>08</span><h3>작업 자동 복구</h3><p>편집 중 앱이 꺼져도 마지막 상태 그대로 이어갑니다.</p></article>
         </div>
       </section>
 
-      <section class="gallery" id="screens" aria-labelledby="gallery-title">
-        <div class="section-heading">
-          <p class="eyebrow">IN YOUR HAND</p>
-          <h2 id="gallery-title">휴대폰 안에서 바로 확인하는 작업 흐름.</h2>
-        </div>
-        <div class="screen-gallery-grid" aria-label="PDF 대리 앱 화면">
-          <figure><img src="assets/1.png" alt="PDF 대리 홈 화면"><figcaption>한눈에 보는 시작 화면</figcaption></figure>
-          <figure><img src="assets/2.png" alt="PDF 문서 보기 화면"><figcaption>큰 화면으로 PDF 보기</figcaption></figure>
-          <figure><img src="assets/3.png" alt="문서 스캔 화면"><figcaption>문서 스캔과 모서리 보정</figcaption></figure>
-          <figure><img src="assets/4.png" alt="사진을 PDF로 만드는 화면"><figcaption>사진을 PDF로 정리</figcaption></figure>
-          <figure><img src="assets/5.png" alt="PDF 페이지 편집 화면"><figcaption>페이지 편집과 순서 변경</figcaption></figure>
-          <figure><img src="assets/6.png" alt="PDF 저장 화면"><figcaption>원하는 형식으로 저장</figcaption></figure>
-          <figure><img src="assets/7.png" alt="PDF 공유 화면"><figcaption>필요한 곳으로 공유</figcaption></figure>
-          <figure><img src="assets/8.png" alt="PDF 대리 설정 화면"><figcaption>간결한 설정 관리</figcaption></figure>
+      <section class="maker" aria-labelledby="maker-title">
+        <div class="maker-content">
+          <a class="maker-avatar" href="https://kamanbi.netlify.app/" target="_blank" rel="noopener noreferrer" aria-label="까만비 스튜디오 홈페이지">
+            <img src="assets/brand/kamanbi-studio-logo.png" alt="까만비 스튜디오 아이콘" width="220" height="220" loading="lazy" decoding="async">
+          </a>
+          <div class="maker-copy">
+            <p>MADE BY ONE PERSON</p>
+            <h2 id="maker-title">기획부터 개발까지, <em>한 사람이 만듭니다.</em></h2>
+            <p class="maker-desc">PDF 대리는 큰 회사가 아니라 까만비 스튜디오 한 사람이 기획하고 만드는 앱입니다. 제출용 서류를 스캔하고, 필요한 페이지만 골라 보내야 하는 일상의 번거로움에서 시작했습니다.</p>
+            <p class="maker-desc">문의를 남기면 직접 확인하고 답합니다. 기능 요청이나 오류 제보도 실제로 다음 업데이트에 반영됩니다.</p>
+            <a class="maker-studio-link" href="https://kamanbi.netlify.app/" target="_blank" rel="noopener noreferrer">까만비 스튜디오 홈페이지</a>
+          </div>
         </div>
       </section>
 
@@ -131,7 +165,7 @@
           <div>
             <a class="button button-primary" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">Google Play에서 설치</a>
             <p>QR 코드를 스캔하면 휴대폰에서 바로 설치할 수 있습니다.</p>
-            <p class="support-message">PDF 관련 기능은 무료로 사용할 수 있습니다.<br>다만, 저에게 응원을 주세요.<br>연 2,000원 구독으로 광고를 없앨 수 있습니다.<br>Google Play에서 언제든 관리하거나 취소할 수 있습니다.<br>감사합니다.</p>
+            <p class="support-message">PDF 보기·스캔·편집은 무료로 사용할 수 있습니다.<br>연간 구독으로 광고를 없애고 OCR PDF를 만들 수 있습니다.<br>결제 금액은 앱의 Google Play 구매 화면에서 확인해 주세요.<br>Google Play에서 언제든 관리하거나 취소할 수 있습니다.</p>
           </div>
         </div>
       </section>

@@ -173,7 +173,7 @@ Future<void> main() async {
           recentRepositoryProvider.overrideWithValue(recentRepository),
           draftRepositoryProvider.overrideWithValue(draftRepository),
           settingsRepositoryProvider.overrideWithValue(settingsRepository),
-          bannerHeightProvider.overrideWithValue(bannerHeight),
+          bootBannerHeightProvider.overrideWithValue(bannerHeight),
           bootIssuesProvider.overrideWithValue(List.unmodifiable(issues)),
         ],
         child: const PdfDaeriApp(),

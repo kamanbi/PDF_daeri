@@ -84,16 +84,28 @@ class ImageQualityProfile {
   /// 압축 경로가 이 프리셋을 거부할 때 쓰는 유일한 판별자다(§76 §1.5).
   bool get isPassthrough => longEdgeMaxPx >= unboundedLongEdgePx;
 
-  String get processingDescription =>
-      '장변 최대 ${longEdgeMaxPx}px · JPEG 품질 $jpegQuality';
+  String get processingDescription => processingDescriptionFor();
 
-  String estimateFor(int inputBytes) {
-    if (inputBytes <= 0) return '사진 크기를 확인하면 예상 용량을 표시합니다.';
-    if (isPassthrough) return '원본 크기 그대로 (${formatBytes(inputBytes)})';
+  /// [tr]은 UI 쪽이 넘기는 번역 함수(한국어 키 → 현재 언어). 이 파일은 context가
+  /// 없는 순수 모델이라 기본값은 한국어 그대로(항등)다.
+  String processingDescriptionFor({String Function(String key) tr = _identity}) =>
+      tr('장변 최대 {px}px · JPEG 품질 {quality}')
+          .replaceAll('{px}', '$longEdgeMaxPx')
+          .replaceAll('{quality}', '$jpegQuality');
+
+  String estimateFor(int inputBytes, {String Function(String key) tr = _identity}) {
+    if (inputBytes <= 0) return tr('사진 크기를 확인하면 예상 용량을 표시합니다.');
+    if (isPassthrough) {
+      return tr('원본 크기 그대로 ({size})').replaceAll('{size}', formatBytes(inputBytes));
+    }
     final minBytes = (inputBytes * estimatedMinRatio).round();
     final maxBytes = (inputBytes * estimatedMaxRatio).round();
-    return '사진 기준 예상 ${formatBytes(minBytes)} ~ ${formatBytes(maxBytes)}';
+    return tr('사진 기준 예상 {min} ~ {max}')
+        .replaceAll('{min}', formatBytes(minBytes))
+        .replaceAll('{max}', formatBytes(maxBytes));
   }
+
+  static String _identity(String key) => key;
 
   static String formatBytes(int bytes) {
     const bytesPerMb = 1024 * 1024;

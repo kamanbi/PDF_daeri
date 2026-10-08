@@ -90,13 +90,17 @@ Future<void> imageEncodeIsolateEntryPoint(ImageEncodeRequest args) async {
       final Uint8List embedBytes;
       final (double, double) box;
       try {
-        box = ImagePdfBuilder.pageBoxFor(masterBytes, crop: crop);
         embedBytes = ImagePdfBuilder.encodeForEmbed(
           masterBytes,
           longEdgeMaxPx: args.longEdgeMaxPx,
           jpegQuality: args.jpegQuality,
           crop: crop,
         );
+        // 비 JPEG 마스터는 헤더 크기를 못 읽어 A4 세로로 폴백되므로(가로 사진이 찌그러짐),
+        // 크롭·축소가 이미 반영된 임베드 JPEG에서 박스를 계산한다. JPEG 마스터는 기존 그대로.
+        box = ImagePdfBuilder.jpegPixelSize(masterBytes) == null
+            ? ImagePdfBuilder.pageBoxFor(embedBytes)
+            : ImagePdfBuilder.pageBoxFor(masterBytes, crop: crop);
       } catch (e) {
         args.resultSendPort.send({'error': 'corrupted', 'detail': '$path: $e'});
         return;

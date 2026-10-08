@@ -12,8 +12,10 @@
 /// `EditAction.crop`을 액션 집합에서 뺀다.
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:io';
 
+import 'scan_advice_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -96,6 +98,10 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
       pages: pages,
       guardInput: guardInput,
       showQualityPicker: true, // 사진→PDF는 전량 ImagePageRef다.
+      adviceFuture: loadScanAdvice([
+        for (final page in pages)
+          if (page is ImagePageRef) page.imagePath,
+      ]),
     );
 
     if (state.pages.isEmpty) return;
@@ -110,7 +116,7 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
     Navigator.of(context).popUntil((route) => route.isFirst);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('새 파일로 저장됨 — "${summary.title}" (${summary.pageCount}쪽)'),
+        content: Text(appCount(context, '새 파일로 저장됨 — "{title}" ({count}쪽)', summary.pageCount).replaceAll('{title}', summary.title)),
       ),
     );
   }
@@ -120,9 +126,9 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
     if (removed.isEmpty || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('페이지를 삭제했습니다'),
+        content: Text(appText(context, '페이지를 삭제했습니다')),
         action: SnackBarAction(
-          label: '실행취소',
+          label: appText(context, '실행취소'),
           onPressed: () => _controller.undoDelete(removed),
         ),
       ),
@@ -145,13 +151,13 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
           leading: isSelect
               ? TextButton(
                   onPressed: _controller.clearSelection,
-                  child: const Text('취소'),
+                  child: Text(appText(context, '취소')),
                 )
               : null,
           title: Text(
             isSelect
-                ? '${state.selected.length}개 선택'
-                : '${state.pages.length}장',
+                ? appCount(context, '{count}개 선택', state.selected.length)
+                : appCount(context, '{count}장', state.pages.length),
           ),
           actions: isSelect
               ? [
@@ -159,21 +165,21 @@ class _PhotoEditScreenState extends ConsumerState<PhotoEditScreen> {
                     onPressed: state.selected.isEmpty
                         ? null
                         : _controller.rotateSelected,
-                    child: const Text('회전'),
+                    child: Text(appText(context, '회전')),
                   ),
                   TextButton(
                     onPressed: state.selected.isEmpty ? null : _deleteSelected,
-                    child: const Text('삭제'),
+                    child: Text(appText(context, '삭제')),
                   ),
                 ]
               : [
                   TextButton(
                     onPressed: _controller.enterSelectModeOnly,
-                    child: const Text('선택'),
+                    child: Text(appText(context, '선택')),
                   ),
                   TextButton(
                     onPressed: state.pages.isEmpty ? null : _save,
-                    child: const Text('저장'),
+                    child: Text(appText(context, '저장')),
                   ),
                 ],
         ),

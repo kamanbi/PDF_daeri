@@ -9,6 +9,7 @@
 /// 부여한 일회성 grant로 이 호출 동안의 복사에는 충분하다.
 library;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart'
     show EventChannel, MethodChannel, MissingPluginException, PlatformException;
 
@@ -89,21 +90,23 @@ class MethodChannelSafImporter implements SafImporter {
         ),
       );
     } on PlatformException catch (e) {
+      debugPrint('SAF import failed: ${e.code}');
       return PdfErr(_mapPlatformFailure(e, contentUri));
     } on MissingPluginException {
       return const PdfErr(EngineUnsupported('saf_import_channel'));
     } catch (e) {
-      return PdfErr(UnknownFailure('SAF 임포트 실패: $e'));
+      debugPrint('SAF import failed: $e');
+      return PdfErr(const UnknownFailure('파일을 가져오지 못했습니다.'));
     }
   }
 
   PdfFailure _mapPlatformFailure(PlatformException e, String contentUri) {
     return switch (e.code) {
-      'NOT_FOUND' => SourceMissing(e.message ?? contentUri),
-      'PERMISSION_DENIED' => PermissionDenied(e.message ?? 'content URI 접근 거부: $contentUri'),
+      'NOT_FOUND' => SourceMissing(contentUri),
+      'PERMISSION_DENIED' => const PermissionDenied('파일 접근 권한이 없습니다.'),
       'INVALID_PDF' => SourceCorrupted(contentUri),
       'FILE_TOO_LARGE' => UnknownFailure('PDF 파일 크기는 100MB 이하여야 합니다.'),
-      _ => UnknownFailure(e.message ?? '${e.code}: $contentUri'),
+      _ => const UnknownFailure('파일을 가져오지 못했습니다.'),
     };
   }
 }

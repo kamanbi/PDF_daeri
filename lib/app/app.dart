@@ -18,12 +18,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
 import '../ads/ad_gate.dart';
+import '../ads/ads_bootstrap.dart';
 import '../billing/billing_service.dart';
 import '../core/platform_features.dart';
 import '../data/repository/settings_repository.dart' show AppThemeMode;
 import '../features/home/home_screen.dart';
 import '../features/viewer/open_pdf_flow.dart';
 import 'providers.dart';
+import 'app_locale.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -41,8 +43,10 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
   StreamSubscription<String>? _intentSub;
   ProviderSubscription<String?>? _pendingSub;
   ProviderSubscription<bool>? _busySub;
+  late final AdRuntimeCoordinator _adRuntimeCoordinator;
   late final NavigatorObserver _adRouteObserver;
   var _updateCheckStarted = false;
+  Future<void>? _billingSync;
 
   @override
   void initState() {
@@ -78,7 +82,8 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
     // W4-T5b(문서 60 §4 F-1 해소 · §3.6 부팅 순서): billingServiceProvider는
     // Provider라 앱 전역 단일 인스턴스다. start()가 purchaseStream 구독을 먼저
     // 걸고, 그 다음 상품 조회 → 자동 복원 순서로 진행한다(순서가 절대적, §3.6).
-    if (AppFeatures.billing) unawaited(_startBilling());
+    if (AppFeatures.billing) unawaited(_syncBilling(queryProducts: true));
+    _adRuntimeCoordinator = AdRuntimeCoordinator(ref)..start();
     if (AppFeatures.storeUpdate) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => unawaited(_checkForUpdate()),
@@ -86,11 +91,24 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
     }
   }
 
-  Future<void> _startBilling() async {
+  Future<void> _syncBilling({required bool queryProducts}) async {
+    if (_billingSync != null) return;
+    final sync = _runBillingSync(queryProducts: queryProducts);
+    _billingSync = sync;
+    try {
+      await sync;
+    } finally {
+      _billingSync = null;
+    }
+  }
+
+  Future<void> _runBillingSync({required bool queryProducts}) async {
     try {
       final billing = ref.read(billingServiceProvider);
       await billing.start();
-      await billing.queryProducts();
+      if (queryProducts || billing.state == PurchaseUiState.unavailable) {
+        await billing.queryProducts();
+      }
       await billing.restorePurchases();
     } catch (e, st) {
       // 기존 부팅 관례(main.dart)와 동일하게 실패를 흡수한다 — 구매/복원 실패가
@@ -115,16 +133,16 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
     final accepted = await showDialog<bool>(
       context: navigator.context,
       builder: (context) => AlertDialog(
-        title: const Text('업데이트가 있습니다'),
-        content: const Text('더 안정적인 최신 버전이 있습니다. 지금 업데이트할까요?'),
+        title: Text(appText(context, '업데이트가 있습니다')),
+        content: Text(appText(context, '더 안정적인 최신 버전이 있습니다. 지금 업데이트할까요?')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('나중에'),
+            child: Text(appText(context, '나중에')),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('업데이트'),
+            child: Text(appText(context, '업데이트')),
           ),
         ],
       ),
@@ -160,9 +178,16 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      ref.invalidate(playCountryProvider);
+      if (AppFeatures.billing) unawaited(_syncBilling(queryProducts: false));
       // sink 미구독 창에 네이티브가 보관해 둔 URI를 회수한다(§4.1 미해소분 3).
       ref.read(incomingIntentServiceProvider).pollPending();
     }
+  }
+
+  @override
+  void didChangeLocales(List<Locale>? locales) {
+    ref.invalidate(appLocaleProvider);
   }
 
   @override
@@ -171,6 +196,7 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
     _intentSub?.cancel();
     _pendingSub?.close();
     _busySub?.close();
+    _adRuntimeCoordinator.dispose();
     super.dispose();
   }
 
@@ -178,8 +204,12 @@ class _PdfDaeriAppState extends ConsumerState<PdfDaeriApp>
   Widget build(BuildContext context) {
     final appThemeMode =
         ref.watch(themeModeProvider).valueOrNull ?? AppThemeMode.system;
+    final appLocale = ref.watch(appLocaleProvider);
     return MaterialApp(
-      title: 'PDF 대리',
+      title: appLocale.languageCode == 'ko' ? 'PDF 대리' : 'PDF Daeri',
+      locale: appLocale,
+      supportedLocales: const [Locale('ko'), Locale('en')],
+      localizationsDelegates: appLocalizationDelegates,
       navigatorKey: PdfDaeriApp.navigatorKey,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

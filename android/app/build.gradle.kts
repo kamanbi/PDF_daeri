@@ -1,5 +1,6 @@
 import java.util.Properties
 import java.io.File
+import java.util.Base64
 
 plugins {
     id("com.android.application")
@@ -24,6 +25,43 @@ val adsProps = Properties()
 val adsPropsFile = rootProject.file("ads.properties")
 if (adsPropsFile.exists()) {
     adsPropsFile.inputStream().use { adsProps.load(it) }
+}
+
+val googleTestAdPublisherId = "ca-app-pub-3940256099942544"
+val releaseAdUnitIdPattern = Regex("^ca-app-pub-\\d{16}/\\d+$")
+val releaseAdAppIdPattern = Regex("^ca-app-pub-\\d{16}~\\d+$")
+
+fun decodeDartDefineValues(encodedDefines: String?): Map<String, String> =
+    encodedDefines.orEmpty().split(',').mapNotNull { encodedDefine ->
+        val decodedDefine = runCatching {
+            String(Base64.getDecoder().decode(encodedDefine), Charsets.UTF_8)
+        }.getOrNull() ?: return@mapNotNull null
+        val separator = decodedDefine.indexOf('=')
+        if (separator <= 0) return@mapNotNull null
+        decodedDefine.substring(0, separator) to decodedDefine.substring(separator + 1)
+    }.toMap()
+
+fun isProductionAdUnitId(value: String?): Boolean =
+    value != null && releaseAdUnitIdPattern.matches(value) &&
+        !value.startsWith("$googleTestAdPublisherId/")
+
+fun isProductionAdAppId(value: String?): Boolean =
+    value != null && releaseAdAppIdPattern.matches(value) &&
+        !value.startsWith("$googleTestAdPublisherId~")
+
+val releaseAdMobAppId = adsProps.getProperty("admobAppId")?.trim()
+val releaseAdMobAppIdProblem = when {
+    !isProductionAdAppId(releaseAdMobAppId) ->
+        "AdMob App ID is missing, invalid, or a Google test ID in android/ads.properties"
+    else -> null
+}
+
+val releaseAdUnitConfigurationProblem = run {
+    val dartDefines = decodeDartDefineValues(providers.gradleProperty("dart-defines").orNull)
+    val missingOrInvalid = listOf("ADMOB_BANNER_UNIT_ID", "ADMOB_INTERSTITIAL_UNIT_ID")
+        .filterNot { defineName -> isProductionAdUnitId(dartDefines[defineName]) }
+    if (missingOrInvalid.isEmpty()) null
+    else "Release AdMob unit IDs are missing, invalid, or Google test IDs; use tool/build_android_apk.ps1"
 }
 
 // T13 — 릴리스 키는 리포지토리 밖에서만 읽는다. 속성 파일은 아래 형식을 쓴다.
@@ -74,7 +112,7 @@ android {
         versionName = flutter.versionName
 
         manifestPlaceholders["admobAppId"] =
-            adsProps.getProperty("admobAppId") ?: "ca-app-pub-3940256099942544~3347511713"
+            releaseAdMobAppId ?: "ca-app-pub-3940256099942544~3347511713"
     }
 
     signingConfigs {
@@ -95,7 +133,32 @@ android {
             if (releaseSigningReady) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // ML Kit Text Recognition의 미사용 스크립트(중국어·일본어·데바나가리) 참조를
+            // R8이 "누락된 클래스"로 오인하는 문제 해결(proguard-rules.pro 주석 참조).
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
+    }
+}
+
+// 어떤 방식으로 release APK/AAB를 요청해도 검증되지 않은 AdMob 설정은 패키징되지 않는다.
+// 모든 release 태스크가 이 검증을 먼저 실행하며, ID 값은 로그에 절대 포함하지 않는다.
+val verifyReleaseAdMobConfiguration = tasks.register("verifyReleaseAdMobConfiguration") {
+    doLast {
+        val problems = listOfNotNull(releaseAdMobAppIdProblem, releaseAdUnitConfigurationProblem)
+        if (problems.isNotEmpty()) {
+            throw GradleException("Release AdMob configuration is invalid: ${problems.joinToString("; ")}")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name.contains("release", ignoreCase = true) &&
+        name != "verifyReleaseAdMobConfiguration"
+    ) {
+        dependsOn(verifyReleaseAdMobConfiguration)
     }
 }
 

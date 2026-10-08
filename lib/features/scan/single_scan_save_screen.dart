@@ -1,5 +1,6 @@
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -17,9 +18,14 @@ import '../../data/storage/public_image_exporter.dart';
 import '../../data/storage/public_pdf_exporter.dart';
 import '../../pdf/image_quality.dart';
 import '../../pdf/page_ref.dart';
+import '../../pdf/scan_quality_advisor.dart';
+import '../common/failure_ui.dart';
 import '../edit/edit_controller.dart';
 import '../edit/save_dialog.dart' show assembleGuardInput;
+import 'scan_advice_loader.dart';
+import 'scan_advice_widgets.dart';
 import 'scan_image_quality.dart';
+import 'scan_screen.dart';
 
 class SingleScanSaveScreen extends ConsumerStatefulWidget {
   const SingleScanSaveScreen({
@@ -43,6 +49,9 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
   late final EditController _pages = EditController(initial: const [])
     ..insertImages([widget.imagePath]);
   var _saving = false;
+  var _format = _SaveFormat.pdf;
+  var _quality = ImageQuality.high;
+  late final Future<ScanAdvice?> _advice = loadScanAdvice([widget.imagePath]);
 
   @override
   void dispose() {
@@ -59,6 +68,13 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
     setState(() {});
   }
 
+  void _retake() {
+    if (_saving) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const ScanScreen()),
+    );
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     final repository = ref.read(documentRepositoryProvider);
@@ -72,7 +88,7 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
             : _title.text.trim(),
         origin: DocOrigin.scan,
         pages: _pages.toPageRefs(),
-        quality: ImageQuality.high,
+        quality: _quality,
         guardInput: assembleGuardInput(op: SaveOp.merge, baselineBytes: bytes),
         cancelToken: CancelToken(),
       );
@@ -91,9 +107,17 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
             );
           }
         case PdfErr<DocumentSummary>(:final failure):
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('저장하지 못했습니다: $failure')));
+          debugPrint('scan save failed: $failure');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                appText(context, '저장하지 못했습니다: {error}').replaceAll(
+                  '{error}',
+                  appText(context, FailureUi.message(failure)),
+                ),
+              ),
+            ),
+          );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -103,31 +127,39 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
   Future<_ScanExportResult> _exportOutputs(DocumentSummary summary) async {
     final workspace = ref.read(workspaceProvider);
     if (workspace == null) {
-      return const _ScanExportResult(
-        image: PdfErr(UnknownFailure('작업 저장소를 찾을 수 없습니다.')),
-        pdf: PdfErr(UnknownFailure('작업 저장소를 찾을 수 없습니다.')),
+      return _ScanExportResult(
+        image: _format.includesImage
+            ? const PdfErr(UnknownFailure('작업 저장소를 찾을 수 없습니다.'))
+            : null,
+        pdf: _format.includesPdf
+            ? const PdfErr(UnknownFailure('작업 저장소를 찾을 수 없습니다.'))
+            : null,
       );
     }
     final page = _pages.current.pages.single.ref as ImagePageRef;
-    final imageResult = await ref
-        .read(publicImageExporterProvider)
-        .export(
-          PublicImageExportRequest(
-            sourceImagePath: page.imagePath,
-            fileName: FileName.toJpegFileName(summary.title),
-            rotationDegrees: page.rotation,
-            jpegQuality: scanJpegQuality,
-          ),
-        );
-    final pdfResult = await ref
-        .read(publicPdfExporterProvider)
-        .export(
-          PublicPdfExportRequest(
-            sourcePdfPath: workspace.docPdf(summary.id),
-            fileName: FileName.toFileName(summary.title),
-            category: PublicPdfCategory.scanned,
-          ),
-        );
+    final imageResult = !_format.includesImage
+        ? null
+        : await ref
+              .read(publicImageExporterProvider)
+              .export(
+                PublicImageExportRequest(
+                  sourceImagePath: page.imagePath,
+                  fileName: FileName.toJpegFileName(summary.title),
+                  rotationDegrees: page.rotation,
+                  jpegQuality: scanJpegQuality,
+                ),
+              );
+    final pdfResult = !_format.includesPdf
+        ? null
+        : await ref
+              .read(publicPdfExporterProvider)
+              .export(
+                PublicPdfExportRequest(
+                  sourcePdfPath: workspace.docPdf(summary.id),
+                  fileName: FileName.toFileName(summary.title),
+                  category: PublicPdfCategory.scanned,
+                ),
+              );
     return _ScanExportResult(image: imageResult, pdf: pdfResult);
   }
 
@@ -135,33 +167,41 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
     final imageFailure = result.image is PdfErr<void>;
     final pdfFailure = result.pdf is PdfErr<void>;
     final title = imageFailure || pdfFailure ? '저장 결과' : '저장 완료';
-    final message = switch ((imageFailure, pdfFailure)) {
-      (false, false) =>
-        '사진은 사진 앱의 Pictures/PDF 대리/스캔 문서에, PDF는 Download/PDF 대리/스캔 문서에 저장했습니다.',
-      (true, false) =>
-        'PDF는 저장했지만 사진 저장에 실패했습니다.\n${_describeFailure(result.image)}',
-      (false, true) =>
-        '사진은 저장했지만 PDF 저장에 실패했습니다.\n${_describeFailure(result.pdf)}',
-      (true, true) =>
-        '앱 안의 문서는 저장됐지만 사진과 PDF의 공용 폴더 저장에 실패했습니다.\n사진: ${_describeFailure(result.image)}\nPDF: ${_describeFailure(result.pdf)}',
+    final message = switch (_format) {
+      _SaveFormat.pdf => pdfFailure
+          ? '${appText(context, 'PDF 저장에 실패했습니다.')}\n${_describeFailure(result.pdf)}'
+          : appText(context, 'PDF로 저장했습니다. (Download/PDF 대리/스캔 문서)'),
+      _SaveFormat.photo => imageFailure
+          ? '${appText(context, '사진 저장에 실패했습니다.')}\n${_describeFailure(result.image)}'
+          : appText(context, '사진으로 저장했습니다. (Pictures/PDF 대리/스캔 문서)'),
+      _SaveFormat.both => switch ((imageFailure, pdfFailure)) {
+        (false, false) => appText(context,
+          '사진은 사진 앱의 Pictures/PDF 대리/스캔 문서에, PDF는 Download/PDF 대리/스캔 문서에 저장했습니다.'),
+        (true, false) =>
+          '${appText(context, 'PDF는 저장했지만 사진 저장에 실패했습니다.')}\n${_describeFailure(result.image)}',
+        (false, true) =>
+          '${appText(context, '사진은 저장했지만 PDF 저장에 실패했습니다.')}\n${_describeFailure(result.pdf)}',
+        (true, true) =>
+          '${appText(context, '앱 안의 문서는 저장됐지만 사진과 PDF의 공용 폴더 저장에 실패했습니다.')}\n${appText(context, '사진')}: ${_describeFailure(result.image)}\nPDF: ${_describeFailure(result.pdf)}',
+      },
     };
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text(title),
+        title: Text(appText(context, title)),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
+            child: Text(appText(context, '확인')),
           ),
         ],
       ),
     );
   }
 
-  String _describeFailure(PdfResult<void> result) {
+  String _describeFailure(PdfResult<void>? result) {
     if (result case PdfErr<void>(:final failure)) return failure.toString();
     return '';
   }
@@ -173,31 +213,131 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
       appBar: AppBar(
         title: TextField(
           controller: _title,
-          decoration: const InputDecoration(
-            hintText: '제목',
+          decoration: InputDecoration(
+            hintText: appText(context, '제목'),
             border: InputBorder.none,
           ),
         ),
         actions: [
           TextButton(
             onPressed: _saving ? null : _save,
-            child: Text(_saving ? '저장 중…' : '저장'),
+            child: Text(appText(context, _saving ? '저장 중…' : '저장')),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: Transform.rotate(
-                angle: page.rotation * math.pi / 180,
-                child: Image.file(File(page.imagePath), fit: BoxFit.contain),
+      // 시스템 내비게이션 바(제스처/3버튼) 없이 두면 "사진 회전" 버튼이 화면 맨
+      // 아래에 붙어 가려진다 — SafeArea로 하단 여백을 확보한다.
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: Transform.rotate(
+                  angle: page.rotation * math.pi / 180,
+                  child: Image.file(File(page.imagePath), fit: BoxFit.contain),
+                ),
               ),
             ),
-          ),
-          const Divider(height: 1),
-          TextButton(onPressed: _rotate, child: const Text('사진 회전')),
-        ],
+            const Divider(height: 1),
+            FutureBuilder<ScanAdvice?>(
+              future: _advice,
+              builder: (context, snapshot) {
+                final loading = snapshot.connectionState != ConnectionState.done;
+                final advice = snapshot.data;
+                final fmt = advice?.format;
+                final q = advice?.quality;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ScanAdviceHint(
+                      loading: loading,
+                      advice: advice,
+                      includeFormat: true,
+                      onRetake: _retake,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: SegmentedButton<_SaveFormat>(
+                        showSelectedIcon: false,
+                        segments: [
+                          ButtonSegment(
+                            value: _SaveFormat.pdf,
+                            label: AdviceSegmentLabel(
+                              label: appText(context, 'PDF'),
+                              recommended: fmt == ScanFormatAdvice.pdf,
+                            ),
+                          ),
+                          ButtonSegment(
+                            value: _SaveFormat.photo,
+                            label: AdviceSegmentLabel(
+                              label: appText(context, '사진'),
+                              recommended: fmt == ScanFormatAdvice.photo,
+                            ),
+                          ),
+                          ButtonSegment(
+                            value: _SaveFormat.both,
+                            label: AdviceSegmentLabel(
+                              label: appText(context, '둘 다'),
+                              recommended: false,
+                            ),
+                          ),
+                        ],
+                        selected: {_format},
+                        onSelectionChanged: _saving
+                            ? null
+                            : (v) => setState(() => _format = v.first),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: SegmentedButton<ImageQuality>(
+                        showSelectedIcon: false,
+                        segments: [
+                          ButtonSegment(
+                            value: ImageQuality.original,
+                            label: AdviceSegmentLabel(
+                              label: appText(context, '원본'),
+                              recommended: q == ImageQuality.original,
+                            ),
+                          ),
+                          ButtonSegment(
+                            value: ImageQuality.high,
+                            label: AdviceSegmentLabel(
+                              label: appText(context, '고화질'),
+                              recommended: q == ImageQuality.high,
+                            ),
+                          ),
+                          ButtonSegment(
+                            value: ImageQuality.standard,
+                            label: AdviceSegmentLabel(
+                              label: appText(context, '기본'),
+                              recommended: q == ImageQuality.standard,
+                            ),
+                          ),
+                          ButtonSegment(
+                            value: ImageQuality.min,
+                            label: AdviceSegmentLabel(
+                              label: appText(context, '최소'),
+                              recommended: false,
+                            ),
+                          ),
+                        ],
+                        selected: {_quality},
+                        onSelectionChanged: _saving
+                            ? null
+                            : (v) => setState(() => _quality = v.first),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            TextButton(onPressed: _rotate, child: Text(appText(context, '사진 회전'))),
+          ],
+        ),
       ),
     );
   }
@@ -206,6 +346,15 @@ class _SingleScanSaveScreenState extends ConsumerState<SingleScanSaveScreen> {
 class _ScanExportResult {
   const _ScanExportResult({required this.image, required this.pdf});
 
-  final PdfResult<void> image;
-  final PdfResult<void> pdf;
+  final PdfResult<void>? image;
+  final PdfResult<void>? pdf;
+}
+
+enum _SaveFormat {
+  pdf,
+  photo,
+  both;
+
+  bool get includesPdf => this != photo;
+  bool get includesImage => this != pdf;
 }

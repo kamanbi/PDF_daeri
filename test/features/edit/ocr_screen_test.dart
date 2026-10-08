@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pdf_daeri/app/providers.dart';
+import 'package:pdf_daeri/billing/entitlement.dart';
 import 'package:pdf_daeri/core/app_error.dart';
 import 'package:pdf_daeri/core/cancel_token.dart';
 import 'package:pdf_daeri/core/progress.dart';
@@ -12,7 +14,8 @@ import 'package:pdf_daeri/data/repository/document_repository.dart';
 import 'package:pdf_daeri/features/edit/ocr_screen.dart';
 import 'package:pdf_daeri/pdf/ocr_source.dart';
 import 'package:pdf_daeri/pdf/page_ref.dart';
-import 'package:pdf_daeri/pdf/pdf_renderer.dart' show PdfPageGeometry, PdfPageSize, PdfRenderer;
+import 'package:pdf_daeri/pdf/pdf_renderer.dart'
+    show PdfPageGeometry, PdfPageSize, PdfPageTextData, PdfRenderer;
 import 'package:pdf_daeri/pdf/stamp_builder.dart' show StampRect;
 
 /// `_FakeRenderer` — `pageGeometry`만 필요하다(`ocr_screen.dart`가 실제로 쓰는
@@ -22,10 +25,35 @@ class _FakeRenderer implements PdfRenderer {
   final int pageCount;
 
   @override
-  Future<PdfResult<PdfPageGeometry>> pageGeometry(String pdfPath, {String? password}) async => PdfOk(
+  Future<PdfResult<PdfPageTextData>> pageText({
+    required String pdfPath,
+    required int pageIndex,
+    String? password,
+    CancelToken? cancelToken,
+  }) async => PdfOk(
+    PdfPageTextData(pageIndex: pageIndex, text: '', charRects: const []),
+  );
+
+  @override
+  Future<PdfResult<Uint8List>> renderPage({
+    required String pdfPath,
+    required int pageIndex,
+    required int targetWidthPx,
+    String? password,
+    CancelToken? cancelToken,
+  }) async => PdfOk(Uint8List.fromList([1, 2, 3]));
+
+  @override
+  Future<PdfResult<PdfPageGeometry>> pageGeometry(
+    String pdfPath, {
+    String? password,
+  }) async => PdfOk(
     PdfPageGeometry(
       pageCount: pageCount,
-      sizes: List.generate(pageCount, (_) => const PdfPageSize(widthPt: 600, heightPt: 800)),
+      sizes: List.generate(
+        pageCount,
+        (_) => const PdfPageSize(widthPt: 600, heightPt: 800),
+      ),
     ),
   );
 
@@ -104,7 +132,9 @@ class _FakeOcrSource implements OcrSource {
   @override
   Future<PdfResult<OcrPageResult>> recognize(String imagePath) async {
     calledPaths.add(imagePath);
-    return PdfOk(results[imagePath] ?? const OcrPageResult(words: [], fullText: ''));
+    return PdfOk(
+      results[imagePath] ?? const OcrPageResult(words: [], fullText: ''),
+    );
   }
 
   @override
@@ -139,6 +169,7 @@ void main() {
       ProviderScope(
         overrides: [
           documentRepositoryProvider.overrideWithValue(repo),
+          ocrEntitlementProvider.overrideWithValue(const AsyncData(true)),
           pdfRendererProvider.overrideWithValue(_FakeRenderer(pages.length)),
           ocrSourceProvider.overrideWithValue(() => _FakeOcrSource(ocrResults)),
         ],
@@ -185,8 +216,14 @@ void main() {
     ];
     final repo = _FakeOcrRepository(pages);
     final ocrSource = _FakeOcrSource({
-      'a.jpg': const OcrPageResult(words: [OcrWord(text: '가', rect: rect)], fullText: '가'),
-      'b.jpg': const OcrPageResult(words: [OcrWord(text: '나', rect: rect)], fullText: '나'),
+      'a.jpg': const OcrPageResult(
+        words: [OcrWord(text: '가', rect: rect)],
+        fullText: '가',
+      ),
+      'b.jpg': const OcrPageResult(
+        words: [OcrWord(text: '나', rect: rect)],
+        fullText: '나',
+      ),
     });
 
     final pdfFile = File('${tempRoot.path}/source.pdf');
@@ -196,6 +233,7 @@ void main() {
       ProviderScope(
         overrides: [
           documentRepositoryProvider.overrideWithValue(repo),
+          ocrEntitlementProvider.overrideWithValue(const AsyncData(true)),
           pdfRendererProvider.overrideWithValue(_FakeRenderer(pages.length)),
           ocrSourceProvider.overrideWithValue(() => ocrSource),
         ],
@@ -243,7 +281,9 @@ void main() {
 
     // ImagePageRef 페이지(a.jpg, b.jpg)만 인식 대상이다 — PdfPageRef는
     // 건너뛴다(§7.1). 순서도 페이지 인덱스 순서를 지킨다(§7.5 순차 호출).
-    expect(ocrSource.calledPaths, ['a.jpg', 'b.jpg']);
+    expect(ocrSource.calledPaths.first, 'a.jpg');
+    expect(ocrSource.calledPaths.last, 'b.jpg');
+    expect(ocrSource.calledPaths, hasLength(3));
 
     expect(repo.stampCallCount, 1);
     expect(repo.capturedTitleFor, isNotNull);
@@ -255,79 +295,84 @@ void main() {
     expect(ocrSource.disposed, isTrue);
   });
 
-  testWidgets('재진입: 두 번째 화면 진입이 첫 번째에서 닫힌 OcrSource를 재사용하지 않는다 (82번 최종검증 M2 회귀)', (
-    tester,
-  ) async {
-    final pages = [const ImagePageRef(imagePath: 'a.jpg', rotation: 0)];
-    final repo = _FakeOcrRepository(pages);
-    final createdSources = <_FakeOcrSource>[];
+  testWidgets(
+    '재진입: 두 번째 화면 진입이 첫 번째에서 닫힌 OcrSource를 재사용하지 않는다 (82번 최종검증 M2 회귀)',
+    (tester) async {
+      final pages = [const ImagePageRef(imagePath: 'a.jpg', rotation: 0)];
+      final repo = _FakeOcrRepository(pages);
+      final createdSources = <_FakeOcrSource>[];
 
-    final pdfFile = File('${tempRoot.path}/source.pdf');
-    pdfFile.writeAsBytesSync([1, 2, 3, 4]);
+      final pdfFile = File('${tempRoot.path}/source.pdf');
+      pdfFile.writeAsBytesSync([1, 2, 3, 4]);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          documentRepositoryProvider.overrideWithValue(repo),
-          pdfRendererProvider.overrideWithValue(_FakeRenderer(pages.length)),
-          // 진입마다 새 인스턴스를 반환하는 팩토리 — providers.dart의
-          // `ocrSourceProvider`(Provider<OcrSource Function()>) 계약과 동일하다.
-          ocrSourceProvider.overrideWithValue(() {
-            final source = _FakeOcrSource({
-              'a.jpg': const OcrPageResult(words: [OcrWord(text: '가', rect: rect)], fullText: '가'),
-            });
-            createdSources.add(source);
-            return source;
-          }),
-        ],
-        child: MaterialApp(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: Center(
-                child: ElevatedButton(
-                  onPressed: () => showOcrScreen(
-                    context: context,
-                    args: OcrArgs(
-                      pdfPath: pdfFile.path,
-                      title: '원본',
-                      docId: 'doc-1',
-                      pageCount: pages.length,
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            documentRepositoryProvider.overrideWithValue(repo),
+            ocrEntitlementProvider.overrideWithValue(const AsyncData(true)),
+            pdfRendererProvider.overrideWithValue(_FakeRenderer(pages.length)),
+            // 진입마다 새 인스턴스를 반환하는 팩토리 — providers.dart의
+            // `ocrSourceProvider`(Provider<OcrSource Function()>) 계약과 동일하다.
+            ocrSourceProvider.overrideWithValue(() {
+              final source = _FakeOcrSource({
+                'a.jpg': const OcrPageResult(
+                  words: [OcrWord(text: '가', rect: rect)],
+                  fullText: '가',
+                ),
+              });
+              createdSources.add(source);
+              return source;
+            }),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () => showOcrScreen(
+                      context: context,
+                      args: OcrArgs(
+                        pdfPath: pdfFile.path,
+                        title: '원본',
+                        docId: 'doc-1',
+                        pageCount: pages.length,
+                      ),
                     ),
+                    child: const Text('open'),
                   ),
-                  child: const Text('open'),
                 ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    for (var round = 0; round < 2; round++) {
-      await tester.tap(find.text('open'));
-      for (var i = 0; i < 10; i++) {
-        await tester.pump(const Duration(milliseconds: 20));
+      for (var round = 0; round < 2; round++) {
+        await tester.tap(find.text('open'));
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        });
+        for (var i = 0; i < 5; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+        await tester.pumpAndSettle();
       }
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-      });
-      for (var i = 0; i < 5; i++) {
-        await tester.pump(const Duration(milliseconds: 20));
-      }
-      await tester.pumpAndSettle();
-    }
 
-    // 진입마다 새 인스턴스가 만들어졌고(캐시 재사용 아님), 각각 독립적으로
-    // 저장까지 마친 뒤 자기 자신만 dispose됐다 — 두 번째 진입이 첫 번째에서
-    // 이미 닫힌 인스턴스를 물려받지 않았다는 뜻이다.
-    expect(createdSources, hasLength(2));
-    expect(createdSources[0], isNot(same(createdSources[1])));
-    expect(createdSources[0].disposed, isTrue);
-    expect(createdSources[1].disposed, isTrue);
-    expect(createdSources[0].calledPaths, ['a.jpg']);
-    expect(createdSources[1].calledPaths, ['a.jpg']);
-    expect(repo.stampCallCount, 2);
-  });
+      // 진입마다 새 인스턴스가 만들어졌고(캐시 재사용 아님), 각각 독립적으로
+      // 저장까지 마친 뒤 자기 자신만 dispose됐다 — 두 번째 진입이 첫 번째에서
+      // 이미 닫힌 인스턴스를 물려받지 않았다는 뜻이다.
+      expect(createdSources, hasLength(2));
+      expect(createdSources[0], isNot(same(createdSources[1])));
+      expect(createdSources[0].disposed, isTrue);
+      expect(createdSources[1].disposed, isTrue);
+      expect(createdSources[0].calledPaths, ['a.jpg']);
+      expect(createdSources[1].calledPaths, ['a.jpg']);
+      expect(repo.stampCallCount, 2);
+    },
+  );
 
   testWidgets('빈 결과 처리: 모든 페이지의 인식 텍스트가 비어 있으면 안내만 하고 저장하지 않는다', (
     tester,
@@ -349,10 +394,10 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('외부 PDF 페이지뿐인 문서: ImagePageRef가 하나도 없으면 인식을 호출하지 않고 바로 빈 결과로 처리한다', (
-    tester,
-  ) async {
-    final pages = [const PdfPageRef(sourcePath: 'ext.pdf', sourceIndex: 0, rotation: 0)];
+  testWidgets('외부 PDF 페이지뿐인 문서: 이미지형 페이지를 인식하고 빈 결과면 저장하지 않는다', (tester) async {
+    final pages = [
+      const PdfPageRef(sourcePath: 'ext.pdf', sourceIndex: 0, rotation: 0),
+    ];
     final repo = _FakeOcrRepository(pages);
 
     await pumpScreen(tester, pages: pages, ocrResults: const {}, repo: repo);
@@ -360,5 +405,73 @@ void main() {
     expect(find.text('인식된 텍스트가 없습니다.'), findsOneWidget);
     expect(find.textContaining('페이지 인식 중'), findsNothing);
     expect(repo.stampCallCount, 0);
+  });
+
+  testWidgets('구독 권한이 없으면 OCR 인식과 저장을 시작하지 않는다', (tester) async {
+    final repo = _FakeOcrRepository([
+      const ImagePageRef(imagePath: 'a.jpg', rotation: 0),
+    ]);
+    final source = _FakeOcrSource(const {});
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          documentRepositoryProvider.overrideWithValue(repo),
+          pdfRendererProvider.overrideWithValue(_FakeRenderer(1)),
+          ocrSourceProvider.overrideWithValue(() => source),
+          ocrEntitlementProvider.overrideWithValue(const AsyncData(false)),
+        ],
+        child: MaterialApp(
+          home: OcrScreen(
+            args: OcrArgs(
+              pdfPath: '${tempRoot.path}/source.pdf',
+              title: '원본',
+              docId: 'doc-1',
+              pageCount: 1,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(source.calledPaths, isEmpty);
+    expect(repo.stampCallCount, 0);
+  });
+
+  testWidgets('구독 권한 조회 오류는 OCR 실행 없이 사용자에게 알린다', (tester) async {
+    final source = _FakeOcrSource(const {});
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          ocrSourceProvider.overrideWithValue(() => source),
+          ocrEntitlementProvider.overrideWithValue(
+            AsyncError<bool>(
+              StateError('verification failed'),
+              StackTrace.empty,
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: OcrScreen(
+            args: OcrArgs(
+              pdfPath: '${tempRoot.path}/source.pdf',
+              title: '원본',
+              docId: 'doc-1',
+              pageCount: 1,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.textContaining(
+        RegExp('구독 상태를 확인하지 못했습니다|Could not verify your subscription'),
+      ),
+      findsWidgets,
+    );
+    expect(source.calledPaths, isEmpty);
+    expect(tester.takeException(), isNull);
   });
 }

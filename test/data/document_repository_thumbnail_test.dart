@@ -89,6 +89,14 @@ class _CountingPdfRenderer implements PdfRenderer {
   int? lastTargetWidthPx;
 
   @override
+  Future<PdfResult<PdfPageTextData>> pageText({
+    required String pdfPath,
+    required int pageIndex,
+    String? password,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
   Future<PdfResult<Uint8List>> renderThumbnail({
     required String pdfPath,
     required int pageIndex,

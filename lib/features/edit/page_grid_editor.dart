@@ -6,6 +6,7 @@
 /// 드래그 재정렬은 신규 패키지를 쓰지 않는다(사용자 확정 Q-W1) — `LongPressDraggable`
 /// + `DragTarget` 자체 구현.
 library;
+import '../../app/app_locale.dart';
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -57,6 +58,13 @@ class _PageGridEditorState extends ConsumerState<PageGridEditor> {
   final ScrollController _scrollController = ScrollController();
   Timer? _autoScrollTimer;
   int? _dragOverId;
+  late final StateController<bool> _dragAvoidNotifier;
+
+  @override
+  void initState() {
+    super.initState();
+    _dragAvoidNotifier = ref.read(bannerDragAvoidProvider.notifier);
+  }
 
   @override
   void dispose() {
@@ -65,7 +73,7 @@ class _PageGridEditorState extends ConsumerState<PageGridEditor> {
     // 방어 3(§1.4) 안전장치: 화면이 파괴될 때 드래그 회피 신호를 되돌린다 —
     // 이 화면을 나가는 도중 신호가 true로 남아 다른 화면의 BannerHost가
     // 계속 회피 상태로 남는 것을 막는다.
-    ref.read(bannerDragAvoidProvider.notifier).state = false;
+    _dragAvoidNotifier.state = false;
     super.dispose();
   }
 
@@ -278,7 +286,7 @@ class _PageCellState extends ConsumerState<_PageCell> {
 
   @override
   Widget build(BuildContext context) {
-    final kindLabel = widget.page.ref is ImagePageRef ? '사진' : 'PDF';
+    final kindLabel = widget.page.ref is ImagePageRef ? appText(context, '사진') : 'PDF';
 
     return GestureDetector(
       onTap: widget.onTap,

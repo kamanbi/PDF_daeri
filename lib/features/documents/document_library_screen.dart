@@ -3,15 +3,14 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../app/app_locale.dart';
 
 import '../../app/providers.dart';
 import '../../app/router.dart';
 import '../../ads/banner_host.dart';
 import '../../core/app_error.dart';
 import '../../data/repository/document_repository.dart';
-import '../../data/repository/recent_repository.dart';
 import '../common/share_flow.dart';
-import '../viewer/open_pdf_flow.dart';
 
 class DocumentLibraryScreen extends ConsumerStatefulWidget {
   const DocumentLibraryScreen({super.key});
@@ -22,7 +21,6 @@ class DocumentLibraryScreen extends ConsumerStatefulWidget {
 }
 
 class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
-  static const double _rowPadding = 16;
   final Set<String> _selectedDocumentIds = {};
   bool _selectionMode = false;
 
@@ -44,9 +42,9 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
       _searching = true;
       _selectionMode = false;
       _selectedDocumentIds.clear();
-      _searchStream = ref.read(documentRepositoryProvider)?.watchDocuments(
-        titleQuery: '',
-      );
+      _searchStream = ref
+          .read(documentRepositoryProvider)
+          ?.watchDocuments(titleQuery: '');
     });
   }
 
@@ -60,9 +58,9 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
 
   void _updateSearch(String value) {
     setState(() {
-      _searchStream = ref.read(documentRepositoryProvider)?.watchDocuments(
-        titleQuery: value,
-      );
+      _searchStream = ref
+          .read(documentRepositoryProvider)
+          ?.watchDocuments(titleQuery: value);
     });
   }
 
@@ -106,16 +104,16 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
     return await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('문서를 삭제할까요?'),
+            title: Text(appText(context, '문서를 삭제할까요?')),
             content: Text(message),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('취소'),
+                child: Text(appText(context, '취소')),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('삭제'),
+                child: Text(appText(context, '삭제')),
               ),
             ],
           ),
@@ -125,7 +123,7 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
 
   Future<void> _deleteDocument(DocumentSummary document) async {
     if (!await _confirmDelete(
-      message: '‘${document.title}’ 문서와 앱 안의 원본이 삭제됩니다.',
+      message: appText(context, '‘{title}’ 문서와 앱 안의 원본이 삭제됩니다.').replaceAll('{title}', document.title),
     )) {
       return;
     }
@@ -137,10 +135,10 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
       case PdfOk<void>():
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('문서를 삭제했습니다')));
+        ).showSnackBar(SnackBar(content: Text(appText(context, '문서를 삭제했습니다'))));
       case PdfErr<void>(:final failure):
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('삭제하지 못했습니다: ${_failureMessage(failure)}')),
+          SnackBar(content: Text(appText(context, '삭제하지 못했습니다: {reason}').replaceAll('{reason}', _failureMessage(context, failure)))),
         );
     }
   }
@@ -151,7 +149,7 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
         .toList(growable: false);
     if (selected.isEmpty) return;
     if (!await _confirmDelete(
-      message: '${selected.length}개 문서와 앱 안의 원본이 삭제됩니다.',
+      message: appCount(context, '{count}개 문서와 앱 안의 원본이 삭제됩니다.', selected.length),
     )) {
       return;
     }
@@ -166,7 +164,7 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
     _cancelSelection();
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text('$deletedCount개 문서를 삭제했습니다')));
+    ).showSnackBar(SnackBar(content: Text(appCount(context, '{count}개 문서를 삭제했습니다', deletedCount))));
   }
 
   Future<void> _shareSelected(List<DocumentSummary> documents) async {
@@ -202,9 +200,6 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
     final documents =
         ref.watch(documentsStreamProvider).asData?.value ??
         const <DocumentSummary>[];
-    final recentFiles =
-        ref.watch(recentFilesStreamProvider).asData?.value ??
-        const <RecentFile>[];
 
     return Scaffold(
       appBar: AppBar(
@@ -212,14 +207,14 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: '제목으로 검색',
+                decoration: InputDecoration(
+                  hintText: appText(context, '제목으로 검색'),
                   border: InputBorder.none,
                 ),
                 onChanged: _updateSearch,
               )
             : Text(
-                _selectionMode ? '${_selectedDocumentIds.length}개 선택' : '내 문서',
+                _selectionMode ? appCount(context, '{count}개 선택', _selectedDocumentIds.length) : appText(context, '내 문서'),
               ),
         leading: _searching
             ? IconButton(
@@ -227,7 +222,7 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                 icon: const Icon(Icons.arrow_back),
               )
             : _selectionMode
-            ? TextButton(onPressed: _cancelSelection, child: const Text('취소'))
+            ? TextButton(onPressed: _cancelSelection, child: Text(appText(context, '취소')))
             : null,
         actions: _searching
             ? const []
@@ -239,17 +234,17 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                       : () => _toggleSelectAll(documents),
                   child: Text(
                     _selectedDocumentIds.length == documents.length
-                        ? '전체 해제'
-                        : '전체 선택',
+                        ? appText(context, '전체 해제')
+                        : appText(context, '전체 선택'),
                   ),
                 ),
                 TextButton(
                   onPressed: () => _shareSelected(documents),
-                  child: const Text('공유'),
+                  child: Text(appText(context, '공유')),
                 ),
                 TextButton(
                   onPressed: () => _deleteSelected(documents),
-                  child: const Text('삭제'),
+                  child: Text(appText(context, '삭제')),
                 ),
               ]
             : [
@@ -261,17 +256,18 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                   onPressed: documents.isEmpty
                       ? null
                       : () => _startSelection(documents.first.id),
-                  child: const Text('선택'),
+                  child: Text(appText(context, '선택')),
                 ),
               ],
       ),
-      body: _searching ? _buildSearchResults() : _buildSections(documents, recentFiles),
+      body: _searching
+          ? _buildSearchResults()
+          : _buildSections(documents),
       bottomNavigationBar: const BannerHost(slot: BannerSlot.documents),
     );
   }
 
-  /// 검색 중(§4.1): 섹션 1(최근 연 파일)과 구분선을 숨기고 섹션 2(내 문서)의
-  /// 필터 결과만 보여준다. 결과 0건이면 빈 상태 일러스트 없이 한 줄 문구만 낸다.
+  /// 검색 중(§4.1): 내 문서의 필터 결과만 보여준다. 결과 0건이면 빈 상태 일러스트 없이 한 줄 문구만 낸다.
   Widget _buildSearchResults() {
     final stream = _searchStream;
     if (stream == null) return const SizedBox.shrink();
@@ -280,9 +276,9 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
       builder: (context, snapshot) {
         final results = snapshot.data ?? const <DocumentSummary>[];
         if (results.isEmpty) {
-          return const Padding(
+          return Padding(
             padding: EdgeInsets.fromLTRB(16, 24, 16, 20),
-            child: Text('검색 결과가 없습니다'),
+            child: Text(appText(context, '검색 결과가 없습니다')),
           );
         }
         return ListView(
@@ -313,19 +309,16 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
     );
   }
 
-  Widget _buildSections(
-    List<DocumentSummary> documents,
-    List<RecentFile> recentFiles,
-  ) {
+  Widget _buildSections(List<DocumentSummary> documents) {
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
         _SectionTitle(
-          title: '내 문서',
-          description: '앱에서 만든 문서입니다. 삭제하면 앱 안의 문서와 원본이 삭제됩니다.',
+          title: appText(context, '내 문서'),
+          description: appText(context, '앱에서 만든 문서입니다. 삭제하면 앱 안의 문서와 원본이 삭제됩니다.'),
         ),
         if (documents.isEmpty)
-          const _EmptyRow('저장된 문서가 없습니다.')
+          _EmptyRow(appText(context, '저장된 문서가 없습니다.'))
         else
           for (final document in documents)
             _DocumentRow(
@@ -348,15 +341,6 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
               },
               onDelete: () => _deleteDocument(document),
             ),
-        const Divider(height: 32),
-        const _SectionTitle(
-          title: '최근 연 파일',
-          description: '휴대폰에서 연 PDF의 앱 사본입니다. 제거해도 원본 파일은 남습니다.',
-        ),
-        if (recentFiles.isEmpty)
-          const _EmptyRow('최근 연 파일이 없습니다.')
-        else
-          for (final file in recentFiles) _RecentFileRow(file: file),
       ],
     );
   }
@@ -369,7 +353,7 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+    padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -413,15 +397,11 @@ class _DocumentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-      ),
+    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+    child: Card(
+      clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -432,109 +412,33 @@ class _DocumentRow extends StatelessWidget {
                 Expanded(
                   child: Text(
                     document.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
-            Text(
-              '${document.pageCount}쪽 · ${_formatBytes(document.fileSize)} · ${_formatDate(document.updatedAt)}',
+            Padding(
+              padding: EdgeInsets.only(left: selectionMode ? 48 : 0),
+              child: Text(
+                appCount(context, '{count}쪽 · {size} · {date}', document.pageCount).replaceAll('{size}', _formatBytes(document.fileSize)).replaceAll('{date}', _formatDate(document.updatedAt)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
+            if (!selectionMode) const SizedBox(height: 4),
             Wrap(
-              spacing: 8,
+              spacing: 4,
               children: selectionMode
                   ? const []
                   : [
-                      TextButton(onPressed: onOpen, child: const Text('열기')),
-                      TextButton(onPressed: onShare, child: const Text('공유')),
-                      TextButton(onPressed: onDelete, child: const Text('삭제')),
+                      TextButton(onPressed: onOpen, child: Text(appText(context, '열기'))),
+                      TextButton(onPressed: onShare, child: Text(appText(context, '공유'))),
+                      TextButton(onPressed: onDelete, child: Text(appText(context, '삭제'))),
                     ],
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _RecentFileRow extends ConsumerWidget {
-  const _RecentFileRow({required this.file});
-  final RecentFile file;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              file.displayName,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text('${_formatBytes(file.size)} · ${_formatDate(file.openedAt)}'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                TextButton(
-                  onPressed: () => openPdfAndGoToViewer(
-                    context: context,
-                    ref: ref,
-                    source: ExistingRecentSource(file),
-                  ),
-                  child: const Text('열기'),
-                ),
-                TextButton(
-                  onPressed: () => shareDocument(
-                    context: context,
-                    ref: ref,
-                    pdfPath: file.copiedPath,
-                    title: file.displayName,
-                  ),
-                  child: const Text('공유'),
-                ),
-                TextButton(
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: const Text('최근 파일을 제거할까요?'),
-                        content: Text(
-                          '‘${file.displayName}’의 앱 목록과 앱 사본만 제거합니다. 원본 파일은 남습니다.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () =>
-                                Navigator.of(dialogContext).pop(false),
-                            child: const Text('취소'),
-                          ),
-                          FilledButton(
-                            onPressed: () =>
-                                Navigator.of(dialogContext).pop(true),
-                            child: const Text('제거'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed != true) return;
-                    await ref
-                        .read(recentRepositoryProvider)
-                        ?.removeFromList(file.id);
-                  },
-                  child: const Text('제거'),
-                ),
-              ],
             ),
           ],
         ),
@@ -554,7 +458,7 @@ String _formatDate(DateTime value) {
   return '${value.year}.${twoDigits(value.month)}.${twoDigits(value.day)} ${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }
 
-String _failureMessage(PdfFailure failure) => switch (failure) {
-  SourceMissing() => '파일을 찾을 수 없습니다.',
-  _ => '문서를 처리할 수 없습니다.',
+String _failureMessage(BuildContext context, PdfFailure failure) => switch (failure) {
+  SourceMissing() => appText(context, '파일을 찾을 수 없습니다.'),
+  _ => appText(context, '문서를 처리할 수 없습니다.'),
 };

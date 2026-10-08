@@ -14,6 +14,7 @@
 library;
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
@@ -63,17 +64,24 @@ class MlKitOcrSource implements OcrSource {
       return PdfErr(SourceMissing(imagePath));
     }
 
-    img.Image? decoded;
+    // 폭·높이만 필요하지만 `image` 패키지의 디코드는 순수 Dart라 메인 isolate를
+    // 그대로 막는다(스캔 원본은 최대 해상도·품질 100) — CLAUDE.md "무거운 작업은
+    // isolate 필수" 규칙대로 워커 isolate에서 디코드한다(전체 앱 보안·규칙 감사 지적).
+    (int, int)? size;
     try {
-      decoded = img.decodeImage(await file.readAsBytes());
+      size = await Isolate.run(() {
+        final decoded = img.decodeImage(file.readAsBytesSync());
+        if (decoded == null) return null;
+        return (decoded.width, decoded.height);
+      });
     } catch (error) {
       return PdfErr(UnknownFailure('OCR 대상 이미지를 열 수 없습니다: $error'));
     }
-    if (decoded == null) {
+    if (size == null) {
       return PdfErr(SourceCorrupted(imagePath));
     }
-    final width = decoded.width.toDouble();
-    final height = decoded.height.toDouble();
+    final width = size.$1.toDouble();
+    final height = size.$2.toDouble();
     if (width <= 0 || height <= 0) {
       return PdfErr(SourceCorrupted(imagePath));
     }

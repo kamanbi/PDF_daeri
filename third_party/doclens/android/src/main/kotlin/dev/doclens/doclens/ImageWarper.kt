@@ -72,9 +72,6 @@ object ImageWarper {
         // Optional post-warp enhancement (shadow-aware). Operates on the
         // cropped pixels in place; `none` is a no-op.
         enhanceInPlace(processed, enhancement)
-        // 해상도 상한을 올리지 않고도 글자 경계를 복원한다. 원본을 과장하지 않는
-        // 약한 unsharp mask라 JPEG 노이즈 증폭을 제한한다.
-        sharpenInPlace(processed)
 
         // Optional upright-orientation correction. Detect the dominant text
         // direction on the dewarped crop and rotate it so it reads upright;
@@ -293,45 +290,6 @@ object ImageWarper {
                 }
             }
             bmp.setPixels(row, 0, w, 0, y, w, 1)
-        }
-    }
-
-    /** 3×3 unsharp mask. Per-row 버퍼만 사용해 큰 스캔에서 추가 전체 비트맵을 만들지 않는다. */
-    private fun sharpenInPlace(bmp: Bitmap) {
-        val width = bmp.width
-        val height = bmp.height
-        if (width < 3 || height < 3) return
-
-        var previous = IntArray(width)
-        var current = IntArray(width)
-        var next = IntArray(width)
-        val output = IntArray(width)
-        bmp.getPixels(current, 0, width, 0, 0, width, 1)
-        bmp.getPixels(next, 0, width, 0, 1, width, 1)
-
-        for (y in 0 until height) {
-            val top = if (y == 0) current else previous
-            val bottom = if (y == height - 1) current else next
-            for (x in 0 until width) {
-                val left = (x - 1).coerceAtLeast(0)
-                val right = (x + 1).coerceAtMost(width - 1)
-                val center = current[x]
-                val neighbours = intArrayOf(top[x], bottom[x], current[left], current[right])
-                fun channel(shift: Int): Int {
-                    val source = (center shr shift) and 0xFF
-                    val blur = (neighbours.sumOf { (it shr shift) and 0xFF } + source * 4) / 8
-                    return (source + (source - blur) * 0.65f).roundToInt().coerceIn(0, 255)
-                }
-                output[x] = (0xFF shl 24) or (channel(16) shl 16) or
-                    (channel(8) shl 8) or channel(0)
-            }
-            bmp.setPixels(output, 0, width, 0, y, width, 1)
-            if (y + 1 >= height) continue
-            val recycled = previous
-            previous = current
-            current = next
-            next = recycled
-            if (y + 2 < height) bmp.getPixels(next, 0, width, 0, y + 2, width, 1)
         }
     }
 

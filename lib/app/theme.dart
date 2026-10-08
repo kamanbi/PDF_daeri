@@ -1,25 +1,39 @@
-/// 3.5주차 디자인 확정 토큰. (milestones.md "색상·타이포그래피·톤 확정")
-///
-/// FinWise(Figma Community 참고 파일)의 카드 레이아웃·큰 라운드 코너·여백감을
-/// 구조적으로만 참고했다 — 색상 팔레트(그린 계열)는 그대로 쓰지 않고, 사용자 결정에
-/// 따라 포인트 컬러를 "고급스러운 딥 네이비 블루"로 새로 잡았다(2026-08-26 확정).
-/// 레이아웃/네비게이션 구조는 이번 라운드에서 바꾸지 않는다 — 스타일(색·타이포·라운드·
-/// 여백)만 입힌다.
+/// Figma 모바일 리뉴얼의 공통 색상과 컴포넌트 토큰.
 library;
 
 import 'package:flutter/material.dart';
 
 abstract final class AppTheme {
-  /// 포인트 컬러(프라이머리) — 딥 네이비 블루. (2026-08-26 사용자 확정)
-  static const seedColor = Color(0xFF1B4B66);
+  /// Figma 리뉴얼 파운데이션: 종이색 바탕과 차분한 딥 블루 포인트.
+  static const seedColor = Color(0xFF214F68);
+  static const background = Color(0xFFF7F6F2);
+  static const surface = Color(0xFFFFFFFF);
+  static const primaryText = Color(0xFF1A262F);
+  static const secondaryText = Color(0xFF5D6972);
+  static const divider = Color(0xFFD6DADB);
+  static const controlRadius = 12.0;
 
   static ThemeData light() => _build(Brightness.light);
   static ThemeData dark() => _build(Brightness.dark);
 
   static ThemeData _build(Brightness brightness) {
-    final colorScheme = ColorScheme.fromSeed(
+    final isDark = brightness == Brightness.dark;
+    final generated = ColorScheme.fromSeed(
       seedColor: seedColor,
       brightness: brightness,
+    );
+    final colorScheme = generated.copyWith(
+      primary: isDark ? const Color(0xFF8CB9CC) : seedColor,
+      onPrimary: isDark ? const Color(0xFF102833) : surface,
+      surface: isDark ? const Color(0xFF171D20) : background,
+      onSurface: isDark ? const Color(0xFFE8ECEB) : primaryText,
+      surfaceContainerLow: isDark ? const Color(0xFF20282C) : surface,
+      surfaceContainerHigh: isDark
+          ? const Color(0xFF2A3439)
+          : const Color(0xFFF0F0EC),
+      onSurfaceVariant: isDark ? const Color(0xFFB5C0C4) : secondaryText,
+      outline: isDark ? const Color(0xFF58656B) : divider,
+      outlineVariant: isDark ? const Color(0xFF3D484D) : divider,
     );
 
     return ThemeData(
@@ -27,11 +41,14 @@ abstract final class AppTheme {
       colorScheme: colorScheme,
       fontFamily: 'Pretendard',
       scaffoldBackgroundColor: colorScheme.surface,
+      canvasColor: colorScheme.surface,
+      dividerColor: colorScheme.outlineVariant,
       appBarTheme: AppBarTheme(
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
         elevation: 0,
         centerTitle: false,
+        surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           fontFamily: 'Pretendard',
           fontWeight: FontWeight.w600,
@@ -42,26 +59,46 @@ abstract final class AppTheme {
       cardTheme: CardThemeData(
         elevation: 0,
         color: colorScheme.surfaceContainerLow,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(controlRadius),
+          side: BorderSide(color: colorScheme.outlineVariant),
+        ),
         margin: EdgeInsets.zero,
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          textStyle: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600, fontSize: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(controlRadius),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          textStyle: const TextStyle(
+            fontFamily: 'Pretendard',
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+          ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          textStyle: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600, fontSize: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(controlRadius),
+            side: BorderSide(color: colorScheme.outlineVariant),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          textStyle: const TextStyle(
+            fontFamily: 'Pretendard',
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+          ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          textStyle: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600, fontSize: 15),
+          textStyle: const TextStyle(
+            fontFamily: 'Pretendard',
+            fontWeight: FontWeight.w600,
+            fontSize: 15,
+          ),
         ),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
@@ -74,8 +111,10 @@ abstract final class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       chipTheme: ChipThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        side: BorderSide.none,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(controlRadius),
+        ),
+        side: BorderSide(color: colorScheme.outlineVariant),
         backgroundColor: colorScheme.surfaceContainerHigh,
       ),
       snackBarTheme: SnackBarThemeData(
@@ -84,12 +123,36 @@ abstract final class AppTheme {
       ),
       textTheme: const TextTheme(
         // 압축률(%) 등 숫자 강조에 쓰는 큰 표제 — home_screen/compress_sheet에서 재사용.
-        headlineSmall: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w700, fontSize: 24),
-        titleLarge: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600, fontSize: 20),
-        titleMedium: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600, fontSize: 16),
-        bodyLarge: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w400, fontSize: 16),
-        bodyMedium: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w400, fontSize: 14),
-        labelLarge: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600, fontSize: 14),
+        headlineSmall: TextStyle(
+          fontFamily: 'Pretendard',
+          fontWeight: FontWeight.w700,
+          fontSize: 24,
+        ),
+        titleLarge: TextStyle(
+          fontFamily: 'Pretendard',
+          fontWeight: FontWeight.w600,
+          fontSize: 20,
+        ),
+        titleMedium: TextStyle(
+          fontFamily: 'Pretendard',
+          fontWeight: FontWeight.w600,
+          fontSize: 16,
+        ),
+        bodyLarge: TextStyle(
+          fontFamily: 'Pretendard',
+          fontWeight: FontWeight.w400,
+          fontSize: 16,
+        ),
+        bodyMedium: TextStyle(
+          fontFamily: 'Pretendard',
+          fontWeight: FontWeight.w400,
+          fontSize: 14,
+        ),
+        labelLarge: TextStyle(
+          fontFamily: 'Pretendard',
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+        ),
       ),
     );
   }

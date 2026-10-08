@@ -1,12 +1,19 @@
 import { createSign } from 'node:crypto';
+import { readBoundedJson } from '../lib/read_bounded_json.mjs';
 
 const androidPublisherScope = 'https://www.googleapis.com/auth/androidpublisher';
 const packageName = 'com.kamanbi.pdf_daeri';
 const productId = 'ads_removed';
+export const maximumRequestBytes = 8 * 1024;
 const activeSubscriptionStates = new Set([
   'SUBSCRIPTION_STATE_ACTIVE',
   'SUBSCRIPTION_STATE_IN_GRACE_PERIOD',
   'SUBSCRIPTION_STATE_CANCELED',
+]);
+const permanentlyInvalidTokenReasons = new Set([
+  'purchaseTokenNoLongerValid',
+  'subscriptionNoLongerAvailable',
+  'subscriptionExpired',
 ]);
 const jsonHeaders = {
   'Cache-Control': 'no-store',
@@ -14,6 +21,19 @@ const jsonHeaders = {
 };
 
 let cachedAccessToken = null;
+
+// 호출자 인증이 없는 공개 엔드포인트라 rate limit이 유일한 남용 방지선이다(전체 앱 보안 감사
+// M-B). 임의의 요청으로 Google Play API 할당량을 소진시키면 신규 구매자 검증까지 503으로
+// 막힐 수 있어, IP 기준으로 분당 호출 수를 제한한다. 정상 사용(앱 실행 시 확인, 구매 직후
+// 확인, 복원)은 분당 30회면 충분히 여유 있다.
+export const config = {
+  path: '/.netlify/functions/verify-subscription',
+  rateLimit: {
+    windowSize: 60,
+    windowLimit: 30,
+    aggregateBy: ['ip', 'domain'],
+  },
+};
 
 export default async (request) => {
   if (request.method !== 'POST') {
@@ -26,7 +46,14 @@ export default async (request) => {
     return Response.json({ status: 'unavailable' }, { status: 403, headers: jsonHeaders });
   }
 
-  const verificationRequest = await readVerificationRequest(request);
+  const parsedBody = await readBoundedJson(request, maximumRequestBytes);
+  if (!parsedBody.ok) {
+    return Response.json({ status: 'unavailable' }, {
+      status: parsedBody.status,
+      headers: jsonHeaders,
+    });
+  }
+  const verificationRequest = readVerificationRequest(parsedBody.value);
   if (verificationRequest === null) {
     return Response.json({ status: 'unavailable' }, { status: 400, headers: jsonHeaders });
   }
@@ -39,20 +66,22 @@ export default async (request) => {
       { headers: jsonHeaders },
     );
   } catch (error) {
-    console.error('Google Play subscription verification failed', error);
+    const failure = classifyGooglePlayFailure(error);
+    if (failure === 'inactive') {
+      return Response.json({ status: 'inactive' }, { headers: jsonHeaders });
+    }
+    console.error('Google Play subscription verification unavailable', {
+      errorType: error instanceof Error ? error.name : 'unknown',
+      httpStatus: error instanceof GooglePlayApiError ? error.status : undefined,
+    });
     return Response.json({ status: 'unavailable' }, { status: 503, headers: jsonHeaders });
   }
 };
 
-async function readVerificationRequest(request) {
-  try {
-    const body = await request.json();
-    if (body?.productId !== productId || typeof body.purchaseToken !== 'string') return null;
-    const purchaseToken = body.purchaseToken.trim();
-    return purchaseToken.length >= 16 && purchaseToken.length <= 4096 ? { purchaseToken } : null;
-  } catch {
-    return null;
-  }
+function readVerificationRequest(body) {
+  if (body?.productId !== productId || typeof body.purchaseToken !== 'string') return null;
+  const purchaseToken = body.purchaseToken.trim();
+  return purchaseToken.length >= 16 && purchaseToken.length <= 4096 ? { purchaseToken } : null;
 }
 
 async function fetchSubscription(purchaseToken) {
@@ -67,15 +96,41 @@ async function fetchSubscription(purchaseToken) {
     },
   });
   if (!response.ok) {
-    throw new Error(`Google Play API responded ${response.status}`);
+    let errorBody = {};
+    try {
+      errorBody = await response.json();
+    } catch {
+      // An unparseable upstream failure is treated as unavailable, never as revoked.
+    }
+    const reasons = Array.isArray(errorBody?.error?.errors)
+      ? errorBody.error.errors.map((entry) => entry?.reason).filter((reason) => typeof reason === 'string')
+      : [];
+    throw new GooglePlayApiError(response.status, reasons);
   }
   return response.json();
 }
 
-function isActiveAdsRemovedSubscription(subscription) {
+export class GooglePlayApiError extends Error {
+  constructor(status, reasons = []) {
+    super('Google Play API request failed');
+    this.status = status;
+    this.reasons = reasons;
+  }
+}
+
+export function classifyGooglePlayFailure(error) {
+  return error instanceof GooglePlayApiError && error.status === 410 &&
+      error.reasons.some((reason) => permanentlyInvalidTokenReasons.has(reason))
+    ? 'inactive'
+    : 'unavailable';
+}
+
+export function isActiveAdsRemovedSubscription(subscription) {
   if (!activeSubscriptionStates.has(subscription.subscriptionState)) return false;
   return Array.isArray(subscription.lineItems) && subscription.lineItems.some(
-    (lineItem) => lineItem.productId === productId,
+    (lineItem) => lineItem.productId === productId &&
+      typeof lineItem.expiryTime === 'string' &&
+      Date.parse(lineItem.expiryTime) > Date.now(),
   );
 }
 

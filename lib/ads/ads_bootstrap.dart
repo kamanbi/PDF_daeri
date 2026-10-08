@@ -9,15 +9,84 @@ library;
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+
+import '../billing/entitlement.dart';
+import '../core/platform_features.dart';
 
 /// 부팅에서 확정된 적응형 배너 높이(px, 논리 픽셀 아님 — `AdSize.height`는 dp).
 /// `null` = 이번 실행에 배너를 아예 쓰지 않는다(§1.2 "해석 실패 → null → 배너
 /// 없음"). `main.dart`가 §3.6 순서대로 [resolveAdaptiveBannerHeight] 결과로
 /// override한다(D-6, 다음 라운드). 이 provider가 곧 §1.6 상태 머신의
 /// `disabled`(`bannerHeight == null`) 진입 조건이다.
-final bannerHeightProvider = Provider<int?>((ref) => null);
+final bootBannerHeightProvider = Provider<int?>((ref) => null);
+final runtimeBannerHeightProvider = StateProvider<int?>((ref) => null);
+final bannerHeightProvider = Provider<int?>(
+  (ref) =>
+      ref.watch(runtimeBannerHeightProvider) ??
+      ref.watch(bootBannerHeightProvider),
+);
+
+/// Restore ad readiness if a verified subscription expires during this run.
+class AdRuntimeCoordinator {
+  AdRuntimeCoordinator(this._ref);
+
+  final WidgetRef _ref;
+  ProviderSubscription<AsyncValue<bool>>? _subscription;
+  Future<void>? _preparation;
+  bool _disposed = false;
+
+  void start() {
+    if (!AppFeatures.ads || _subscription != null) return;
+    _subscription = _ref.listenManual(adsRemovedProvider, (_, current) {
+      if (current case AsyncData<bool>(value: false)) {
+        unawaited(ensureBannerReady());
+      }
+    }, fireImmediately: true);
+  }
+
+  Future<void> ensureBannerReady() async {
+    if (_disposed ||
+        _preparation != null ||
+        _ref.read(bannerHeightProvider) != null) {
+      return;
+    }
+    final preparation = _prepareBanner();
+    _preparation = preparation;
+    try {
+      await preparation;
+    } finally {
+      _preparation = null;
+    }
+  }
+
+  Future<void> _prepareBanner() async {
+    try {
+      await initializeMobileAds();
+      final view = WidgetsBinding.instance.platformDispatcher.views.first;
+      final widthDp = view.physicalSize.width / view.devicePixelRatio;
+      final height = await resolveAdaptiveBannerHeight(widthDp);
+      if (_disposed || height == null) return;
+      if (_ref.read(adsRemovedProvider).valueOrNull == true) return;
+      _ref.read(runtimeBannerHeightProvider.notifier).state = height;
+    } catch (error, stackTrace) {
+      developer.log(
+        '광고 재준비 실패',
+        name: 'ads_bootstrap',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  void dispose() {
+    _disposed = true;
+    _subscription?.close();
+  }
+}
 
 /// AdMob SDK 초기화(`MobileAds.instance.initialize()`). §3.6-2: `adsRemoved ==
 /// false`일 때만 호출해야 한다는 판단은 **호출자의 책임**이다 — 이 함수 자체는

@@ -92,8 +92,13 @@ abstract final class ImagePdfBuilder {
     if (crop == null) {
       final dims = _jpegPixelSize(jpegBytes);
       if (dims == null) {
-        // 헤더를 못 읽으면(비 JPEG 등) 원본을 그대로 반환 -- 이 함수는 실패를 던지지 않는다.
-        return jpegBytes;
+        // 비 JPEG(PNG 등): 디코드 → (필요 시) 장변 축소 → JPEG 인코딩. 원본 바이트를 그대로 넣으면
+        // package:pdf가 원시 픽셀을 Flate로 재압축해 PNG보다 커진다. 사진→새 PDF 경로 전용이며
+        // 외부 PDF 페이지를 이미지로 바꾸는 것과 무관하다(규칙 2). 디코드 실패 시 원본 반환(호출자
+        // 계약 유지 -- 실패는 이후 단계/게이트가 처리).
+        final decoded = _decodeFlattened(jpegBytes);
+        if (decoded == null) return jpegBytes;
+        return _resizeAndEncode(decoded, longEdgeMaxPx, jpegQuality);
       }
       final longEdge = dims.$1 >= dims.$2 ? dims.$1 : dims.$2;
       if (longEdge <= longEdgeMaxPx) {
@@ -104,8 +109,16 @@ abstract final class ImagePdfBuilder {
       if (decoded == null) return jpegBytes;
 
       final resized = dims.$1 >= dims.$2
-          ? img.copyResize(decoded, width: longEdgeMaxPx)
-          : img.copyResize(decoded, height: longEdgeMaxPx);
+          ? img.copyResize(
+              decoded,
+              width: longEdgeMaxPx,
+              interpolation: img.Interpolation.average,
+            )
+          : img.copyResize(
+              decoded,
+              height: longEdgeMaxPx,
+              interpolation: img.Interpolation.average,
+            );
       final reencoded = Uint8List.fromList(
         img.encodeJpg(resized, quality: jpegQuality),
       );
@@ -115,7 +128,7 @@ abstract final class ImagePdfBuilder {
 
     // 크롭 경로: A-4/A-5 둘 다 적용하지 않는다(§2.4). 디코드 실패 시에만 원본을 반환한다
     // (이 함수는 실패를 던지지 않는다는 기존 계약을 유지) -- 그 외에는 항상 재인코딩 결과를 쓴다.
-    final decoded = img.decodeJpg(jpegBytes);
+    final decoded = _decodeFlattened(jpegBytes);
     if (decoded == null) return jpegBytes;
 
     final cropped = _applyCrop(decoded, crop);
@@ -124,11 +137,64 @@ abstract final class ImagePdfBuilder {
         : cropped.height;
     final resized = longEdge > longEdgeMaxPx
         ? (cropped.width >= cropped.height
-              ? img.copyResize(cropped, width: longEdgeMaxPx)
-              : img.copyResize(cropped, height: longEdgeMaxPx))
+              ? img.copyResize(
+                  cropped,
+                  width: longEdgeMaxPx,
+                  interpolation: img.Interpolation.average,
+                )
+              : img.copyResize(
+                  cropped,
+                  height: longEdgeMaxPx,
+                  interpolation: img.Interpolation.average,
+                ))
         : cropped;
 
     return Uint8List.fromList(img.encodeJpg(resized, quality: jpegQuality));
+  }
+
+  /// 장변이 [longEdgeMaxPx]를 넘으면 축소(average) 후 JPEG 인코딩.
+  static Uint8List _resizeAndEncode(
+    img.Image image,
+    int longEdgeMaxPx,
+    int jpegQuality,
+  ) {
+    final longEdge = image.width >= image.height ? image.width : image.height;
+    final resized = longEdge <= longEdgeMaxPx
+        ? image
+        : (image.width >= image.height
+              ? img.copyResize(
+                  image,
+                  width: longEdgeMaxPx,
+                  interpolation: img.Interpolation.average,
+                )
+              : img.copyResize(
+                  image,
+                  height: longEdgeMaxPx,
+                  interpolation: img.Interpolation.average,
+                ));
+    return Uint8List.fromList(img.encodeJpg(resized, quality: jpegQuality));
+  }
+
+  /// 형식 자동 판별 디코드. 투명 픽셀은 흰 배경에 합성하고 팔레트/16bit는 8bit RGB로 맞춘다.
+  /// 디코드 실패·예외는 null.
+  static img.Image? _decodeFlattened(Uint8List bytes) {
+    try {
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return null;
+      var rgb = decoded;
+      if (rgb.hasPalette || rgb.numChannels != 3 || rgb.bitsPerChannel != 8) {
+        rgb = rgb.convert(numChannels: 4, format: img.Format.uint8);
+      }
+      if (rgb.numChannels == 4) {
+        final bg = img.Image(width: rgb.width, height: rgb.height, numChannels: 3);
+        img.fill(bg, color: img.ColorRgb8(255, 255, 255));
+        img.compositeImage(bg, rgb);
+        return bg;
+      }
+      return rgb;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// [crop] 정규화 비율(0..1)을 원본 픽셀 좌표로 변환해 잘라낸다. 결과 폭·높이는 최소 1px로

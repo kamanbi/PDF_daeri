@@ -129,7 +129,7 @@ class MainActivity : FlutterFragmentActivity() {
                         val stat = StatFs(filesDir.path)
                         result.success(stat.availableBytes)
                     } catch (e: Exception) {
-                        result.error("STATFS_FAILED", e.message, null)
+                        result.error("STATFS_FAILED", "저장공간을 확인하지 못했습니다.", null)
                     }
                 }
                 "exportPdf" -> {
@@ -153,18 +153,39 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     exportImageToPictures(sourceImagePath, displayName, rotationDegrees, jpegQuality, result)
                 }
+                "setSensitiveClip" -> {
+                    val text = call.argument<String>("text")
+                    if (text == null) {
+                        result.error("INVALID_ARGS", "text required", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val clip = android.content.ClipData.newPlainText("text", text)
+                        if (Build.VERSION.SDK_INT >= 33) {
+                            clip.description.extras = android.os.PersistableBundle().apply {
+                                putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+                            }
+                        }
+                        val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                            as android.content.ClipboardManager
+                        cm.setPrimaryClip(clip)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("CLIP_FAILED", "클립보드에 복사하지 못했습니다.", null)
+                    }
+                }
                 "clearNativeCache" -> {
                     try {
                         result.success(clearNativeCache())
                     } catch (e: Exception) {
-                        result.error("CLEAR_FAILED", e.message, null)
+                        result.error("CLEAR_FAILED", "캐시를 정리하지 못했습니다.", null)
                     }
                 }
                 "nativeCacheBytes" -> {
                     try {
                         result.success(nativeCacheBytes())
                     } catch (e: Exception) {
-                        result.error("USAGE_FAILED", e.message, null)
+                        result.error("USAGE_FAILED", "캐시 용량을 확인하지 못했습니다.", null)
                     }
                 }
                 else -> result.notImplemented()
@@ -418,8 +439,18 @@ class MainActivity : FlutterFragmentActivity() {
             result.success(uri.toString())
         } catch (e: Exception) {
             resolver.delete(uri, null, null)
-            result.error("EXPORT_FAILED", e.message, null)
+            result.error("EXPORT_FAILED", "PDF를 내보내지 못했습니다.", null)
         }
+    }
+
+    // 무거운 디코드·회전·인코딩은 UI 스레드 밖 단일 스레드에서 실행하고,
+    // MethodChannel result 는 반드시 메인 스레드에서 1회만 호출한다.
+    private val imageExportExecutor: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    override fun onDestroy() {
+        imageExportExecutor.shutdown()
+        super.onDestroy()
     }
 
     private fun exportImageToPictures(
@@ -438,7 +469,31 @@ class MainActivity : FlutterFragmentActivity() {
             result.error("NOT_FOUND", "저장할 사진을 찾을 수 없습니다.", null)
             return
         }
+        try {
+            imageExportExecutor.execute {
+                val outcome = runImageExport(source, displayName, rotationDegrees, jpegQuality)
+                runOnUiThread {
+                    if (outcome.uri != null) {
+                        result.success(outcome.uri)
+                    } else {
+                        result.error(outcome.code ?: "EXPORT_FAILED", outcome.message, null)
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            result.error("EXPORT_FAILED", "사진을 내보내지 못했습니다.", null)
+        }
+    }
 
+    private class ImageExportOutcome(val uri: String?, val code: String?, val message: String?)
+
+    /** 백그라운드 스레드에서 실행. 어떤 Throwable(OOM 포함)이든 pending 행을 지운다. */
+    private fun runImageExport(
+        source: File,
+        displayName: String,
+        rotationDegrees: Int,
+        jpegQuality: Int,
+    ): ImageExportOutcome {
         val resolver = contentResolver
         var uri: Uri? = null
         try {
@@ -453,8 +508,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
             uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             if (uri == null) {
-                result.error("CREATE_FAILED", "사진 보관함을 만들 수 없습니다.", null)
-                return
+                return ImageExportOutcome(null, "CREATE_FAILED", "사진 보관함을 만들 수 없습니다.")
             }
             resolver.openOutputStream(uri)?.use { output ->
                 writeJpeg(source, rotationDegrees, jpegQuality, output)
@@ -462,10 +516,19 @@ class MainActivity : FlutterFragmentActivity() {
             values.clear()
             values.put(MediaStore.MediaColumns.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
-            result.success(uri.toString())
-        } catch (e: Exception) {
-            uri?.let { resolver.delete(it, null, null) }
-            result.error("EXPORT_FAILED", e.message, null)
+            return ImageExportOutcome(uri.toString(), null, null)
+        } catch (t: Throwable) {
+            Log.w(DOCUMENT_SCANNER_LOG_TAG, "exportImage failed", t)
+            try {
+                uri?.let { resolver.delete(it, null, null) }
+            } catch (_: Throwable) {
+            }
+            val message = if (t is OutOfMemoryError) {
+                "사진이 너무 커서 내보내지 못했습니다."
+            } else {
+                "사진을 내보내지 못했습니다."
+            }
+            return ImageExportOutcome(null, "EXPORT_FAILED", message)
         }
     }
 
@@ -480,24 +543,33 @@ class MainActivity : FlutterFragmentActivity() {
             source.inputStream().use { input -> input.copyTo(output) }
             return
         }
-        val decoded = BitmapFactory.decodeFile(source.path)
+        // 풀 해상도 비트맵 2장이 동시에 살아 있는 구간을 createBitmap 한 줄로 최소화하고,
+        // 회전본이 만들어지면 원본을 즉시 해제한다. (EXIF 태그 방식은 스트림 출력과
+        // 기존 재인코딩 품질/방향 의미를 바꾸므로 채택하지 않음.)
+        var decoded: Bitmap? = BitmapFactory.decodeFile(source.path)
             ?: throw FileNotFoundException("저장할 사진을 읽을 수 없습니다.")
-        val rotated = Bitmap.createBitmap(
-            decoded,
-            0,
-            0,
-            decoded.width,
-            decoded.height,
-            Matrix().apply { postRotate(normalizedRotation.toFloat()) },
-            true,
-        )
+        var rotated: Bitmap? = null
         try {
-            if (!rotated.compress(Bitmap.CompressFormat.JPEG, jpegQuality.coerceIn(1, 100), output)) {
+            val src = decoded!!
+            rotated = Bitmap.createBitmap(
+                src,
+                0,
+                0,
+                src.width,
+                src.height,
+                Matrix().apply { postRotate(normalizedRotation.toFloat()) },
+                true,
+            )
+            if (rotated !== src) {
+                src.recycle()
+                decoded = null
+            }
+            if (!rotated!!.compress(Bitmap.CompressFormat.JPEG, jpegQuality.coerceIn(1, 100), output)) {
                 throw IllegalStateException("사진 JPEG 인코딩에 실패했습니다.")
             }
         } finally {
-            if (rotated !== decoded) rotated.recycle()
-            decoded.recycle()
+            rotated?.recycle()
+            decoded?.recycle()
         }
     }
 
@@ -508,7 +580,7 @@ class MainActivity : FlutterFragmentActivity() {
             // M-2 대응: 진입점 2곳(`extractViewUri`도 검증) 모두 방어한다 — 이
             // 채널은 SAF 피커에서도 호출되지만 스킴 검증 자체는 항상 유효하다.
             if (!isAcceptableContentUri(uri)) {
-                result.error("INVALID_SCHEME", "content:// URI만 허용됩니다: $uriString", null)
+                result.error("INVALID_SCHEME", "content:// URI만 허용됩니다.", null)
                 return
             }
             val mimeType = contentResolver.getType(uri)?.lowercase()
@@ -529,7 +601,7 @@ class MainActivity : FlutterFragmentActivity() {
 
             val input = contentResolver.openInputStream(uri)
             if (input == null) {
-                result.error("NOT_FOUND", "openInputStream returned null for $uriString", null)
+                result.error("NOT_FOUND", "파일을 열 수 없습니다.", null)
                 return
             }
             input.use { streamIn ->
@@ -562,19 +634,19 @@ class MainActivity : FlutterFragmentActivity() {
             )
         } catch (e: InvalidPdfException) {
             destinationFile?.delete()
-            result.error("INVALID_PDF", e.message, null)
+            result.error("INVALID_PDF", "올바른 PDF 파일이 아닙니다.", null)
         } catch (e: PdfTooLargeException) {
             destinationFile?.delete()
             result.error("FILE_TOO_LARGE", "PDF files must be 100MB or smaller", null)
         } catch (e: FileNotFoundException) {
             destinationFile?.delete()
-            result.error("NOT_FOUND", e.message, null)
+            result.error("NOT_FOUND", "파일을 찾을 수 없습니다.", null)
         } catch (e: SecurityException) {
             destinationFile?.delete()
-            result.error("PERMISSION_DENIED", e.message, null)
+            result.error("PERMISSION_DENIED", "파일 접근 권한이 없습니다.", null)
         } catch (e: Exception) {
             destinationFile?.delete()
-            result.error("IO_ERROR", e.message, null)
+            result.error("IO_ERROR", "파일을 읽는 중 오류가 발생했습니다.", null)
         }
     }
 

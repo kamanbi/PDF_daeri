@@ -2,6 +2,7 @@
 /// 편집·PDF 생성 흐름으로 넘긴다. 이 화면에는 배너를 넣지 않는다(`ads.md`).
 library;
 
+import '../../app/app_locale.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -123,7 +124,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     SizeGuardViolation() => '용량 검증에 실패했습니다.',
     EngineUnsupported() => '이 기기에서 스캔을 사용할 수 없습니다.',
     ScannerUnavailable(:final message) => message,
-    UnknownFailure(:final message) => '스캔 중 오류가 발생했습니다: $message',
+    UnknownFailure(:final message) => appText(context, '스캔 중 오류가 발생했습니다: {error}').replaceAll('{error}', message),
   };
 
   void _continueWithPhotos() {
@@ -136,7 +137,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('스캔')),
+      appBar: AppBar(title: Text(appText(context, '스캔'))),
       body: Center(
         child: switch (_state) {
           _ScanState.checking || _ScanState.scanning => Column(
@@ -144,7 +145,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 16),
-              const Text('스캐너를 여는 중…'),
+              Text(appText(context, '스캐너를 여는 중…')),
             ],
           ),
           _ScanState.unsupported => Padding(
@@ -152,19 +153,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  '이 기기에서 문서 스캐너를 사용할 수 없습니다.',
+                Text(
+                  appText(context, '이 기기에서 문서 스캐너를 사용할 수 없습니다.'),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
                 TextButton(
                   onPressed: _continueWithPhotos,
-                  child: const Text('사진 → PDF로 계속하기'),
+                  child: Text(appText(context, '사진 → PDF로 계속하기')),
                 ),
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('홈으로'),
+                  child: Text(appText(context, '홈으로')),
                 ),
               ],
             ),
@@ -174,18 +175,18 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(_errorMessage ?? '알 수 없는 오류', textAlign: TextAlign.center),
+                Text(appText(context, _errorMessage ?? '알 수 없는 오류'), textAlign: TextAlign.center),
                 const SizedBox(height: 20),
-                FilledButton(onPressed: _startScan, child: const Text('다시 시도')),
+                FilledButton(onPressed: _startScan, child: Text(appText(context, '다시 시도'))),
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: _continueWithPhotos,
-                  child: const Text('사진 → PDF로 계속하기'),
+                  child: Text(appText(context, '사진 → PDF로 계속하기')),
                 ),
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('홈으로'),
+                  child: Text(appText(context, '홈으로')),
                 ),
               ],
             ),

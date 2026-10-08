@@ -37,6 +37,16 @@ final adsRemovedProvider = StreamProvider<bool>((ref) {
   return repo.watch().map((settings) => settings.adsRemoved);
 });
 
+/// 같은 검증된 연간 구독이 광고 제거와 OCR 생성을 함께 허용한다.
+final ocrEntitlementProvider = Provider<AsyncValue<bool>>(
+  (ref) => ref.watch(adsRemovedProvider),
+);
+
+/// OCR 화면이 구독 캐시의 첫 값을 기다려야 할 때 사용하는 비동기 경계.
+final ocrEntitlementFutureProvider = FutureProvider<bool>(
+  (ref) => ref.watch(adsRemovedProvider.future),
+);
+
 /// `adsRemoved` 캐시 갱신의 단일 진입점. `lib/billing/billing_service.dart`가
 /// 서버가 확인한 활성 구독 상태만 전달한다. 다른 코드는 이 클래스를
 /// 거치지 않고 `SettingsRepository.setAdsRemoved`를 직접 호출하지 않는다.

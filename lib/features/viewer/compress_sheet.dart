@@ -21,6 +21,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../app/app_locale.dart';
 
 import '../../ads/ad_gate.dart';
 import '../../app/providers.dart';
@@ -127,7 +128,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     if (repo == null) {
       await FailureUi.showDialog(
         context,
-        const UnknownFailure('저장소를 사용할 수 없습니다.'),
+        UnknownFailure(appText(context, '저장소를 사용할 수 없습니다.')),
       );
       return;
     }
@@ -187,7 +188,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     if (repo == null) {
       await FailureUi.showDialog(
         context,
-        const UnknownFailure('저장소를 사용할 수 없습니다.'),
+        UnknownFailure(appText(context, '저장소를 사용할 수 없습니다.')),
       );
       return;
     }
@@ -254,7 +255,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     final raw = _customMbController.text.trim();
     final mb = int.tryParse(raw);
     if (mb == null || mb <= 0) {
-      setState(() => _customMbError = '1 이상의 숫자를 입력하세요.');
+      setState(() => _customMbError = appText(context, '1 이상의 숫자를 입력하세요.'));
       return;
     }
     setState(() => _customMbError = null);
@@ -303,7 +304,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     if (workspace == null) {
       await FailureUi.showDialog(
         context,
-        const UnknownFailure('공유 기능을 사용할 수 없습니다.'),
+        UnknownFailure(appText(context, '공유 기능을 사용할 수 없습니다.')),
       );
       return;
     }
@@ -315,7 +316,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
     );
   }
 
-  String get _deleteLabel => widget.docId != null ? '원본 삭제' : '앱에서 원본 제거';
+  String get _deleteLabel => widget.docId != null ? appText(context, '원본 삭제') : appText(context, '앱에서 원본 제거');
 
   @override
   Widget build(BuildContext context) {
@@ -346,7 +347,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('압축', style: Theme.of(context).textTheme.titleLarge),
+        Text(appText(context, '압축'), style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
         _CompressionQualityTile(
           profile: ImageQualityProfile.high,
@@ -364,13 +365,13 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
           onTap: () => _startCompress(ImageQuality.min),
         ),
         const SizedBox(height: 8),
-        const Text('예상치는 사진 중심 PDF 기준입니다. 텍스트 중심 PDF는 원본 유지 또는 소폭 변화할 수 있습니다.'),
+        Text(appText(context, '예상치는 사진 중심 PDF 기준입니다. 텍스트 중심 PDF는 원본 유지 또는 소폭 변화할 수 있습니다.')),
         const Divider(height: 24),
         // §76 §3.6: 새 스테이지·새 다이얼로그를 만들지 않고 같은 시트 안에서 펼친다.
         ListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('목표 용량 맞추기'),
-          subtitle: const Text('원하는 파일 크기를 정해서 압축합니다.'),
+          title: Text(appText(context, '목표 용량 맞추기')),
+          subtitle: Text(appText(context, '원하는 파일 크기를 정해서 압축합니다.')),
           trailing: Icon(_targetExpanded ? Icons.expand_less : Icons.expand_more),
           onTap: () => setState(() => _targetExpanded = !_targetExpanded),
         ),
@@ -415,7 +416,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
                   controller: _customMbController,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText: '직접 입력 (MB)',
+                    labelText: appText(context, '직접 입력 (MB)'),
                     isDense: true,
                     errorText: _customMbError,
                   ),
@@ -425,7 +426,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
               const SizedBox(width: 8),
               FilledButton(
                 onPressed: _startCompressToCustomTarget,
-                child: const Text('실행'),
+                child: Text(appText(context, '실행')),
               ),
             ],
           ),
@@ -441,13 +442,13 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('압축 중…', style: Theme.of(context).textTheme.titleLarge),
+        Text(appText(context, '압축 중…'), style: Theme.of(context).textTheme.titleLarge),
         if (attempt != null) ...[
           const SizedBox(height: 4),
           // §3.6: 진행률 바가 매 시도 0부터 다시 오르므로 이 줄이 없으면 사용자가
           // 멈춘 줄 오해한다.
           Text(
-            '${attempt.attempt}/${attempt.maxAttempts}번째 시도 중',
+            appText(context, '{attempt}/{max}번째 시도 중').replaceAll('{attempt}', '${attempt.attempt}').replaceAll('{max}', '${attempt.maxAttempts}'),
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -460,7 +461,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
           children: [
             Text('${(fraction * 100).round()}%'),
             // 취소는 즉시 듣는다 -- CancelToken이 패스 A/B/C 루프를 이미지 단위로 끊는다.
-            TextButton(onPressed: _cancel, child: const Text('취소')),
+            TextButton(onPressed: _cancel, child: Text(appText(context, '취소'))),
           ],
         ),
       ],
@@ -514,25 +515,25 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '목표 $targetMb에 맞추지 못했습니다',
+          appText(context, '목표 {target}에 맞추지 못했습니다').replaceAll('{target}', targetMb),
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 4),
-        Text('최선 결과: $fromMb → $toMb (${pct.round()}% 감소)'),
+        Text(appText(context, '최선 결과: {from} → {to} ({percent}% 감소)').replaceAll('{from}', fromMb).replaceAll('{to}', toMb).replaceAll('{percent}', '${pct.round()}')),
         const SizedBox(height: 20),
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
                 onPressed: _acceptTargetResult,
-                child: const Text('이 결과로 저장'),
+                child: Text(appText(context, '이 결과로 저장')),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('취소'),
+                child: Text(appText(context, '취소')),
               ),
             ),
           ],
@@ -548,15 +549,15 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('이미 최적화된 문서입니다', style: Theme.of(context).textTheme.titleMedium),
+        Text(appText(context, '이미 최적화된 문서입니다'), style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 4),
-        const Text('새 파일을 만들지 않았습니다.'),
+        Text(appText(context, '새 파일을 만들지 않았습니다.')),
         const SizedBox(height: 16),
         Align(
           alignment: Alignment.centerRight,
           child: TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
+            child: Text(appText(context, '확인')),
           ),
         ),
       ],
@@ -579,7 +580,7 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
         // 형식은 `pipeline.md` 압축 절 그대로: "4.2MB → 1.1MB (74% 감소)".
         // 강조 대상은 감소율(%) — headlineSmall(테마 정의)로 표시한다.
         Text(
-          '${pct.round()}% 감소',
+          appText(context, '{percent}% 감소').replaceAll('{percent}', '${pct.round()}'),
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
             color: Theme.of(context).colorScheme.primary,
           ),
@@ -592,13 +593,13 @@ class _CompressSheetState extends ConsumerState<_CompressSheet> {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton(onPressed: _share, child: const Text('공유')),
+              child: OutlinedButton(onPressed: _share, child: Text(appText(context, '공유'))),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton(
                 onPressed: _removed ? null : _removeOriginal,
-                child: Text(_removed ? '제거됨' : _deleteLabel),
+                child: Text(_removed ? appText(context, '제거됨') : _deleteLabel),
               ),
             ),
           ],
@@ -625,9 +626,9 @@ class _CompressionQualityTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(profile.label),
+      title: Text(appText(context, profile.label)),
       subtitle: Text(
-        '${profile.recommendedFor}\n${profile.processingDescription}\n${profile.estimateFor(sourceBytes ?? 0)}',
+        '${appText(context, profile.recommendedFor)}\n${profile.processingDescriptionFor(tr: (k) => appText(context, k))}\n${profile.estimateFor(sourceBytes ?? 0, tr: (k) => appText(context, k))}',
       ),
       isThreeLine: true,
       onTap: onTap,

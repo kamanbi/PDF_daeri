@@ -21,7 +21,7 @@ import '../core/cancel_token.dart';
 import '../core/progress.dart';
 import '../core/size_guard.dart';
 import 'image_encode_isolate.dart';
-import 'image_pdf_builder.dart';
+import 'image_pdf_assembly.dart';
 import 'image_quality.dart';
 import 'page_ref.dart';
 import 'qpdf_isolate.dart';
@@ -446,30 +446,18 @@ class QpdfPdfEngine implements PdfEngine {
       if (imageItems.isNotEmpty) {
         // 이미지 인코딩은 순수 Dart CPU 작업이므로 별도 워커 isolate로 보낸다(§5.6 -- `package:image`/
         // `package:pdf/`가 없는 isolate). qpdf가 이 워커를 전혀 쓰지 않는다(2-키 분리 유지).
-        final encodeResult = await runImageEncodeBatch(
+        final assembly = await encodeAndAssembleImagePdf(
           items: imageItems,
           longEdgeMaxPx: longEdgeMaxPx,
           jpegQuality: jpegQuality,
+          progressTotal: pages.length,
+          onErrorMap: _failureFromErrorMap,
+          onProgress: onProgress,
           cancelToken: cancelToken,
         );
-        if (encodeResult['ok'] != true)
-          return PdfErr(_failureFromErrorMap(encodeResult));
-        if (cancelToken?.isCancelled ?? false) return const PdfErr(Cancelled());
-
-        final encodedImages = (encodeResult['images']! as List)
-            .cast<EncodedImage>();
-        onProgress?.call(
-          PdfProgress(
-            phase: PdfPhase.composing,
-            done: encodedImages.length,
-            total: pages.length,
-          ),
-        );
-
-        final builtBytes = await ImagePdfBuilder.build(
-          jpegPages: [for (final e in encodedImages) e.bytes],
-          title: null,
-        );
+        if (assembly.failure != null) return PdfErr(assembly.failure!);
+        if (assembly.cancelled) return const PdfErr(Cancelled());
+        final builtBytes = assembly.bytes!;
 
         final allImages = pages.every((p) => p is ImagePageRef);
         final anyRotation = pages.any((p) => p.rotation != 0);

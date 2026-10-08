@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pdf-daeri-website",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "3344", "--directory", "website"],
+      "port": 3344
+    }
+  ]
+}

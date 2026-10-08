@@ -62,6 +62,81 @@ abstract interface class PdfRenderer {
   /// 뷰어 이탈 시 호출한다. **`evictCache()`를 뷰어에서 호출하지 않는다** —
   /// 그것은 열린 문서를 전부 닫아 홈 그리드의 썸네일 생성까지 무효화한다.
   void evictDocument(String pdfPath, {String? password});
+
+  /// 페이지 [pageIndex](0-base)의 텍스트와 글자별 사각형.
+  /// 좌표는 **페이지 좌상단 원점, 포인트 단위, y 아래로 증가**로 정규화해 돌려준다
+  /// (PDFium의 좌하단 원점 좌표계 변환은 이 메서드 구현 안에서만 한다).
+  /// 텍스트가 없는 페이지(순수 이미지 스캔, OCR 전)는 `text == ''`인 `PdfOk`를 반환한다.
+  ///
+  /// **읽기 전용** — 문서를 수정하거나 저장하지 않는다. 이 결과가 저장 경로
+  /// (`pdf_engine.dart`)로 흘러가는 코드 경로는 존재하지 않는다.
+  Future<PdfResult<PdfPageTextData>> pageText({
+    required String pdfPath,
+    required int pageIndex,
+    String? password,
+    CancelToken? cancelToken,
+  });
+}
+
+/// 페이지 텍스트 + 글자별 사각형의 직렬화 가능한 순수 값 객체(향후 isolate 이동 대비).
+/// `pdfrx` 타입(`PdfPageText`, `PdfRect`)을 담지 않는다 — 라이브러리 교체 가능성 유지(§3.2 타입 봉쇄와 동일 원칙).
+class PdfPageTextData {
+  const PdfPageTextData({required this.pageIndex, required this.text, required this.charRects});
+
+  final int pageIndex;
+  final String text;
+
+  /// `text.length`와 같은 길이. 각 원소는 페이지 좌상단 원점, y 아래로 증가하는 포인트 좌표.
+  final List<ui.Rect> charRects;
+
+  /// [start, end) 범위(`text` 기준, end 미포함)를 줄 단위로 병합한 사각형 목록(하이라이트용).
+  /// 세로 위치가 겹치는 글자들을 같은 줄로 묶어 각 줄을 하나의 사각형으로 합친다.
+  List<ui.Rect> rectsFor(int start, int end) {
+    final s = start.clamp(0, charRects.length);
+    final e = end.clamp(0, charRects.length);
+    if (s >= e) return const [];
+
+    final result = <ui.Rect>[];
+    ui.Rect? lineRect;
+    for (var i = s; i < e; i++) {
+      final r = charRects[i];
+      if (r.isEmpty) continue;
+      if (lineRect == null) {
+        lineRect = r;
+        continue;
+      }
+      // 세로 범위가 겹치면(대략 같은 줄) 확장, 아니면 줄바꿈으로 보고 새 줄 시작.
+      final overlaps = r.top < lineRect.bottom && r.bottom > lineRect.top;
+      if (overlaps) {
+        lineRect = lineRect.expandToInclude(r);
+      } else {
+        result.add(lineRect);
+        lineRect = r;
+      }
+    }
+    if (lineRect != null) result.add(lineRect);
+    return result;
+  }
+
+  /// 포인트 좌표 [p]에 가장 가까운 글자 인덱스. 텍스트가 없거나 [slopPt] 이내에 글자가 없으면 null.
+  int? hitTest(ui.Offset p, {double slopPt = 6}) {
+    int? bestIndex;
+    double bestDistanceSq = double.infinity;
+    for (var i = 0; i < charRects.length; i++) {
+      final r = charRects[i];
+      if (r.isEmpty) continue;
+      if (r.contains(p)) return i;
+      final dx = p.dx < r.left ? (r.left - p.dx) : (p.dx > r.right ? (p.dx - r.right) : 0.0);
+      final dy = p.dy < r.top ? (r.top - p.dy) : (p.dy > r.bottom ? (p.dy - r.bottom) : 0.0);
+      final distanceSq = dx * dx + dy * dy;
+      if (distanceSq < bestDistanceSq) {
+        bestDistanceSq = distanceSq;
+        bestIndex = i;
+      }
+    }
+    if (bestIndex == null || bestDistanceSq > slopPt * slopPt) return null;
+    return bestIndex;
+  }
 }
 
 /// 페이지 기하 정보. 픽셀이 아니라 **치수만** 담는다 — 이 타입에 바이트가 들어가는
@@ -84,13 +159,38 @@ class PdfPageSize {
   double get aspectRatio => (widthPt <= 0 || heightPt <= 0) ? 1.0 : widthPt / heightPt;
 }
 
+/// 비밀번호 원문 대신 캐시·프로바이더 키에 쓰는 64비트 토큰(FNV-1a 변형 2개를 이어 붙임).
+/// 새 의존성(crypto) 없이 32비트 `hashCode` 단독 사용 대비 충돌 확률을 2^-64 수준으로 낮춘다.
+/// 암호학적 해시는 아니다 — 키 충돌 방지용이며 비밀번호 복원 방어 용도가 아니다.
+String pdfPasswordToken(String? password) {
+  if (password == null) return '';
+  var h1 = 0x811c9dc5;
+  var h2 = 0x01000193 ^ 0x5bd1e995;
+  for (final unit in password.codeUnits) {
+    h1 = ((h1 ^ unit) * 0x01000193) & 0xffffffff;
+    h2 = ((h2 ^ (unit + 0x9e37)) * 0x85ebca6b) & 0xffffffff;
+  }
+  return '${h1.toRadixString(16)}-${h2.toRadixString(16)}-${password.length}';
+}
+
 class PdfxRenderer implements PdfRenderer {
   PdfxRenderer();
 
   final Map<String, pdfrx.PdfDocument> _openDocs = {};
 
+  /// 캐시 키에 비밀번호 원문을 담지 않는다(재감사 M-2) — 이 캐시는 앱 전체 수명 동안
+  /// 메모리에 남으므로 원문 대신 64비트 결정적 해시 토큰을 쓴다([pdfPasswordToken]).
+  String _passwordCacheToken(String? password) => pdfPasswordToken(password);
+
+  /// `pageText` 결과 캐시. 키는 `path|passwordHash|pageIndex`(비밀번호 원문을 키에 담지 않는다 —
+  /// 재감사 M-2). `evictDocument`에서 문서별로 함께 제거하고, 앱 전체 수명 캐시라 무제한 증가를
+  /// 막기 위해 [_pageTextCacheLimit] 건을 넘으면 가장 오래된 항목부터 제거한다(삽입 순서 기반
+  /// 근사 FIFO — `LinkedHashMap`인 `Map` 리터럴의 반복 순서를 그대로 쓴다).
+  final Map<String, PdfPageTextData> _pageTextCache = {};
+  static const int _pageTextCacheLimit = 200;
+
   Future<pdfrx.PdfDocument> _open(String path, {String? password}) async {
-    final key = '$path|${password ?? ''}';
+    final key = '$path|${_passwordCacheToken(password)}';
     final cached = _openDocs[key];
     if (cached != null) return cached;
     final doc = await pdfrx.PdfDocument.openFile(
@@ -306,8 +406,51 @@ class PdfxRenderer implements PdfRenderer {
 
   @override
   void evictDocument(String pdfPath, {String? password}) {
-    final key = '$pdfPath|${password ?? ''}';
+    final key = '$pdfPath|${_passwordCacheToken(password)}';
     final doc = _openDocs.remove(key);
     doc?.dispose();
+    final textCachePrefix = '$key|';
+    _pageTextCache.removeWhere((k, _) => k.startsWith(textCachePrefix));
+  }
+
+  @override
+  Future<PdfResult<PdfPageTextData>> pageText({
+    required String pdfPath,
+    required int pageIndex,
+    String? password,
+    CancelToken? cancelToken,
+  }) async {
+    final cacheKey = '$pdfPath|${_passwordCacheToken(password)}|$pageIndex';
+    final cached = _pageTextCache[cacheKey];
+    if (cached != null) return PdfOk(cached);
+
+    try {
+      final doc = await _open(pdfPath, password: password);
+      if (pageIndex < 0 || pageIndex >= doc.pages.length) {
+        return PdfErr(UnknownFailure('pageIndex out of range'));
+      }
+      final page = doc.pages[pageIndex];
+      final pageText = await page.loadStructuredText();
+
+      // PDFium 좌표계(좌하단 원점, y 위로 증가) → 표시 좌표계(좌상단 원점, y 아래로 증가).
+      // page.height는 표시 기준 치수(§ PdfPageGeometry 주석과 동일 원칙, `/Rotate` 반영됨).
+      final charRects = [
+        for (final r in pageText.charRects)
+          ui.Rect.fromLTRB(r.left, page.height - r.top, r.right, page.height - r.bottom),
+      ];
+
+      final data = PdfPageTextData(pageIndex: pageIndex, text: pageText.fullText, charRects: charRects);
+      if (_pageTextCache.length >= _pageTextCacheLimit) {
+        _pageTextCache.remove(_pageTextCache.keys.first);
+      }
+      _pageTextCache[cacheKey] = data;
+      return PdfOk(data);
+    } on pdfrx.PdfPasswordException {
+      return PdfErr(SourceEncrypted(pdfPath));
+    } on pdfrx.PdfException catch (e) {
+      return PdfErr(SourceCorrupted(e.message));
+    } catch (e) {
+      return PdfErr(UnknownFailure(e.toString()));
+    }
   }
 }

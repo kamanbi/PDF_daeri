@@ -1,5 +1,6 @@
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -8,6 +9,7 @@ import 'package:doclens/doclens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/theme.dart';
 import 'scan_image_quality.dart';
 
 const double _minimumDocumentArea = 0.28;
@@ -34,9 +36,8 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
       enablePerspectiveWarp: false,
       captureResolution: Resolution.max,
       jpegQuality: scanJpegQuality,
-      // 실사 컬러를 보존한다. 원근 보정과 약한 선명화는 네이티브 warp 단계에서
-      // 계속 적용되며, 이 값만 배경 흰색화·탈색 보정을 끈다.
-      imageEnhancement: ImageEnhancement.none,
+      // 패키지 기본 제공 enhanced 필터(그림자 보정·배경 밝게)를 기본 적용한다.
+      imageEnhancement: ImageEnhancement.enhanced,
       autoOrientation: AutoOrientation.none,
       initialFlashMode: FlashMode.auto,
     ),
@@ -65,7 +66,9 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
     _physicalRotationSubscription?.cancel();
     unawaited(_controller.dispose());
     unawaited(
-      SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]),
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]),
     );
     super.dispose();
   }
@@ -73,7 +76,9 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
   Future<void> _openScanner() async {
     // 카메라 Texture와 모서리 좌표는 세로 좌표계를 유지한다. 물리 방향은
     // 네이티브 센서 이벤트로 별도 받아 조작 UI·저장 JPEG에만 반영한다.
-    await SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
     try {
       await _controller.initialize();
       _quadSubscription = _controller.quadStream.listen((quad) {
@@ -82,9 +87,11 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
       _statusSubscription = _controller.statusStream.listen((status) {
         if (mounted) setState(() => _status = status);
       });
-      _physicalRotationSubscription = _controller.physicalRotationStream.listen((degrees) {
-        if (mounted) setState(() => _physicalRotationDegrees = degrees);
-      });
+      _physicalRotationSubscription = _controller.physicalRotationStream.listen(
+        (degrees) {
+          if (mounted) setState(() => _physicalRotationDegrees = degrees);
+        },
+      );
       if (mounted) setState(() => _initializing = false);
     } catch (error) {
       if (mounted) {
@@ -138,21 +145,21 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
   @override
   Widget build(BuildContext context) {
     if (_initializing) {
-      return const Scaffold(body: Center(child: Text('카메라를 준비하는 중입니다.')));
+      return Scaffold(body: Center(child: Text(appText(context, '카메라를 준비하는 중입니다.'))));
     }
     if (_initializationError != null) {
       return Scaffold(
         body: Center(
           child: TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('스캐너를 열지 못했습니다. 돌아가기'),
+            child: Text(appText(context, '스캐너를 열지 못했습니다. 돌아가기')),
           ),
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF1C2022),
       body: SafeArea(
         child: Stack(
           fit: StackFit.expand,
@@ -167,10 +174,9 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
                 accent: Colors.white,
               ),
               captureButtonBuilder: (context, capture) => _rotatedControl(
-                TextButton(
+                FilledButton(
                   onPressed: _canCapture ? capture : null,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  child: Text(_openingAdjustment ? '보정 화면을 여는 중…' : '촬영'),
+                  child: Text(appText(context, _openingAdjustment ? '보정 화면을 여는 중…' : '촬영')),
                 ),
               ),
               onCapture: (capture) => unawaited(_openAdjustment(capture)),
@@ -187,13 +193,13 @@ class _SingleDocumentScannerState extends State<SingleDocumentScanner> {
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
-                    child: _rotatedControl(const Text('취소')),
+                    child: _rotatedControl(Text(appText(context, '취소'))),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: _rotatedControl(
                       Text(
-                        _guidance,
+                        appText(context, _guidance),
                         textAlign: TextAlign.center,
                         style: const TextStyle(color: Colors.white),
                       ),
@@ -236,7 +242,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
   late Quad _quad = widget.capture.detectedQuad;
   var _saving = false;
   var _refreshingCorners = false;
-  var _additionalCorrection = false;
+  var _additionalCorrection = true;
   var _flattenFold = false;
   String? _failure;
   Offset? _dragStartLocalPosition;
@@ -314,7 +320,9 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
         return;
       }
       if (mounted) {
-        setState(() => _quad = detectedQuad.scaleToSize(widget.capture.rawImageSize));
+        setState(
+          () => _quad = detectedQuad.scaleToSize(widget.capture.rawImageSize),
+        );
       }
     } catch (_) {
       if (mounted) {
@@ -328,7 +336,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF1C2022),
       body: SafeArea(
         child: Column(
           children: [
@@ -339,11 +347,11 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
-                    child: const Text('다시 촬영'),
+                    child: Text(appText(context, '다시 촬영')),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      '모서리 조정',
+                      appText(context, '모서리 조정'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
@@ -356,7 +364,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                         ? null
                         : _refreshCorners,
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
-                    child: Text(_refreshingCorners ? '윤곽 찾는 중…' : '윤곽 다시 찾기'),
+                    child: Text(appText(context, _refreshingCorners ? '윤곽 찾는 중…' : '윤곽 다시 찾기')),
                   ),
                 ],
               ),
@@ -374,7 +382,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                   vertical: 8,
                 ),
                 child: Text(
-                  _failure!,
+                  appText(context, _failure!),
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white),
                 ),
@@ -393,10 +401,10 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                         foregroundColor: Colors.white,
                         backgroundColor: _additionalCorrection
                             ? Colors.transparent
-                            : const Color(0xFF2B6E94),
+                            : AppTheme.seedColor,
                         side: const BorderSide(color: Color(0xFF8AA6B5)),
                       ),
-                      child: const Text('원본 컬러'),
+                      child: Text(appText(context, '원본 컬러')),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -409,11 +417,11 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white,
                         backgroundColor: _additionalCorrection
-                            ? const Color(0xFF2B6E94)
+                            ? AppTheme.seedColor
                             : Colors.transparent,
                         side: const BorderSide(color: Color(0xFF8AA6B5)),
                       ),
-                      child: const Text('추가 보정'),
+                      child: Text(appText(context, '추가 보정')),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -426,11 +434,11 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white,
                         backgroundColor: _flattenFold
-                            ? const Color(0xFF2B6E94)
+                            ? AppTheme.seedColor
                             : Colors.transparent,
                         side: const BorderSide(color: Color(0xFF8AA6B5)),
                       ),
-                      child: const Text('평탄화 보정'),
+                      child: Text(appText(context, '평탄화 보정')),
                     ),
                   ),
                 ],
@@ -439,13 +447,13 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
               child: Text(
-                _flattenFold
+                appText(context, _flattenFold
                     ? '접힘 골이 확인되면 종이를 펴 보이도록 보정합니다.'
                     : _additionalCorrection
                     ? '컬러를 유지하며 그림자와 접힌 자국의 명암을 완화합니다.'
-                    : '실사 컬러와 원본 명암을 유지합니다.',
+                    : '실사 컬러와 원본 명암을 유지합니다.'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                style: const TextStyle(color: Color(0xFFC2CCCC), fontSize: 12),
               ),
             ),
             const Divider(height: 1, color: Color(0xFF484848)),
@@ -459,7 +467,7 @@ class _CornerAdjustmentPageState extends State<_CornerAdjustmentPage> {
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white,
                       ),
-                      child: Text(_saving ? '저장 중…' : '저장'),
+                      child: Text(appText(context, _saving ? '저장 중…' : '저장')),
                     ),
                   ),
                 ],

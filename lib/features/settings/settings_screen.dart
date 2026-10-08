@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
+import '../../app/app_locale.dart';
 import '../../billing/billing_service.dart';
 import '../../billing/entitlement.dart';
 import '../../core/platform_features.dart';
@@ -76,7 +77,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('설정')),
+      appBar: AppBar(title: Text(appText(context, '설정'))),
       body: ListView(
         // 방어 2 — 완충 밴드(§1.3). 마지막 항목(라이선스)이 배너에 가리지 않게 한다.
         padding: EdgeInsets.only(bottom: BannerHost.contentBottomPadding(ref)),
@@ -102,6 +103,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const _SettingsDivider(),
                   const _ThemeModeTile(),
                   const _SettingsDivider(),
+                  const _LanguageTile(),
+                  const _SettingsDivider(),
                   const _StorageTile(),
                   const _SettingsDivider(),
                   const _HomepageTile(),
@@ -120,6 +123,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       // 배너(§1.1) — 항상 bottomNavigationBar에만 놓는다. 이 라운드는 건드리지 않는다.
       bottomNavigationBar: const BannerHost(slot: BannerSlot.settings),
+    );
+  }
+}
+
+class _LanguageTile extends ConsumerWidget {
+  const _LanguageTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final choice = ref.watch(languageChoiceProvider);
+    final label = switch (choice) {
+      LanguageChoice.automatic => appText(context, '자동'),
+      LanguageChoice.korean => appText(context, '한국어'),
+      LanguageChoice.english => appText(context, '영어'),
+    };
+    return _SettingsRow(
+      title: appText(context, '언어'),
+      subtitle: Text(label),
+      onTap: () => showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final option in LanguageChoice.values)
+                ListTile(
+                  title: Text(switch (option) {
+                    LanguageChoice.automatic => appText(sheetContext, '자동'),
+                    LanguageChoice.korean => appText(sheetContext, '한국어'),
+                    LanguageChoice.english => appText(sheetContext, '영어'),
+                  }),
+                  trailing: option == choice ? const Icon(Icons.check) : null,
+                  onTap: () {
+                    ref.read(languageChoiceProvider.notifier).select(option);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -222,9 +266,10 @@ class _AppVersionFooterState extends State<_AppVersionFooter> {
       builder: (context, snapshot) {
         final packageInfo = snapshot.data;
         final versionText = switch (snapshot) {
-          _ when snapshot.hasError => '버전 정보를 확인할 수 없습니다',
-          _ when packageInfo == null => '버전 정보를 확인하는 중입니다',
-          _ => '버전 ${packageInfo.version} (${packageInfo.buildNumber})',
+          _ when snapshot.hasError => appText(context, '버전 정보를 확인할 수 없습니다'),
+          _ when packageInfo == null => appText(context, '버전 정보를 확인하는 중입니다'),
+          _ =>
+            '${appText(context, '버전')} ${packageInfo.version} (${packageInfo.buildNumber})',
         };
         return Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -255,12 +300,15 @@ class _LicenseTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SettingsRow(
-      title: '오픈소스 라이선스',
+      title: appText(context, '오픈소스 라이선스'),
       subtitle: const Text('qpdf · libjpeg-turbo · zlib · Noto Sans KR'),
       onTap: () => showLicensePage(
         context: context,
-        applicationName: 'PDF 대리',
-        applicationLegalese: '이 앱은 오픈소스 소프트웨어를 사용합니다. 각 항목을 눌러 전문을 확인하세요.',
+        applicationName: appText(context, 'PDF 대리'),
+        applicationLegalese: appText(
+          context,
+          '이 앱은 오픈소스 소프트웨어를 사용합니다. 각 항목을 눌러 전문을 확인하세요.',
+        ),
       ),
     );
   }
@@ -294,9 +342,9 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
       if (!mounted) return;
       setState(() => _uiState = state);
       if (state == PurchaseUiState.purchased) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('광고가 제거되었습니다')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(appText(context, '구독 혜택이 적용되었습니다'))),
+        );
       }
     });
   }
@@ -314,12 +362,14 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
     setState(() => _restoring = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(switch (outcome) {
-          RestoreOutcome.restored => '활성 구독을 확인했습니다',
-          RestoreOutcome.nothingToRestore => '활성 구독이 없습니다',
-          RestoreOutcome.verificationUnavailable =>
-            '구독 확인 서버에 연결하지 못했습니다. 광고 제거 상태는 유지됩니다.',
-        }),
+        content: Text(
+          appText(context, switch (outcome) {
+            RestoreOutcome.restored => '활성 구독을 확인했습니다',
+            RestoreOutcome.nothingToRestore => '활성 구독이 없습니다',
+            RestoreOutcome.verificationUnavailable =>
+              '구독 확인 서버에 연결하지 못했습니다. 기존 구독 혜택은 유지됩니다.',
+          }),
+        ),
       ),
     );
   }
@@ -335,35 +385,38 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
 
     switch (_uiState) {
       case PurchaseUiState.loading:
-        return const _SettingsRow(title: '광고 제거 구독', subtitle: Text('불러오는 중…'));
+        return _SettingsRow(
+          title: appText(context, '광고 제거 + OCR'),
+          subtitle: Text(appText(context, '불러오는 중…')),
+        );
       case PurchaseUiState.unavailable:
         // §3.6: 구매·복원 항목을 비활성 + 안내 문구로 둔다. 항목 자체는 숨기지 않는다.
         return _buildPurchaseRows(
           yearlyPlan: null,
-          unavailableMessage: '이 기기에서는 구독을 사용할 수 없습니다',
+          unavailableMessage: appText(context, '이 기기에서는 구독을 사용할 수 없습니다'),
           buyEnabled: false,
           restoreEnabled: false,
         );
       case PurchaseUiState.notFound:
         return _buildPurchaseRows(
           yearlyPlan: null,
-          unavailableMessage: '지금 구독할 수 없습니다',
+          unavailableMessage: appText(context, '지금 구독할 수 없습니다'),
           buyEnabled: false,
           restoreEnabled: true,
         );
       case PurchaseUiState.available:
         return _buildPurchaseRows(
           yearlyPlan: _billing.yearlyPlan,
-          unavailableMessage: '현재 이용할 수 없습니다',
+          unavailableMessage: appText(context, '현재 이용할 수 없습니다'),
           buyEnabled: true,
           restoreEnabled: true,
         );
       case PurchaseUiState.purchasePending:
         // §6.2: 버튼 자리에 16dp 스피너, 재탭 차단.
-        return const _SettingsRow(
-          title: '광고 제거 구독',
-          subtitle: Text('처리 중…'),
-          trailing: SizedBox(
+        return _SettingsRow(
+          title: appText(context, '광고 제거 + OCR'),
+          subtitle: Text(appText(context, '처리 중…')),
+          trailing: const SizedBox(
             width: 16,
             height: 16,
             child: CircularProgressIndicator(strokeWidth: 2),
@@ -378,17 +431,17 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const _SettingsRow(
-          title: '광고 제거 구독',
-          subtitle: Text('구독 중 · 광고가 표시되지 않습니다'),
+        _SettingsRow(
+          title: appText(context, '광고 제거 + OCR'),
+          subtitle: Text(appText(context, '구독 중 · 광고 없이 OCR PDF를 만들 수 있습니다')),
         ),
         const _SettingsDivider(),
         _SettingsRow(
-          title: '구독 관리',
-          subtitle: const Text('Google Play에서 갱신 또는 취소할 수 있습니다'),
+          title: appText(context, '구독 관리'),
+          subtitle: Text(appText(context, 'Google Play에서 갱신 또는 취소할 수 있습니다')),
           trailing: OutlinedButton(
             onPressed: _openSubscriptionManagement,
-            child: const Text('관리'),
+            child: Text(appText(context, '관리')),
           ),
         ),
       ],
@@ -402,7 +455,9 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
     );
     if (!mounted || opened) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Google Play 구독 관리 페이지를 열 수 없습니다')),
+      SnackBar(
+        content: Text(appText(context, 'Google Play 구독 관리 페이지를 열 수 없습니다')),
+      ),
     );
   }
 
@@ -416,15 +471,15 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildPlanPurchaseRow(
-          title: '연간 광고 제거',
+          title: appText(context, '연간 광고 제거 + OCR'),
           plan: yearlyPlan,
           unavailableMessage: unavailableMessage,
           buyEnabled: buyEnabled,
         ),
         const _SettingsDivider(),
         _SettingsRow(
-          title: '구독 상태 갱신',
-          subtitle: const Text('Google Play의 활성 구독을 다시 확인합니다'),
+          title: appText(context, '구독 상태 갱신'),
+          subtitle: Text(appText(context, 'Google Play의 활성 구독을 다시 확인합니다')),
           trailing: OutlinedButton(
             onPressed: (restoreEnabled && !_restoring) ? _restore : null,
             child: _restoring
@@ -433,7 +488,7 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('갱신'),
+                : Text(appText(context, '갱신')),
           ),
         ),
       ],
@@ -448,13 +503,13 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
   }) {
     final subtitle = plan == null
         ? unavailableMessage
-        : '${plan.product.price} / ${plan.billingPeriod} · 자동 갱신';
+        : '${plan.product.price} / ${appText(context, plan.billingPeriod)} · ${appText(context, '자동 갱신')}';
     return _SettingsRow(
       title: title,
       subtitle: Text(subtitle),
       trailing: FilledButton(
         onPressed: buyEnabled && plan != null ? () => _billing.buy(plan) : null,
-        child: const Text('구독'),
+        child: Text(appText(context, '구독')),
       ),
     );
   }
@@ -477,9 +532,9 @@ class _DefaultQualityTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.watch(settingsRepositoryProvider);
     if (repo == null) {
-      return const _SettingsRow(
-        title: '기본 저장 화질',
-        subtitle: Text('지금 사용할 수 없습니다'),
+      return _SettingsRow(
+        title: appText(context, '기본 저장 화질'),
+        subtitle: Text(appText(context, '지금 사용할 수 없습니다')),
       );
     }
     return StreamBuilder<Settings>(
@@ -487,8 +542,8 @@ class _DefaultQualityTile extends ConsumerWidget {
       builder: (context, snapshot) {
         final quality = snapshot.data?.defaultQuality ?? ImageQuality.standard;
         return _SettingsRow(
-          title: '기본 저장 화질',
-          subtitle: Text(_labels[quality]!),
+          title: appText(context, '기본 저장 화질'),
+          subtitle: Text(appText(context, _labels[quality]!)),
           onTap: () => _pick(context, repo, quality),
         );
       },
@@ -516,7 +571,10 @@ class _DefaultQualityTile extends ConsumerWidget {
                 ImageQuality.standard,
                 ImageQuality.min,
               ])
-                RadioListTile<ImageQuality>(title: Text(_labels[q]!), value: q),
+                RadioListTile<ImageQuality>(
+                  title: Text(appText(ctx, _labels[q]!)),
+                  value: q,
+                ),
             ],
           ),
         ),
@@ -544,9 +602,9 @@ class _ThemeModeTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.watch(settingsRepositoryProvider);
     if (repo == null) {
-      return const _SettingsRow(
-        title: '화면 테마',
-        subtitle: Text('지금 사용할 수 없습니다'),
+      return _SettingsRow(
+        title: appText(context, '화면 테마'),
+        subtitle: Text(appText(context, '지금 사용할 수 없습니다')),
       );
     }
     return StreamBuilder<AppThemeMode>(
@@ -554,8 +612,8 @@ class _ThemeModeTile extends ConsumerWidget {
       builder: (context, snapshot) {
         final mode = snapshot.data ?? AppThemeMode.system;
         return _SettingsRow(
-          title: '화면 테마',
-          subtitle: Text(_labels[mode]!),
+          title: appText(context, '화면 테마'),
+          subtitle: Text(appText(context, _labels[mode]!)),
           onTap: () => _pick(context, repo, mode),
         );
       },
@@ -581,7 +639,10 @@ class _ThemeModeTile extends ConsumerWidget {
                 AppThemeMode.dark,
                 AppThemeMode.system,
               ])
-                RadioListTile<AppThemeMode>(title: Text(_labels[m]!), value: m),
+                RadioListTile<AppThemeMode>(
+                  title: Text(appText(ctx, _labels[m]!)),
+                  value: m,
+                ),
             ],
           ),
         ),
@@ -602,19 +663,21 @@ class _StorageTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final workspace = ref.watch(workspaceProvider);
     if (workspace == null) {
-      return const _SettingsRow(
-        title: '저장 공간',
-        subtitle: Text('지금 사용할 수 없습니다'),
+      return _SettingsRow(
+        title: appText(context, '저장 공간'),
+        subtitle: Text(appText(context, '지금 사용할 수 없습니다')),
       );
     }
     return _SettingsRow(
-      title: '저장 공간',
+      title: appText(context, '저장 공간'),
       subtitle: FutureBuilder<StorageUsage>(
         future: workspace.usage(),
         builder: (context, snapshot) {
           final usage = snapshot.data;
-          if (usage == null) return const Text('계산 중…');
-          return Text('사용 중 ${_formatMb(usage.totalBytes)}');
+          if (usage == null) return Text(appText(context, '계산 중…'));
+          return Text(
+            '${appText(context, '사용 중')} ${_formatMb(usage.totalBytes)}',
+          );
         },
       ),
       onTap: () => Navigator.of(
@@ -664,23 +727,23 @@ class _StorageDetailScreenState extends ConsumerState<_StorageDetailScreen> {
     _reload();
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('캐시를 비웠습니다')));
+    ).showSnackBar(SnackBar(content: Text(appText(context, '캐시를 비웠습니다'))));
   }
 
   Future<void> _clearRecent() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('최근 파일 전체 정리'),
-        content: const Text('원본 파일은 지워지지 않습니다'),
+        title: Text(appText(ctx, '최근 파일 전체 정리')),
+        content: Text(appText(ctx, '원본 파일은 지워지지 않습니다')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('취소'),
+            child: Text(appText(ctx, '취소')),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('정리'),
+            child: Text(appText(ctx, '정리')),
           ),
         ],
       ),
@@ -694,15 +757,15 @@ class _StorageDetailScreenState extends ConsumerState<_StorageDetailScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
     _reload();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('최근 연 파일을 정리했습니다')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(appText(context, '최근 연 파일을 정리했습니다'))),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('저장 공간')),
+      appBar: AppBar(title: Text(appText(context, '저장 공간'))),
       body: FutureBuilder<StorageUsage>(
         future: _usageFuture,
         builder: (context, snapshot) {
@@ -712,33 +775,44 @@ class _StorageDetailScreenState extends ConsumerState<_StorageDetailScreen> {
           }
           final usage = snapshot.data;
           if (usage == null) {
-            return const Center(child: Text('지금 사용할 수 없습니다'));
+            return Center(child: Text(appText(context, '지금 사용할 수 없습니다')));
           }
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _UsageRow(label: '내 문서', bytes: usage.docsBytes),
               _UsageRow(
-                label: '최근 연 파일',
-                bytes: usage.recentBytes,
-                trailing:
-                    '${DriftRecentRepository.quotaCount}개 중 ${usage.recentCount}개',
+                label: appText(context, '내 문서'),
+                bytes: usage.docsBytes,
               ),
               _UsageRow(
-                label: '캐시',
+                label: appText(context, '최근 연 파일'),
+                bytes: usage.recentBytes,
+                trailing: appText(context, '{total}개 중 {used}개')
+                    .replaceAll(
+                      '{total}',
+                      '${DriftRecentRepository.quotaCount}',
+                    )
+                    .replaceAll('{used}', '${usage.recentCount}'),
+              ),
+              _UsageRow(
+                label: appText(context, '캐시'),
                 bytes: usage.cacheBytes + usage.thumbsBytes,
               ),
               const Divider(height: 24),
-              _UsageRow(label: '합계', bytes: usage.totalBytes, emphasize: true),
+              _UsageRow(
+                label: appText(context, '합계'),
+                bytes: usage.totalBytes,
+                emphasize: true,
+              ),
               const SizedBox(height: 24),
               FilledButton.tonal(
                 onPressed: _busy ? null : _clearCache,
-                child: const Text('캐시 비우기'),
+                child: Text(appText(context, '캐시 비우기')),
               ),
               const SizedBox(height: 8),
               OutlinedButton(
                 onPressed: _busy ? null : _clearRecent,
-                child: const Text('최근 파일 전체 정리'),
+                child: Text(appText(context, '최근 파일 전체 정리')),
               ),
             ],
           );
@@ -787,11 +861,11 @@ class _HomepageTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _ExternalLinkTile(
-      title: '홈페이지',
-      subtitle: 'PDF 대리 홈페이지를 엽니다',
+    return _ExternalLinkTile(
+      title: appText(context, '홈페이지'),
+      subtitle: appText(context, 'PDF 대리 홈페이지를 엽니다'),
       url: kHomepageUrl,
-      failureMessage: '홈페이지를 열 수 없습니다',
+      failureMessage: appText(context, '홈페이지를 열 수 없습니다'),
     );
   }
 }
@@ -801,11 +875,11 @@ class _PrivacyPolicyTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _ExternalLinkTile(
-      title: '개인정보처리방침',
-      subtitle: '수집·이용 정보를 확인합니다',
+    return _ExternalLinkTile(
+      title: appText(context, '개인정보처리방침'),
+      subtitle: appText(context, '수집·이용 정보를 확인합니다'),
       url: kPrivacyPolicyUrl,
-      failureMessage: '개인정보처리방침을 열 수 없습니다',
+      failureMessage: appText(context, '개인정보처리방침을 열 수 없습니다'),
     );
   }
 }
@@ -815,11 +889,11 @@ class _AppReviewTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _ExternalLinkTile(
-      title: '칭찬하기',
-      subtitle: 'Google Play에서 별점과 리뷰를 남겨 주세요',
+    return _ExternalLinkTile(
+      title: appText(context, '칭찬하기'),
+      subtitle: appText(context, 'Google Play에서 별점과 리뷰를 남겨 주세요'),
       url: kGooglePlayReviewUrl,
-      failureMessage: 'Google Play 리뷰 페이지를 열 수 없습니다',
+      failureMessage: appText(context, 'Google Play 리뷰 페이지를 열 수 없습니다'),
     );
   }
 }

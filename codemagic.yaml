@@ -1,0 +1,23 @@
+# iOS 클라우드 빌드 (Mac 없이 Codemagic macOS에서 실행). 설계: _workspace/91_architect_ios_port_design.md
+# 모든 워크플로는 수동 실행 전용이다(트리거 없음) — 빌드 시간은 월 500분 무료 한도 내에서 쓴다.
+workflows:
+  # 서명 없이 컴파일·링크만 확인한다. Apple Developer 승인 전에도 사용 가능.
+  ios-ci:
+    name: iOS CI (no signing)
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Flutter 의존성 설치
+        script: flutter pub get
+      - name: 정적 분석
+        script: flutter analyze --no-fatal-infos
+      - name: 단위 테스트
+        script: flutter test
+      - name: iOS 컴파일 (서명 없음)
+        script: flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios/iphoneos/Runner.app

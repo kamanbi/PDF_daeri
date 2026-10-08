@@ -86,6 +86,14 @@ class _StubPdfRenderer implements PdfRenderer {
       throw UnimplementedError();
 
   @override
+  Future<PdfResult<PdfPageTextData>> pageText({
+    required String pdfPath,
+    required int pageIndex,
+    String? password,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
   Future<PdfResult<Uint8List>> renderPage({
     required String pdfPath,
     required int pageIndex,

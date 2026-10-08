@@ -1,8 +1,8 @@
 /// 텍스트 인식(OCR) 화면. (`_workspace/79_architect_v1.1_v2_design.md` §7,
 /// §13 배치 5 항목 16)
 ///
-/// **범위(§7.1)**: 문서의 `ImagePageRef`(스캔·사진) 페이지만 인식한다. `PdfPageRef`
-/// (외부 PDF 페이지)는 인식 대상이 아니다 — 렌더 없이 이미 갖고 있는 원본 픽셀만 쓴다.
+/// 스캔·사진 페이지와 텍스트가 없는 외부 PDF 페이지만 인식한다. 외부 PDF는
+/// 인식용 임시 이미지만 렌더하며 저장 결과의 원본 페이지는 래스터화하지 않는다.
 ///
 /// 흐름:
 /// ```
@@ -23,6 +23,7 @@
 /// 라우트를 직접 push) 호출부(S4 뷰어)에서 [showOcrScreen]을 통해서만 연다.
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -31,10 +32,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../billing/entitlement.dart';
 import '../../core/app_error.dart';
 import '../../core/cancel_token.dart';
 import '../../core/file_name.dart';
 import '../../core/korean_font.dart';
+import '../../core/save_screen_helpers.dart';
 import '../../core/progress.dart';
 import '../../data/repository/document_repository.dart';
 import '../../pdf/ocr_source.dart';
@@ -59,7 +62,7 @@ class OcrArgs {
 
   final String pdfPath;
   final String title;
-  final String docId;
+  final String? docId;
   final int pageCount;
   final String? password;
 }
@@ -70,12 +73,14 @@ Future<DocumentSummary?> showOcrScreen({
   required BuildContext context,
   required OcrArgs args,
 }) {
-  return Navigator.of(
-    context,
-  ).push<DocumentSummary?>(MaterialPageRoute(builder: (_) => OcrScreen(args: args)));
+  return Navigator.of(context).push<DocumentSummary?>(
+    MaterialPageRoute(builder: (_) => OcrScreen(args: args)),
+  );
 }
 
 enum _Stage { loading, recognizing, empty, saving }
+
+const double _pdfOcrRenderScale = 2;
 
 class OcrScreen extends ConsumerStatefulWidget {
   const OcrScreen({super.key, required this.args});
@@ -96,11 +101,17 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
   // dispose된 뒤 접근하면 예외를 던지지만(`viewer_screen.dart`의 `_busyNotifier`와
   // 같은 이유), 이 참조 자체는 dispose 이후에도 계속 유효하다.
   late final OcrSource _ocrSource;
+  // build마다 다시 재는 대신 initState에서 한 번만 판정한다(§4 재감사 L-2).
+  late final bool _showCancelButton;
 
   @override
   void initState() {
     super.initState();
     _ocrSource = ref.read(ocrSourceProvider)();
+    _showCancelButton = shouldShowCancelButton(
+      pageCount: widget.args.pageCount,
+      pdfPath: widget.args.pdfPath,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _run());
   }
 
@@ -111,11 +122,6 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
     super.dispose();
   }
 
-  bool get _showCancelButton {
-    final baseline = File(widget.args.pdfPath).lengthSync();
-    return widget.args.pageCount >= 50 || baseline >= 20 * 1024 * 1024;
-  }
-
   Future<void> _fail(PdfFailure failure) async {
     if (!mounted) return;
     await FailureUi.showDialog(context, failure);
@@ -124,7 +130,59 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
 
   Future<void> _failMessage(String message) => _fail(UnknownFailure(message));
 
+  Future<void> _failSubscriptionCheck() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(appText(dialogContext, '구독 확인 실패')),
+        content: Text(
+          appText(dialogContext, '구독 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(appText(dialogContext, '확인')),
+          ),
+        ],
+      ),
+    );
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<void> _run() async {
+    final entitlement = ref.read(ocrEntitlementProvider);
+    bool canCreateOcrPdf;
+    try {
+      canCreateOcrPdf = entitlement.isLoading
+          ? await ref.read(ocrEntitlementFutureProvider.future)
+          : entitlement.valueOrNull == true;
+      if (entitlement.hasError) {
+        await _failSubscriptionCheck();
+        return;
+      }
+    } catch (_) {
+      await _failSubscriptionCheck();
+      return;
+    }
+    if (!mounted) return;
+    if (!canCreateOcrPdf) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(appText(dialogContext, '구독이 필요합니다')),
+          content: Text(appText(dialogContext, '텍스트 인식은 활성 구독이 필요합니다.')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(appText(dialogContext, '확인')),
+            ),
+          ],
+        ),
+      );
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
     final repo = ref.read(documentRepositoryProvider);
     final renderer = ref.read(pdfRendererProvider);
     if (repo == null) {
@@ -132,13 +190,17 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
       return;
     }
 
-    final detailResult = await repo.load(widget.args.docId);
-    if (!mounted) return;
-    if (detailResult is PdfErr<DocumentDetail>) {
-      await _fail(detailResult.failure);
-      return;
+    final docId = widget.args.docId;
+    List<PageRef> pages = [];
+    if (docId != null) {
+      final detailResult = await repo.load(docId);
+      if (!mounted) return;
+      if (detailResult is PdfErr<DocumentDetail>) {
+        await _fail(detailResult.failure);
+        return;
+      }
+      pages = (detailResult as PdfOk<DocumentDetail>).value.pages;
     }
-    final pages = (detailResult as PdfOk<DocumentDetail>).value.pages;
 
     final geometryResult = await renderer.pageGeometry(
       widget.args.pdfPath,
@@ -150,12 +212,38 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
       return;
     }
     final geometry = (geometryResult as PdfOk<PdfPageGeometry>).value;
+    if (docId == null) {
+      pages = List.generate(
+        geometry.pageCount,
+        (index) => PdfPageRef(
+          sourcePath: widget.args.pdfPath,
+          sourceIndex: index,
+          rotation: 0,
+        ),
+      );
+    }
 
-    // 대상은 ImagePageRef 페이지뿐이다(§7.1 — 외부 PDF 페이지는 OCR 제외).
-    final imageIndices = [
-      for (var i = 0; i < pages.length; i++)
-        if (pages[i] is ImagePageRef) i,
-    ];
+    // 스캔·사진 페이지와 텍스트가 없는 PDF 페이지가 인식 대상이다.
+    final imageIndices = <int>[];
+    for (var i = 0; i < pages.length; i++) {
+      if (pages[i] is ImagePageRef) {
+        imageIndices.add(i);
+        continue;
+      }
+      final textResult = await renderer.pageText(
+        pdfPath: widget.args.pdfPath,
+        pageIndex: i,
+        password: widget.args.password,
+      );
+      if (!mounted) return;
+      if (textResult is PdfErr<PdfPageTextData>) {
+        await _fail(textResult.failure);
+        return;
+      }
+      if ((textResult as PdfOk<PdfPageTextData>).value.text.trim().isEmpty) {
+        imageIndices.add(i);
+      }
+    }
 
     if (imageIndices.isEmpty) {
       if (!mounted) return;
@@ -176,18 +264,48 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
     // 페이지 수만큼 순차 recognize(§7.5). 중간 취소는 불가 — 페이지 경계에서만
     // `token.isCancelled`를 확인한다.
     final results = <int, OcrPageResult>{};
-    for (final index in imageIndices) {
-      if (token.isCancelled) break;
-      final page = pages[index] as ImagePageRef;
-      final recognizeResult = await ocrSource.recognize(page.imagePath);
-      if (!mounted) return;
-      if (token.isCancelled) break;
-      if (recognizeResult is PdfErr<OcrPageResult>) {
-        await _fail(recognizeResult.failure);
-        return;
+    Directory? tempDir;
+    try {
+      for (final index in imageIndices) {
+        if (token.isCancelled) break;
+        final page = pages[index];
+        String imagePath;
+        if (page is ImagePageRef) {
+          imagePath = page.imagePath;
+        } else {
+          final widthPt = geometry.sizes[index].widthPt;
+          final rendered = await renderer.renderPage(
+            pdfPath: widget.args.pdfPath,
+            pageIndex: index,
+            targetWidthPx: (widthPt * _pdfOcrRenderScale).round(),
+            password: widget.args.password,
+            cancelToken: token,
+          );
+          if (!mounted) return;
+          if (rendered is PdfErr<Uint8List>) {
+            await _fail(rendered.failure);
+            return;
+          }
+          tempDir ??= await Directory.systemTemp.createTemp('pdf_daeri_ocr_');
+          imagePath = '${tempDir.path}/page_$index.png';
+          await File(
+            imagePath,
+          ).writeAsBytes((rendered as PdfOk<Uint8List>).value);
+        }
+        final recognizeResult = await ocrSource.recognize(imagePath);
+        if (!mounted) return;
+        if (token.isCancelled) break;
+        if (recognizeResult is PdfErr<OcrPageResult>) {
+          await _fail(recognizeResult.failure);
+          return;
+        }
+        results[index] = (recognizeResult as PdfOk<OcrPageResult>).value;
+        setState(() => _pagesDone++);
       }
-      results[index] = (recognizeResult as PdfOk<OcrPageResult>).value;
-      setState(() => _pagesDone++);
+    } finally {
+      if (tempDir != null && await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
     }
 
     if (!mounted) return;
@@ -281,6 +399,7 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
         if (failure is! Cancelled) {
           await FailureUi.showDialog(context, failure);
         }
+        if (!mounted) return;
         Navigator.of(context).pop();
     }
   }
@@ -293,7 +412,7 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('텍스트 인식')),
+      appBar: AppBar(title: Text(appText(context, '텍스트 인식'))),
       body: switch (_stage) {
         _Stage.loading => const Center(child: CircularProgressIndicator()),
         _Stage.recognizing => _buildRecognizing(context),
@@ -311,13 +430,18 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('$_pagesDone/$_pagesTotal 페이지 인식 중', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              appText(context, '{done}/{total} 페이지 인식 중')
+                  .replaceAll('{done}', '$_pagesDone')
+                  .replaceAll('{total}', '$_pagesTotal'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 16),
             LinearProgressIndicator(value: fraction == 0 ? null : fraction),
             const SizedBox(height: 8),
             TextButton(
               onPressed: _cancelling ? null : _cancel,
-              child: Text(_cancelling ? '취소 중…' : '취소'),
+              child: Text(appText(context, _cancelling ? '취소 중…' : '취소')),
             ),
           ],
         ),
@@ -332,11 +456,11 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('인식된 텍스트가 없습니다.'),
+            Text(appText(context, '인식된 텍스트가 없습니다.')),
             const SizedBox(height: 16),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('확인'),
+              child: Text(appText(context, '확인')),
             ),
           ],
         ),
@@ -352,7 +476,10 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('저장 중…', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              appText(context, '저장 중…'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 16),
             LinearProgressIndicator(value: fraction == 0 ? null : fraction),
             const SizedBox(height: 8),
@@ -364,7 +491,7 @@ class _OcrScreenState extends ConsumerState<OcrScreen> {
                   const SizedBox(width: 16),
                   TextButton(
                     onPressed: _cancelling ? null : _cancel,
-                    child: Text(_cancelling ? '취소 중…' : '취소'),
+                    child: Text(appText(context, _cancelling ? '취소 중…' : '취소')),
                   ),
                 ],
               ],

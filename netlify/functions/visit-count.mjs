@@ -1,5 +1,7 @@
 import { getStore } from '@netlify/blobs';
 import { createHash } from 'node:crypto';
+import { readBoundedJson } from '../lib/read_bounded_json.mjs';
+import { isValidVisitorToken } from '../lib/visitor_token.mjs';
 
 const counterStore = getStore({
   name: 'pdf-daeri-site',
@@ -9,10 +11,19 @@ const totalCounterKey = 'unique-visitors/total';
 const visitorMarkerPrefix = 'unique-visitors/markers';
 const dailyCounterPrefix = 'unique-visitors/daily';
 const maxWriteAttempts = 8;
-const visitorTokenPattern = /^[a-f0-9-]{32,36}$/i;
+const maximumRequestBytes = 256;
 const jsonHeaders = {
   'Cache-Control': 'no-store',
   'Content-Type': 'application/json; charset=utf-8',
+};
+
+export const config = {
+  path: '/.netlify/functions/visit-count',
+  rateLimit: {
+    windowSize: 60,
+    windowLimit: 60,
+    aggregateBy: ['ip', 'domain'],
+  },
 };
 
 export default async (request) => {
@@ -33,7 +44,15 @@ export default async (request) => {
     return Response.json(await readVisitCounts(), { headers: jsonHeaders });
   }
 
-  const visitorToken = await readVisitorToken(request);
+  const parsedBody = await readBoundedJson(request, maximumRequestBytes);
+  if (!parsedBody.ok) {
+    return Response.json({ error: '요청을 처리할 수 없습니다.' }, {
+      status: parsedBody.status,
+      headers: jsonHeaders,
+    });
+  }
+
+  const visitorToken = readVisitorToken(parsedBody.value);
   if (visitorToken === null) {
     return Response.json({ error: '유효하지 않은 방문자 정보입니다.' }, {
       status: 400,
@@ -47,15 +66,9 @@ export default async (request) => {
   return Response.json(await readVisitCounts(koreaVisitDate), { headers: jsonHeaders });
 };
 
-async function readVisitorToken(request) {
-  try {
-    const { visitorToken } = await request.json();
-    return typeof visitorToken === 'string' && visitorTokenPattern.test(visitorToken)
-        ? visitorToken
-        : null;
-  } catch {
-    return null;
-  }
+function readVisitorToken(body) {
+  const visitorToken = body?.visitorToken;
+  return isValidVisitorToken(visitorToken) ? visitorToken : null;
 }
 
 function getKoreaVisitDate() {

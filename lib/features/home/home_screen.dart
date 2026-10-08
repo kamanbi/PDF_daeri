@@ -1,4 +1,4 @@
-/// S1 홈 — 제품 소개와 빠른 시작만 제공한다.
+/// S1 홈 — 문서 작업 진입점을 노출한다.
 ///
 /// 저장 문서의 열람·선택·공유·삭제는 `DocumentLibraryScreen`이 단일 소유한다.
 library;
@@ -9,7 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
+import '../../app/app_locale.dart';
 import '../../app/router.dart';
+import '../../app/theme.dart';
 import '../../core/platform_features.dart';
 import '../../data/repository/draft_repository.dart';
 import '../edit/edit_screen.dart' show resumeDraftProvider;
@@ -40,16 +42,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final shouldExit = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('앱을 종료할까요?'),
-          content: const Text('진행 중인 작업이 없으면 앱을 종료합니다.'),
+          title: Text(appText(context, '앱을 종료할까요?')),
+          content: Text(appText(context, '진행 중인 작업이 없으면 앱을 종료합니다.')),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('취소'),
+              child: Text(appText(context, '취소')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('종료'),
+              child: Text(appText(context, '종료')),
             ),
           ],
         ),
@@ -71,12 +73,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       onPopInvokedWithResult: _handleHomeBack,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('PDF 대리'),
+          title: Row(
+            children: [
+              Image.asset(
+                'assets/image.png',
+                width: 32,
+                height: 32,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ko'
+                      ? 'PDF 대리'
+                      : 'PDF Daeri',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
           actions: [
+            PopupMenuButton<LanguageChoice>(
+              tooltip: appText(context, '언어'),
+              icon: const Icon(Icons.language),
+              onSelected: (choice) =>
+                  ref.read(languageChoiceProvider.notifier).select(choice),
+              itemBuilder: (context) => [
+                for (final choice in LanguageChoice.values)
+                  PopupMenuItem(
+                    value: choice,
+                    child: Text(switch (choice) {
+                      LanguageChoice.automatic => appText(context, '자동'),
+                      LanguageChoice.korean => appText(context, '한국어'),
+                      LanguageChoice.english => appText(context, '영어'),
+                    }),
+                  ),
+              ],
+            ),
             TextButton(
               onPressed: () =>
                   Navigator.of(context).pushNamed(AppRoutes.settings),
-              child: const Text('설정'),
+              child: Text(appText(context, '설정')),
             ),
           ],
         ),
@@ -91,19 +129,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     TextButton(
                       onPressed: () =>
                           ScaffoldMessenger.of(context).clearMaterialBanners(),
-                      child: const Text('확인'),
+                      child: Text(appText(context, '확인')),
                     ),
                   ],
                 ),
               ),
             const SliverToBoxAdapter(child: _DraftRecoveryCard()),
-            const SliverToBoxAdapter(child: _HomeIntro()),
+            const SliverToBoxAdapter(child: _QuickActionSection()),
             SliverToBoxAdapter(
               child: _EntryPoints(
                 canCreateDocuments: repository != null,
                 canOpenPdf: workspace != null,
               ),
             ),
+            const SliverToBoxAdapter(child: _HomeWorkspaceImage()),
             SliverToBoxAdapter(
               child: SizedBox(height: BannerHost.contentBottomPadding(ref)),
             ),
@@ -115,38 +154,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-class _HomeIntro extends StatelessWidget {
-  const _HomeIntro();
-
-  static const double _imageAspectRatio = 4 / 3;
+class _HomeWorkspaceImage extends StatelessWidget {
+  const _HomeWorkspaceImage();
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: AspectRatio(
-              aspectRatio: _imageAspectRatio,
-              child: Image.asset(
-                'assets/images/home_document_workspace.png',
-                fit: BoxFit.cover,
-                alignment: Alignment.center,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'PDF 작업, 필요한 순간에 바로.',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-        ],
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(AppTheme.controlRadius),
+      child: AspectRatio(
+        aspectRatio: 1.46,
+        child: Image.asset(
+          'assets/images/home_document_workspace.png',
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+        ),
       ),
-    );
-  }
+    ),
+  );
+}
+
+class _QuickActionSection extends StatelessWidget {
+  const _QuickActionSection();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+    child: Text(
+      appText(context, '작업 시작'),
+      style: Theme.of(context).textTheme.titleLarge,
+    ),
+  );
 }
 
 /// 스캔·PDF 열기·사진→PDF·내 문서의 빠른 진입점.
@@ -159,16 +197,16 @@ class _EntryPoints extends StatelessWidget {
   final bool canCreateDocuments;
   final bool canOpenPdf;
 
-  static const double _buttonHeight = 52;
+  static const double _buttonHeight = 54;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          if (AppFeatures.scan) ...[
+          if (AppFeatures.scan)
             SizedBox(
               width: double.infinity,
               height: _buttonHeight,
@@ -176,46 +214,95 @@ class _EntryPoints extends StatelessWidget {
                 onPressed: canCreateDocuments
                     ? () => Navigator.of(context).pushNamed(AppRoutes.scan)
                     : null,
-                child: const Text('스캔'),
+                child: Text(appText(context, '스캔')),
               ),
             ),
-            const SizedBox(height: 12),
-          ],
-          SizedBox(
-            width: double.infinity,
-            height: _buttonHeight,
-            child: OutlinedButton(
-              onPressed: canOpenPdf
-                  ? () => Navigator.of(context).pushNamed(AppRoutes.openPdf)
-                  : null,
-              child: const Text('PDF 열기'),
-            ),
-          ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: _buttonHeight,
-            child: OutlinedButton(
-              onPressed: canCreateDocuments
-                  ? () => Navigator.of(context).pushNamed(AppRoutes.photoToPdf)
-                  : null,
-              child: const Text('사진 → PDF'),
+          Material(
+            color: colorScheme.surfaceContainerLow,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppTheme.controlRadius),
+              side: BorderSide(color: colorScheme.outlineVariant),
             ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: _buttonHeight,
-            child: OutlinedButton(
-              onPressed: () =>
-                  Navigator.of(context).pushNamed(AppRoutes.documents),
-              child: const Text('내 문서'),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                _HomeActionRow(
+                  title: appText(context, 'PDF 열기'),
+                  action: appText(context, '열기'),
+                  onTap: canOpenPdf
+                      ? () => Navigator.of(context).pushNamed(AppRoutes.openPdf)
+                      : null,
+                ),
+                Divider(
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: colorScheme.outlineVariant,
+                ),
+                _HomeActionRow(
+                  title: appText(context, '사진 → PDF'),
+                  action: appText(context, '변환'),
+                  onTap: canCreateDocuments
+                      ? () => Navigator.of(
+                          context,
+                        ).pushNamed(AppRoutes.photoToPdf)
+                      : null,
+                ),
+                Divider(
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: colorScheme.outlineVariant,
+                ),
+                _HomeActionRow(
+                  title: appText(context, '내 문서'),
+                  action: appText(context, '보기'),
+                  onTap: () =>
+                      Navigator.of(context).pushNamed(AppRoutes.documents),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _HomeActionRow extends StatelessWidget {
+  const _HomeActionRow({required this.title, required this.action, this.onTap});
+
+  final String title;
+  final String action;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 54,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            Text(
+              action,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 /// 작업 중 상태 복구 카드(설계 §4.8). `DraftRepository.pending()`이 null이면
@@ -239,18 +326,18 @@ class _DraftRecoveryCard extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '편집하던 문서가 있습니다 — ${snapshot.title} · ${_formatDraftTime(snapshot.updatedAt)}',
+                '${appText(context, '편집하던 문서가 있습니다')} — ${snapshot.title} · ${_formatDraftTime(snapshot.updatedAt)}',
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
                   TextButton(
                     onPressed: () => _resume(context, ref, snapshot),
-                    child: const Text('이어서 편집'),
+                    child: Text(appText(context, '이어서 편집')),
                   ),
                   TextButton(
                     onPressed: () => _delete(ref, snapshot),
-                    child: const Text('삭제'),
+                    child: Text(appText(context, '삭제')),
                   ),
                 ],
               ),
@@ -269,7 +356,11 @@ class _DraftRecoveryCard extends ConsumerWidget {
     final source = switch (snapshot.source) {
       MyDocumentEditSource(:final docId) => EditSource.myDocument(docId),
       ExternalPdfEditSource(:final pdfPath, :final title, :final recentId) =>
-        EditSource.externalPdf(pdfPath: pdfPath, title: title, recentId: recentId),
+        EditSource.externalPdf(
+          pdfPath: pdfPath,
+          title: title,
+          recentId: recentId,
+        ),
     };
     ref.read(resumeDraftProvider.notifier).state = snapshot;
     if (!context.mounted) return;

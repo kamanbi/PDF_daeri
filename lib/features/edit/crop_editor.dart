@@ -4,6 +4,7 @@
 /// 필터·보정 기능을 넣지 않는다**(절대 규칙 5) — 사각형 영역 지정 1종뿐이다.
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -96,7 +97,7 @@ class _CropEditorScreenState extends ConsumerState<_CropEditorScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('자르기'),
+        title: Text(appText(context, '자르기')),
       ),
       body: _bytes == null
           ? const Center(child: CircularProgressIndicator())
@@ -122,11 +123,11 @@ class _CropEditorScreenState extends ConsumerState<_CropEditorScreen> {
           child: Row(
             children: [
               Expanded(
-                child: OutlinedButton(onPressed: _reset, child: const Text('초기화')),
+                child: OutlinedButton(onPressed: _reset, child: Text(appText(context, '초기화'))),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: FilledButton(onPressed: _apply, child: const Text('적용')),
+                child: FilledButton(onPressed: _apply, child: Text(appText(context, '적용'))),
               ),
             ],
           ),

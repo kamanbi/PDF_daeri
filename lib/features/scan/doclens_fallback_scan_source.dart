@@ -5,12 +5,12 @@
 library;
 
 import 'dart:developer' as developer;
-import 'dart:io' show Platform;
 
 import 'package:doclens/doclens.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/app_error.dart';
+import '../../core/platform_features.dart';
 import 'local_document_scan_source.dart'
     show GoogleDocumentScanSource, ScanSource;
 import 'single_document_scanner.dart';
@@ -39,7 +39,7 @@ class DoclensFallbackScanSource implements ScanSource {
     DocumentScanLauncher? launcher,
     bool Function()? isSupported,
   }) : _launcher = launcher ?? DoclensFallbackScanLauncher(),
-       _isSupported = isSupported ?? (() => Platform.isAndroid);
+       _isSupported = isSupported ?? (() => AppFeatures.scan);
 
   final DocumentScanLauncher _launcher;
   final bool Function() _isSupported;

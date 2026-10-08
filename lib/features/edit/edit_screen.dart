@@ -9,6 +9,7 @@
 /// 갖지 않는다.
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -214,11 +215,11 @@ class _EditScreenState extends ConsumerState<EditScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        content: const Text('복사본으로 편집합니다. 원본은 변경되지 않습니다.'),
+        content: Text(appText(context, '복사본으로 편집합니다. 원본은 변경되지 않습니다.')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('확인'),
+            child: Text(appText(context, '확인')),
           ),
         ],
       ),
@@ -231,15 +232,15 @@ class _EditScreenState extends ConsumerState<EditScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        content: const Text('저장하지 않고 나갈까요?'),
+        content: Text(appText(context, '저장하지 않고 나갈까요?')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('취소'),
+            child: Text(appText(context, '취소')),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('나가기'),
+            child: Text(appText(context, '나가기')),
           ),
         ],
       ),
@@ -266,11 +267,11 @@ class _EditScreenState extends ConsumerState<EditScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: const Text('카메라로 스캔'),
+              title: Text(appText(context, '카메라로 스캔')),
               onTap: () => Navigator.of(ctx).pop(_AddPageChoice.camera),
             ),
             ListTile(
-              title: const Text('사진에서 선택'),
+              title: Text(appText(context, '사진에서 선택')),
               onTap: () => Navigator.of(ctx).pop(_AddPageChoice.gallery),
             ),
           ],
@@ -316,11 +317,11 @@ class _EditScreenState extends ConsumerState<EditScreen> {
         child: Scaffold(
           appBar: AppBar(
             automaticallyImplyLeading: false,
-            title: const Text('페이지 순서 변경'),
+            title: Text(appText(context, '페이지 순서 변경')),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('완료'),
+                child: Text(appText(context, '완료')),
               ),
             ],
           ),
@@ -344,15 +345,15 @@ class _EditScreenState extends ConsumerState<EditScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: const Text('선택 페이지 앞에 추가'),
+              title: Text(appText(context, '선택 페이지 앞에 추가')),
               onTap: () => Navigator.of(ctx).pop(selectedIndex),
             ),
             ListTile(
-              title: const Text('선택 페이지 뒤에 추가'),
+              title: Text(appText(context, '선택 페이지 뒤에 추가')),
               onTap: () => Navigator.of(ctx).pop(selectedIndex + 1),
             ),
             ListTile(
-              title: const Text('마지막에 추가'),
+              title: Text(appText(context, '마지막에 추가')),
               onTap: () =>
                   Navigator.of(ctx).pop(controller.current.pages.length),
             ),
@@ -458,7 +459,7 @@ class _EditScreenState extends ConsumerState<EditScreen> {
     );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('새 파일로 저장됨 — "${summary.title}" (${summary.pageCount}쪽)'),
+        content: Text(appCount(context, '새 파일로 저장됨 — "{title}" ({count}쪽)', summary.pageCount).replaceAll('{title}', summary.title)),
       ),
     );
   }
@@ -490,11 +491,11 @@ class _EditScreenState extends ConsumerState<EditScreen> {
           leading: isSelect
               ? TextButton(
                   onPressed: controller.clearSelection,
-                  child: const Text('취소'),
+                  child: Text(appText(context, '취소')),
                 )
               : null,
           title: Text(
-            isSelect ? '${state.selected.length}개 선택' : widget.args.title,
+            isSelect ? appCount(context, '{count}개 선택', state.selected.length) : widget.args.title,
             overflow: TextOverflow.ellipsis,
           ),
           actions: isSelect
@@ -503,24 +504,24 @@ class _EditScreenState extends ConsumerState<EditScreen> {
                     onPressed: state.selected.isEmpty
                         ? null
                         : controller.rotateSelected,
-                    child: const Text('회전'),
+                    child: Text(appText(context, '회전')),
                   ),
                   TextButton(
                     onPressed: state.selected.isEmpty ? null : _deleteSelected,
-                    child: const Text('삭제'),
+                    child: Text(appText(context, '삭제')),
                   ),
                   TextButton(
                     onPressed: state.selected.isEmpty ? null : _split,
-                    child: const Text('선택 페이지로 새 문서'),
+                    child: Text(appText(context, '선택 페이지로 새 문서')),
                   ),
                 ]
               : [
                   TextButton(
                     onPressed: controller.enterSelectModeOnly,
-                    child: const Text('선택'),
+                    child: Text(appText(context, '선택')),
                   ),
-                  TextButton(onPressed: _addPages, child: const Text('페이지 추가')),
-                  TextButton(onPressed: _save, child: const Text('저장')),
+                  TextButton(onPressed: _addPages, child: Text(appText(context, '페이지 추가'))),
+                  TextButton(onPressed: _save, child: Text(appText(context, '저장'))),
                 ],
         ),
         body: EditDocumentPager(
@@ -539,9 +540,9 @@ class _EditScreenState extends ConsumerState<EditScreen> {
     if (removed.isEmpty || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('페이지를 삭제했습니다'),
+        content: Text(appText(context, '페이지를 삭제했습니다')),
         action: SnackBarAction(
-          label: '실행취소',
+          label: appText(context, '실행취소'),
           onPressed: () => controller.undoDelete(removed),
         ),
       ),

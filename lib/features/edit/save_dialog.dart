@@ -15,6 +15,7 @@
 /// `SaveOp`와 원본 바이트 크기만 재고, 조립 자체는 항상 이 함수를 거친다.
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 
@@ -32,7 +33,9 @@ import '../../data/repository/document_repository.dart';
 import '../../data/storage/public_pdf_exporter.dart';
 import '../../pdf/image_quality.dart';
 import '../../pdf/page_ref.dart';
+import '../../pdf/scan_quality_advisor.dart';
 import '../common/failure_ui.dart';
+import '../scan/scan_advice_widgets.dart';
 
 /// 저장 다이얼로그가 `createDocument`를 부르기 위해 필요한 것 전부. 화면이
 /// `SaveOp`·`baselineBytes`를 즉흥적으로 만들지 않도록 한 곳에 모은다(설계 §5.1).
@@ -43,6 +46,7 @@ class SaveRequestSpec {
     required this.pages,
     required this.guardInput,
     required this.showQualityPicker,
+    this.adviceFuture,
   });
 
   final String suggestedTitle;
@@ -54,6 +58,9 @@ class SaveRequestSpec {
   /// 선택을 띄우지 않는다 — quality가 `PdfPageRef`에 영향을 주지 않으므로 무의미한
   /// 선택지를 보여주지 않는다(UX 원칙).
   final bool showQualityPicker;
+
+  /// 주어질 때만 화질 추천 배지·제안 줄을 보인다(표시 전용 — 선택값은 바뀌지 않는다).
+  final Future<ScanAdvice?>? adviceFuture;
 }
 
 /// `GuardInput` 조립의 단일 지점(설계 §1.6 표). 호출부는 `SaveOp`와 원본 바이트만
@@ -84,6 +91,7 @@ Future<DocumentSummary?> showSaveDialog({
   return showModalBottomSheet<DocumentSummary?>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (sheetContext) => _SaveDialog(spec: spec),
   );
 }
@@ -109,10 +117,22 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
   PdfProgress? _progress;
   CancelToken? _cancelToken;
   bool _cancelling = false;
+  ScanAdvice? _advice;
+  late bool _adviceLoading = widget.spec.adviceFuture != null;
 
   @override
   void initState() {
     super.initState();
+    widget.spec.adviceFuture?.then((a) {
+      if (mounted) {
+        setState(() {
+          _advice = a;
+          _adviceLoading = false;
+        });
+      }
+    }, onError: (_) {
+      if (mounted) setState(() => _adviceLoading = false);
+    });
     // 제목 필드는 전체 선택 상태로 포커스(설계 §5.1).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _titleFocusNode.requestFocus();
@@ -207,7 +227,7 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
         );
     if (result is PdfErr<void> && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('문서는 저장되었지만 기본 폴더로 복사하지 못했습니다.')),
+        SnackBar(content: Text(appText(context, '문서는 저장되었지만 기본 폴더로 복사하지 못했습니다.'))),
       );
     }
   }
@@ -222,22 +242,26 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
     // 진행 중에는 스와이프·뒤로가기로 닫히지 않는다(압축 시트와 동일 규약).
     return PopScope(
       canPop: _stage != _Stage.progress,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 20,
-            bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: AnimatedSize(
-            duration: const Duration(milliseconds: 150),
-            child: switch (_stage) {
-              _Stage.input => _buildInput(context),
-              _Stage.progress => _buildProgress(context),
-            },
-          ),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          // 키보드가 올라오면 키보드 높이, 아니면 시스템 내비게이션 바 높이만큼
+          // 하단을 비워 [저장] 버튼이 가려지지 않게 한다.
+          bottom:
+              24 +
+              (MediaQuery.of(context).viewInsets.bottom >
+                      MediaQuery.of(context).viewPadding.bottom
+                  ? MediaQuery.of(context).viewInsets.bottom
+                  : MediaQuery.of(context).viewPadding.bottom),
+        ),
+        child: AnimatedSize(
+          duration: const Duration(milliseconds: 150),
+          child: switch (_stage) {
+            _Stage.input => _buildInput(context),
+            _Stage.progress => _buildProgress(context),
+          },
         ),
       ),
     );
@@ -248,17 +272,19 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('저장', style: Theme.of(context).textTheme.titleLarge),
+        Text(appText(context, '저장'), style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 16),
         TextField(
           controller: _titleController,
           focusNode: _titleFocusNode,
           decoration: InputDecoration(
-            labelText: '제목',
+            labelText: appText(context, '제목'),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
           ),
         ),
         if (widget.spec.showQualityPicker) ...[
+          if (widget.spec.adviceFuture != null)
+            ScanAdviceHint(loading: _adviceLoading, advice: _advice),
           const SizedBox(height: 16),
           // compress_sheet.dart와 같은 문구·배치(설계 §5.1). 여기서는 탭이 곧 실행은
           // 아니다 — 선택만 갱신하고 [저장] 버튼이 실행한다.
@@ -266,18 +292,21 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
             profile: ImageQualityProfile.high,
             inputBytes: widget.spec.guardInput.baselineBytes,
             selected: _quality == ImageQualityProfile.high.quality,
+            recommended: _advice?.quality == ImageQuality.high,
             onTap: () => setState(() => _quality = ImageQuality.high),
           ),
           _QualityTile(
             profile: ImageQualityProfile.standard,
             inputBytes: widget.spec.guardInput.baselineBytes,
             selected: _quality == ImageQualityProfile.standard.quality,
+            recommended: _advice?.quality == ImageQuality.standard,
             onTap: () => setState(() => _quality = ImageQuality.standard),
           ),
           _QualityTile(
             profile: ImageQualityProfile.min,
             inputBytes: widget.spec.guardInput.baselineBytes,
             selected: _quality == ImageQualityProfile.min.quality,
+            recommended: _advice?.quality == ImageQuality.min,
             onTap: () => setState(() => _quality = ImageQuality.min),
           ),
           // §1.6: S5 기본값 목록과 달리 이 저장 다이얼로그에는 원본 옵션을 노출한다
@@ -286,17 +315,18 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
             profile: ImageQualityProfile.original,
             inputBytes: widget.spec.guardInput.baselineBytes,
             selected: _quality == ImageQualityProfile.original.quality,
+            recommended: _advice?.quality == ImageQuality.original,
             onTap: () => setState(() => _quality = ImageQuality.original),
           ),
           const SizedBox(height: 8),
-          const Text(
-            '예상치는 선택한 사진의 크기 기준입니다. 이미 작은 사진·PDF 페이지는 원본과 비슷할 수 있습니다.',
+          Text(
+            appText(context, '예상치는 선택한 사진의 크기 기준입니다. 이미 작은 사진·PDF 페이지는 원본과 비슷할 수 있습니다.'),
           ),
         ],
         const SizedBox(height: 20),
         Align(
           alignment: Alignment.centerRight,
-          child: FilledButton(onPressed: _save, child: const Text('저장')),
+          child: FilledButton(onPressed: _save, child: Text(appText(context, '저장'))),
         ),
       ],
     );
@@ -308,7 +338,7 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('저장 중…', style: Theme.of(context).textTheme.titleLarge),
+        Text(appText(context, '저장 중…'), style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 16),
         LinearProgressIndicator(value: fraction == 0 ? null : fraction),
         const SizedBox(height: 8),
@@ -319,7 +349,7 @@ class _SaveDialogState extends ConsumerState<_SaveDialog> {
             if (_showCancelButton)
               TextButton(
                 onPressed: _cancelling ? null : _cancel,
-                child: Text(_cancelling ? '취소 중…' : '취소'),
+                child: Text(appText(context, _cancelling ? '취소 중…' : '취소')),
               ),
           ],
         ),
@@ -334,25 +364,35 @@ class _QualityTile extends StatelessWidget {
     required this.inputBytes,
     required this.selected,
     required this.onTap,
+    this.recommended = false,
   });
 
   final ImageQualityProfile profile;
   final int inputBytes;
   final bool selected;
+  final bool recommended;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(profile.label),
+      title: Row(
+        children: [
+          Flexible(child: Text(appText(context, profile.label))),
+          if (recommended) ...[
+            const SizedBox(width: 8),
+            const AdviceInlineBadge(),
+          ],
+        ],
+      ),
       subtitle: Text(
-        '${profile.recommendedFor}\n${profile.processingDescription}\n${profile.estimateFor(inputBytes)}',
+        '${appText(context, profile.recommendedFor)}\n${profile.processingDescriptionFor(tr: (k) => appText(context, k))}\n${profile.estimateFor(inputBytes, tr: (k) => appText(context, k))}',
       ),
       isThreeLine: true,
       trailing: selected
           ? Text(
-              '선택됨',
+              appText(context, '선택됨'),
               style: TextStyle(color: Theme.of(context).colorScheme.primary),
             )
           : null,

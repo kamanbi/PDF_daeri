@@ -64,6 +64,14 @@ class _FakeRenderer implements PdfRenderer {
       throw UnimplementedError();
 
   @override
+  Future<PdfResult<PdfPageTextData>> pageText({
+    required String pdfPath,
+    required int pageIndex,
+    String? password,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
   Future<PdfResult<Uint8List>> renderPage({
     required String pdfPath,
     required int pageIndex,
@@ -323,7 +331,14 @@ void main() {
 
     await tester.runAsync(() async {
       await tester.tap(find.text('저장'));
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      // 고정 딜레이 대신 실제 완료(repo.callCount 증가)를 폴링한다 — 시스템
+      // 부하가 커지면(다른 테스트와 동시 실행 등) 고정 300ms 안에 실 isolate
+      // (`Isolate.run`)가 못 끝나 테스트 종료 후 늦게 콜백이 와서
+      // "테스트 완료 후 예외"로 잡히는 경쟁 조건이 있었다.
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (repo.callCount == 0 && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
     });
     await tester.pump();
 

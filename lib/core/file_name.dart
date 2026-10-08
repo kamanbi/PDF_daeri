@@ -5,7 +5,19 @@
 /// ③ SAF 임포트 표시명 저장 시    ④ 합치기·나누기·편집 저장의 파생 제목 생성 시
 library;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
+
+/// [FileName.normalizeForMatchWithMap]의 결과. `text`의 각 코드 유닛 i가 유래한
+/// 원문 클러스터는 `[origStart[i], origEnd[i])`이다. 길이는 항상 `text.length`와 같다.
+class NormalizedText {
+  const NormalizedText(this.text, this.origStart, this.origEnd);
+
+  /// 정규화된 문자열.
+  final String text;
+  final List<int> origStart;
+  final List<int> origEnd;
+}
 
 abstract final class FileName {
   /// 파일명에 쓸 수 없는 문자. 저장 시 `_`로 치환한다.
@@ -103,22 +115,94 @@ abstract final class FileName {
     return '$normalized.pdf';
   }
 
-  /// 제목 검색 질의어 정규화의 단일 구현(§76 §4.1). NFC 정규화 → trim → 소문자 변환
-  /// → `LIKE` 와일드카드(`%`, `_`) 이스케이프 순으로 처리한다. `documents.title`은
+  /// NFC 정규화 → 소문자 변환의 공유 헬퍼. trim은 호출부 책임.
+  static String _nfcLower(String s) => unorm.nfc(s).toLowerCase();
+
+  /// 매칭용 정규화의 단일 구현: trim → NFC → 소문자. 이스케이프 없음.
+  /// 본문 검색 질의어는 이 함수만 쓴다(§83 §4.2a).
+  static String normalizeForMatch(String raw) => _nfcLower(raw.trim());
+
+  /// 페이지 본문용: NFC → 소문자(trim 안 함 — 원문 인덱스 보존) + 인덱스 매핑.
+  /// 변환 규칙은 [normalizeForMatch]와 동일(trim 제외)하다 — 같은 `_nfcLower`를
+  /// 공유한다. 정규화로 글자 수가 달라질 수 있으므로(NFC 결합, 소문자 확장) 클러스터
+  /// 단위 매핑 테이블을 만든다. 매핑이 실패하면 1:1 폴백, 그것도 실패하면 빈 결과를
+  /// 반환해 해당 페이지를 검색에서 건너뛰게 한다(§83 §4.2b).
+  static NormalizedText normalizeForMatchWithMap(String original) {
+    final buffer = StringBuffer();
+    final origStart = <int>[];
+    final origEnd = <int>[];
+
+    final runes = original.runes.toList();
+    // rune 인덱스 → 코드유닛 오프셋 테이블(서로게이트 쌍 처리를 위해 필요).
+    final runeCodeUnitOffsets = <int>[];
+    var cu = 0;
+    for (final r in runes) {
+      runeCodeUnitOffsets.add(cu);
+      cu += String.fromCharCode(r).length;
+    }
+    runeCodeUnitOffsets.add(cu); // sentinel: 전체 길이
+
+    var i = 0;
+    while (i < runes.length) {
+      // 클러스터 확장: 다음 글자를 붙였을 때 NFC 결합이 일어나면 계속 확장.
+      var j = i + 1;
+      while (j < runes.length) {
+        final cluster = String.fromCharCodes(runes.sublist(i, j));
+        final next = String.fromCharCode(runes[j]);
+        final combinedLen = unorm.nfc(cluster + next).length;
+        final separateLen = unorm.nfc(cluster).length + unorm.nfc(next).length;
+        if (combinedLen < separateLen) {
+          j++;
+        } else {
+          break;
+        }
+      }
+
+      final s = runeCodeUnitOffsets[i];
+      final e = runeCodeUnitOffsets[j];
+      final clusterOrig = original.substring(s, e);
+      final n = _nfcLower(clusterOrig);
+
+      buffer.write(n);
+      for (var k = 0; k < n.length; k++) {
+        origStart.add(s);
+        origEnd.add(e);
+      }
+
+      i = j;
+    }
+
+    final text = buffer.toString();
+    final expected = _nfcLower(original);
+
+    if (text == expected) {
+      return NormalizedText(text, origStart, origEnd);
+    }
+
+    // 안전장치: 클러스터 경계 판단 실패 시 1:1 폴백(길이 보존일 때만).
+    final fallback = original.toLowerCase();
+    if (fallback.length == original.length) {
+      final fbStart = List<int>.generate(fallback.length, (idx) => idx);
+      final fbEnd = List<int>.generate(fallback.length, (idx) => idx + 1);
+      return NormalizedText(fallback, fbStart, fbEnd);
+    }
+
+    // 그것도 실패하면 해당 페이지를 검색에서 건너뛴다.
+    // ignore: avoid_print
+    debugPrint(
+      'FileName.normalizeForMatchWithMap: 정규화 매핑 실패, 페이지 검색 스킵',
+    );
+    return const NormalizedText('', [], []);
+  }
+
+  /// 제목 검색 질의어 정규화의 단일 구현(§76 §4.1). [normalizeForMatch] 결과에
+  /// `LIKE` 와일드카드(`%`, `_`) 이스케이프만 덧붙인다. `documents.title`은
   /// [normalize](NFC)를 거친 값이므로, 검색어도 같은 NFC를 거쳐야 한글 조합(NFD) 입력이
   /// 매칭된다. 이 함수 밖에서 검색어를 다시 정규화하지 않는다.
-  static String normalizeForSearch(String raw) {
-    var s = raw.trim();
-    s = unorm.nfc(s);
-    s = s.toLowerCase();
-    // LIKE 패턴에서 `%`/`_`가 와일드카드로 해석되지 않도록 이스케이프한다.
-    // 이스케이프 문자 자체(`\`)도 먼저 이스케이프해 이중 해석을 막는다.
-    s = s
-        .replaceAll(r'\', r'\\')
-        .replaceAll('%', r'\%')
-        .replaceAll('_', r'\_');
-    return s;
-  }
+  static String normalizeForSearch(String raw) => normalizeForMatch(raw)
+      .replaceAll(r'\', r'\\')
+      .replaceAll('%', r'\%')
+      .replaceAll('_', r'\_');
 
   /// 사진 보관함에 저장할 JPEG 파일명. 기존 확장자는 제거해 이중 확장자를 막는다.
   static String toJpegFileName(String title) {

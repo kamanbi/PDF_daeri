@@ -94,6 +94,14 @@ class _FixedPageCountRenderer implements PdfRenderer {
       fail ? const PdfErr(SourceCorrupted('fake')) : PdfOk(pageCount);
 
   @override
+  Future<PdfResult<PdfPageTextData>> pageText({
+    required String pdfPath,
+    required int pageIndex,
+    String? password,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
   Future<PdfResult<Uint8List>> renderPage({
     required String pdfPath,
     required int pageIndex,

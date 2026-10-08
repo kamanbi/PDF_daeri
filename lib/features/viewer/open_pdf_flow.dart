@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../app/app_locale.dart';
 
 import '../../app/providers.dart';
 import '../../app/router.dart';
@@ -69,7 +70,7 @@ Future<bool> openPdfAndGoToViewer({
     if (context.mounted) {
       await FailureUi.showDialog(
         context,
-        const UnknownFailure('저장소를 사용할 수 없습니다. 앱을 다시 시작해 주세요.'),
+        UnknownFailure(appText(context, '저장소를 사용할 수 없습니다. 앱을 다시 시작해 주세요.')),
       );
     }
     return false;
@@ -198,45 +199,49 @@ Future<bool> _run({
   return true;
 }
 
-Future<String?> _promptPassword(BuildContext context, String displayName) {
+Future<String?> _promptPassword(BuildContext context, String displayName) async {
   final controller = TextEditingController();
-  return showDialog<String>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('암호로 보호된 문서'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('"$displayName" 파일은 암호로 보호되어 있습니다.'),
-          const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            obscureText: true,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: '비밀번호', border: OutlineInputBorder()),
-            onSubmitted: (v) => Navigator.of(ctx).pop(v),
+  try {
+    return await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(appText(context, '암호로 보호된 문서')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(appText(context, '"{name}" 파일은 암호로 보호되어 있습니다.').replaceAll('{name}', displayName)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              obscureText: true,
+              autofocus: true,
+              decoration: InputDecoration(labelText: appText(context, '비밀번호'), border: OutlineInputBorder()),
+              onSubmitted: (v) => Navigator.of(ctx).pop(v),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(appText(context, '취소'))),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text),
+            child: Text(appText(context, '확인')),
           ),
         ],
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('취소')),
-        FilledButton(
-          onPressed: () => Navigator.of(ctx).pop(controller.text),
-          child: const Text('확인'),
-        ),
-      ],
-    ),
-  );
+    );
+  } finally {
+    controller.dispose();
+  }
 }
 
 Future<void> _showWrongPassword(BuildContext context) {
   return showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('암호로 보호된 문서'),
-      content: const Text('비밀번호가 맞지 않습니다.'),
-      actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('확인'))],
+      title: Text(appText(context, '암호로 보호된 문서')),
+      content: Text(appText(context, '비밀번호가 맞지 않습니다.')),
+      actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(appText(context, '확인')))],
     ),
   );
 }

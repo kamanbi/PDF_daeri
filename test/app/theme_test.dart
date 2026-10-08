@@ -20,4 +20,11 @@ void main() {
     final dark = AppTheme.dark();
     expect(light.colorScheme.surface, isNot(equals(dark.colorScheme.surface)));
   });
+
+  test('리뉴얼 파운데이션의 종이색 배경과 딥 블루 포인트를 유지한다', () {
+    final light = AppTheme.light();
+    expect(light.scaffoldBackgroundColor, AppTheme.background);
+    expect(light.colorScheme.primary, AppTheme.seedColor);
+    expect(light.cardTheme.shape, isA<RoundedRectangleBorder>());
+  });
 }

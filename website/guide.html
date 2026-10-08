@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#101010">
 <title>사진 PDF 만들기·페이지 정리·압축 사용법 | PDF 대리</title>
-<meta name="description" content="사진 여러 장을 PDF로 만들고, 페이지를 정리하고, 압축해 공유하는 PDF 대리 사용법. 기능 무료, 광고 제거 연 2,000원.">
+<meta name="description" content="사진 여러 장을 PDF로 만들고, 페이지를 정리하고, 압축해 공유하는 PDF 대리 사용법. 기본 기능은 무료, OCR 생성과 광고 제거는 연간 구독 혜택입니다.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="PDF 페이지 삭제·회전·추가하기 | PDF 대리 사용법">
 <meta property="og:description" content="사진 PDF 변환과 페이지 정리 기능은 무료. Android용 PDF 대리를 만나보세요.">
@@ -34,7 +34,7 @@
   }
 }
 </script>
-<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="favicon.ico?v=2" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2"><link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png?v=2"><link rel="apple-touch-icon" href="apple-touch-icon.png?v=2"><link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header class="site-header">
@@ -43,16 +43,17 @@
         <span>PDF 대리</span>
       </a>
       <nav aria-label="주요 메뉴">
-        <a href="index.html#features">기능</a>
+        <div class="nav-item"><button type="button" aria-haspopup="true">기능</button>
+          <div class="nav-dropdown"><a href="index.html#spotlight-ocr-title">텍스트 인식(OCR)</a><a href="photo-pdf.html">사진 → PDF</a><a href="pdf-pages.html">페이지 편집</a><a href="index.html#features">전체 기능</a></div>
+        </div>
         <a href="#guide-top" aria-current="page">사용 방법</a>
-        <a href="privacy.html">개인정보처리방침</a>
         <a href="contact.html">문의하기</a>
         <div class="visitor-count" id="visitor-count" aria-live="polite">
           <span>오늘 <strong data-visit-count="today">0</strong></span>
           <span>누적 <strong data-visit-count="total">0</strong></span>
         </div>
       </nav>
-      <a class="header-install" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">Google Play에서 설치</a>
+      <a class="header-install" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">설치하기</a>
     </header>
 <main id="top">
 <section class="hero" id="guide-top" aria-labelledby="guide-title">
@@ -68,7 +69,7 @@
 <article><span>01</span><h3><a href="#photo-pdf">사진 → PDF</a></h3><p>여러 장의 사진을 한 파일로.</p></article>
 <article><span>02</span><h3><a href="#pages">페이지 정리</a></h3><p>추가하고, 회전하고, 순서대로.</p></article>
 <article><span>03</span><h3><a href="#compress">압축과 공유</a></h3><p>용량을 확인하고 필요한 곳으로.</p></article>
-<article><span>04</span><h3><a href="#price">무료 이용 안내</a></h3><p>기능은 무료, 광고 제거는 선택.</p></article>
+<article><span>04</span><h3><a href="#price">무료 이용·구독 안내</a></h3><p>기본 기능은 무료, OCR 생성과 광고 제거는 구독 혜택.</p></article>
 </div></section>
 <section class="features guide-section" id="photo-pdf">
  <div class="section-heading"><p class="eyebrow">HOW TO 01</p><h2>사진 여러 장을 PDF 하나로 만들기</h2></div>
@@ -101,10 +102,10 @@
  <figure class="guide-screen"><img src="assets/7.png" alt="PDF 용량 줄이고 공유하기 앱 화면" loading="lazy"><figcaption>PDF 대리 · PDF 용량 줄이고 공유하기</figcaption></figure></div>
 </section>
 <section class="statement" id="price"><div class="statement-content"><div class="statement-copy">
-<p>필요한 기능을 부담 없이.</p><h2>기능은 무료. 광고 제거는 선택.</h2>
-<p>스캔, 사진 PDF, 페이지 편집, 합치기·나누기·압축·공유는 구독 없이 사용할 수 있습니다. 문서 변환·편집은 기기에서 처리하며 광고·구독 확인에는 네트워크가 사용됩니다. <a href="privacy.html">개인정보처리방침 보기</a></p>
+<p>필요한 기능을 부담 없이.</p><h2>기본 기능은 무료. OCR은 구독 혜택.</h2>
+<p>PDF 보기·텍스트 선택, 스캔, 사진 PDF, 페이지 편집, 합치기·나누기·압축·공유는 구독 없이 사용할 수 있습니다. 이미지형 PDF에 새로 글자를 인식시켜 선택·검색 가능한 PDF로 만드는 OCR과 광고 제거는 연간 구독에 포함됩니다. 문서 변환·편집은 기기에서 처리하며 광고·구독 확인에는 네트워크가 사용됩니다. <a href="privacy.html">개인정보처리방침 보기</a></p>
 </div><a class="statement-qr" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer"><img src="qr-play.svg" alt="Google Play 설치 QR 코드"><span>휴대폰으로 바로 설치</span></a></div></section>
-<section class="cta" aria-labelledby="cta-title"><p class="eyebrow">PDF DAE RI</p><h2 id="cta-title">문서 작업, 이제 <em>직접 시작해 보세요.</em></h2><div class="cta-install"><img src="qr-play.svg" alt="PDF 대리 설치 QR 코드"><div><a class="button button-primary" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">Google Play에서 설치</a><p class="support-message">PDF 관련 기능은 무료로 사용할 수 있습니다.<br>연 2,000원 자동 갱신 구독으로 광고를 없앨 수 있습니다.<br>Google Play에서 해지할 수 있으며 결제한 기간까지 이용할 수 있습니다.<br>감사합니다.</p></div></div></section>
+<section class="cta" aria-labelledby="cta-title"><p class="eyebrow">PDF DAE RI</p><h2 id="cta-title">문서 작업, 이제 <em>직접 시작해 보세요.</em></h2><div class="cta-install"><img src="qr-play.svg" alt="PDF 대리 설치 QR 코드"><div><a class="button button-primary" href="https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri" target="_blank" rel="noreferrer">Google Play에서 설치</a><p class="support-message">PDF 보기·스캔·편집은 무료로 사용할 수 있습니다.<br>연간 자동 갱신 구독으로 광고를 없애고 OCR PDF를 만들 수 있습니다.<br>결제 금액은 앱의 Google Play 구매 화면에서 확인해 주세요.<br>Google Play에서 해지할 수 있으며 결제한 기간까지 이용할 수 있습니다.</p></div></div></section>
 </main>
 <footer class="site-footer">
       <a class="brand" href="#top"><img src="assets/image.png" alt=""><span>PDF 대리</span></a>

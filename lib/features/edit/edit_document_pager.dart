@@ -1,6 +1,7 @@
 /// 편집 화면의 큰 페이지 미리보기와 하단 가로 페이지 바.
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -59,7 +60,7 @@ class _EditDocumentPagerState extends ConsumerState<EditDocumentPager> {
         final state = snapshot.data ?? widget.controller.current;
         final pages = state.pages;
         if (pages.isEmpty) {
-          return const Center(child: Text('페이지가 없습니다.'));
+          return Center(child: Text(appText(context, '페이지가 없습니다.')));
         }
         final currentIndex = _currentIndex.clamp(0, pages.length - 1);
         if (currentIndex != _currentIndex) _currentIndex = currentIndex;
@@ -99,7 +100,7 @@ class _EditDocumentPagerState extends ConsumerState<EditDocumentPager> {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: widget.onPageOrderRequested,
-                child: const Text('페이지 순서 변경'),
+                child: Text(appText(context, '페이지 순서 변경')),
               ),
             ),
           ],
@@ -181,7 +182,7 @@ class _EditorPagePreviewState extends ConsumerState<_EditorPagePreview> {
           )
         : Center(
             child: _failed
-                ? const Text('페이지를 표시할 수 없습니다.')
+                ? Text(appText(context, '페이지를 표시할 수 없습니다.'))
                 : const CircularProgressIndicator(),
           );
     return GestureDetector(

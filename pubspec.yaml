@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.1.16+16
+version: 1.1.22+22
 
 environment:
   sdk: ^3.12.2
@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -40,7 +42,10 @@ dependencies:
   doclens:
     path: third_party/doclens
   drift: ^2.34.3
-  sqlite3_flutter_libs: ^0.6.0+eol
+  # sqlite3_flutter_libs는 sqlite3 3.x부터 지원 종료(패키지 자체가 기능 없이 +eol 버전만 남음) —
+  # v3가 hooks 기반으로 네이티브 바이너리를 직접 번들링해 이 패키지가 더 이상 필요 없다.
+  # 2026-09-23 전체 앱 재감사 L-4, 사용자 승인. https://github.com/simolus3/sqlite3.dart/blob/main/UPGRADING_TO_V3.md
+  sqlite3: ^3.0.0
   path: ^1.9.1
   flutter_riverpod: ^2.6.1
   uuid: ^4.6.0
@@ -98,6 +103,7 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
+    - assets/image.png
     - assets/fonts/
     - assets/images/
     - assets/licenses/

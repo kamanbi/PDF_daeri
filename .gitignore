@@ -123,3 +123,14 @@ build_log.txt
 # ─────────────────────────────────────────────
 windows/installer/vcredist_x64.exe
 windows/installer/*.exe
+
+# ─────────────────────────────────────────────
+# 빌드 로그 / JVM 크래시 덤프 / 기기 스크린샷 / 격리 gradle 캐시
+# (환경 변수·로컬 경로가 포함될 수 있어 커밋 금지)
+# ─────────────────────────────────────────────
+*.log
+hs_err_pid*.log
+replay_pid*.log
+/device-*.png
+.gradle-isolated/
+.gradle-mlkit/

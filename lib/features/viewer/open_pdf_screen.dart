@@ -9,6 +9,7 @@ library;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../app/app_locale.dart';
 
 import '../../ads/banner_host.dart';
 import 'open_pdf_flow.dart';
@@ -46,7 +47,7 @@ class _OpenPdfScreenState extends ConsumerState<OpenPdfScreen> {
       if (!mounted) return;
       setState(() {
         _picking = false;
-        _pickError = '파일 선택기를 열지 못했습니다.';
+        _pickError = appText(context, '파일 선택기를 열지 못했습니다.');
       });
       return;
     }
@@ -63,7 +64,7 @@ class _OpenPdfScreenState extends ConsumerState<OpenPdfScreen> {
       if (!mounted) return;
       setState(() {
         _picking = false;
-        _pickError = '선택한 파일의 경로를 확인할 수 없습니다.';
+        _pickError = appText(context, '선택한 파일의 경로를 확인할 수 없습니다.');
       });
       return;
     }
@@ -85,15 +86,15 @@ class _OpenPdfScreenState extends ConsumerState<OpenPdfScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('PDF 열기')),
+      appBar: AppBar(title: Text(appText(context, 'PDF 열기'))),
       body: Center(
         child: _picking
-            ? const Column(
+            ? Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
-                  Text('확인하는 중…'),
+                  Text(appText(context, '확인하는 중…')),
                 ],
               )
             : Column(
@@ -107,7 +108,7 @@ class _OpenPdfScreenState extends ConsumerState<OpenPdfScreen> {
                   ],
                   FilledButton(
                     onPressed: _pickAndOpen,
-                    child: const Text('파일 선택'),
+                    child: Text(appText(context, '파일 선택')),
                   ),
                 ],
               ),

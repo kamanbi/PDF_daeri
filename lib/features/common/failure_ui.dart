@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_error.dart';
 import '../../core/size_guard.dart';
+import '../../app/app_locale.dart';
 
 /// 실패에서 사용자가 할 수 있는 행동. §5.1.
 enum FailureAction {
@@ -134,24 +135,31 @@ abstract final class FailureUi {
     if (f is Cancelled) return null;
 
     final acts = actions(f);
-    final msg = message(f);
+    final msg = switch (f) {
+      OutOfSpace(:final requiredBytes) =>
+        appText(context, '약 {mb}MB가 더 필요합니다').replaceAll(
+          '{mb}',
+          '${(requiredBytes / (1024 * 1024)).ceil()}',
+        ),
+      _ => appText(context, message(f)),
+    };
     return _showMaterialDialog<FailureAction>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(title(f)),
+        title: Text(appText(ctx, title(f))),
         content: Text(msg),
         actions: acts.isEmpty
             ? [
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('확인'),
+                  child: Text(appText(ctx, '확인')),
                 ),
               ]
             : [
                 for (final a in acts)
                   TextButton(
                     onPressed: () => Navigator.of(ctx).pop(a),
-                    child: Text(_actionLabel(a)),
+                    child: Text(appText(ctx, _actionLabel(a))),
                   ),
               ],
       ),

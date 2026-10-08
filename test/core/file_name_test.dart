@@ -137,4 +137,56 @@ void main() {
       expect(FileName.normalizeForSearch('   '), '');
     });
   });
+
+  group('FileName.normalizeForMatch (§83 §4.2a)', () {
+    test('trim → NFC → 소문자, 이스케이프 없음', () {
+      expect(FileName.normalizeForMatch('  Report  '), 'report');
+    });
+
+    test('와일드카드/역슬래시를 이스케이프하지 않는다', () {
+      expect(FileName.normalizeForMatch(r'50%_a\b'), r'50%_a\b');
+    });
+  });
+
+  group('FileName.normalizeForMatchWithMap (§83 §4.2b)', () {
+    test('고정 한글 테스트 제목: NFC 원문은 매핑이 항등', () {
+      const fixed = '2026년 8월 보고서 (최종)';
+      final result = FileName.normalizeForMatchWithMap(fixed);
+      expect(result.text, fixed.toLowerCase());
+      for (var i = 0; i < result.text.length; i++) {
+        expect(result.origStart[i], i);
+        expect(result.origEnd[i], i + 1);
+      }
+    });
+
+    test('NFD 자모 분리형 한글: 정규화 후 매치를 원문 구간으로 역매핑', () {
+      const composed = '한글';
+      final nfdInput = unorm.nfd(composed);
+      final result = FileName.normalizeForMatchWithMap(nfdInput);
+      expect(result.text, '한글');
+
+      // '글' 매치 → text index 1 → 원문 [3, 6) (NFD 자모 3유닛)
+      const ns = 1, ne = 2;
+      final start = result.origStart[ns];
+      final end = result.origEnd[ne - 1];
+      expect(start, 3);
+      expect(end, 6);
+      expect(nfdInput.substring(start, end), unorm.nfd('글'));
+    });
+
+    test('İstanbul: 소문자 확장 후 매치를 원문 구간으로 역매핑', () {
+      const original = 'İstanbul';
+      final result = FileName.normalizeForMatchWithMap(original);
+
+      final ns = result.text.indexOf('stan');
+      expect(ns, isNonNegative);
+      final ne = ns + 'stan'.length;
+
+      final start = result.origStart[ns];
+      final end = result.origEnd[ne - 1];
+      expect(original.substring(start, end), 'stan');
+      expect(start, 1);
+      expect(end, 5);
+    });
+  });
 }

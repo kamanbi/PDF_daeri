@@ -1,16 +1,15 @@
-# PDF 대리 무료 유입 운영 계획
+# 보안 개선 실행 계획
 
-1. `PDF 열기`는 구현되어 있으므로 실기기에서 파일 선택·암호 PDF·최근 파일 재열기만 회귀 점검한다.
-2. 네이버 서치어드바이저 수집·노출 리포트와 Google Search Console의 검색 실적이 생성되는지 7일 후 확인한다.
-3. Google Play 등록정보 검토 결과와 스토어 방문·획득을 확인한다.
-4. 블로그 글별 조회·검색 유입과 Threads 게시물 반응을 분리해 측정하고, 실제 반응이 높은 주제만 후속 콘텐츠로 확장한다.
+- 상태: 요청된 코드 수정과 로컬 검증 완료. 프로덕션 배포는 사용자 승인 전 대기.
+- 구독: 활성 상태와 미만료 상품만 활성으로 판정한다. 문서화된 Google 410 영구 무효 reason만 권한을 회수하고, 404 및 기타 오류는 `unavailable`로 처리해 기존 권한을 보존한다.
+- 서버: JSON 형식·본문 크기를 검증하고 IP/도메인별 호출 제한을 적용한다. 방문자 식별자는 UUID v4만 허용한다.
+- 웹: CSP와 프레임 삽입 방어를 적용한다. 문의 필드 길이를 제한하고 Netlify Forms 안내를 한국어·영어로 제공한다.
+- 완료 기준: Node 입력/상태 테스트, Dart 구독 회귀 테스트, JavaScript 구문 검사와 diff 공백 검사가 통과한다. 운영 배포·환경 변수 수정·APK/AAB 빌드는 별도 요청 전 하지 않는다.
 
-## 가독성
+## 가독성 5칙
 
-- Early Return: 파일 선택 취소·검사 실패·암호 입력 취소에서는 뷰어 이동을 중단한다.
-- Contextual Naming: `PickedFileSource`, `ExistingRecentSource`, `openPdfAndGoToViewer`처럼 진입 출처와 결과를 함께 표기한다.
-- Magic Number Hunter: 7일은 첫 수집 상태 확인 주기이며, 코드 상수로 사용하지 않는다.
-- Parameter Object: `PdfOpenSource`가 파일 선택·공유 인텐트·최근 파일의 입력을 통일한다.
-- Complexity Check: PDF 열기 흐름 8/10 → 실기기 회귀 점검 후 8/10 유지.
-
-완료 기준: PDF 열기 핵심 경로의 실기기 회귀 점검과 채널별 실제 수집·노출·방문·획득 데이터 확인을 끝낸다.
+- Early Return: 메서드, Origin, 크기, 형식 오류는 외부 호출 전 반환한다.
+- Contextual Naming: `readBoundedJson`, `classifyGooglePlayFailure`, `visitorToken`으로 의도를 드러낸다.
+- Magic Number Hunter: 본문 8KB/256B, 호출 빈도, 필드 길이를 상수/함수 설정으로 둔다.
+- Parameter Object: 세 개 이상 입력이 필요한 새 로직은 객체 인자로 묶는다.
+- Complexity Check: 작은 검증·분류 함수로 복잡도를 6/10 이하로 유지한다.

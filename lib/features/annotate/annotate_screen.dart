@@ -21,6 +21,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../app/app_locale.dart';
 
 import '../../app/providers.dart';
 import '../../core/app_error.dart';
@@ -28,6 +29,7 @@ import '../../core/cancel_token.dart';
 import '../../core/file_name.dart';
 import '../../core/korean_font.dart';
 import '../../core/progress.dart';
+import '../../core/save_screen_helpers.dart';
 import '../../data/repository/document_repository.dart';
 import '../../pdf/pdf_renderer.dart';
 import '../../pdf/stamp_builder.dart';
@@ -105,10 +107,16 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
   final List<List<_PlacedMark>> _undoStack = [];
   int _nextId = 0;
   int? _selectedId;
+  // build마다 다시 재는 대신 initState에서 한 번만 판정한다(§4 재감사 L-2).
+  late final bool _showCancelButton;
 
   @override
   void initState() {
     super.initState();
+    _showCancelButton = shouldShowCancelButton(
+      pageCount: widget.args.pageCount,
+      pdfPath: widget.args.pdfPath,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
@@ -238,36 +246,36 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
     );
   }
 
-  Future<String?> _promptText() {
+  Future<String?> _promptText() async {
     final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('텍스트 추가'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 3,
-          decoration: const InputDecoration(hintText: '내용을 입력하세요'),
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(appText(context, '텍스트 추가')),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            decoration: InputDecoration(hintText: appText(context, '내용을 입력하세요')),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(appText(context, '취소')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: Text(appText(context, '확인')),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
-  bool get _showCancelButton {
-    final baseline = File(widget.args.pdfPath).lengthSync();
-    return widget.args.pageCount >= 50 || baseline >= 20 * 1024 * 1024;
-  }
 
   Future<void> _save() async {
     final geometry = _geometry;
@@ -282,7 +290,7 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
         if (!mounted) return;
         await FailureUi.showDialog(
           context,
-          const UnknownFailure('한글 폰트를 불러오지 못해 텍스트를 추가할 수 없습니다.'),
+          UnknownFailure(appText(context, '한글 폰트를 불러오지 못해 텍스트를 추가할 수 없습니다.')),
         );
         return;
       }
@@ -293,7 +301,7 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
       if (!mounted) return;
       await FailureUi.showDialog(
         context,
-        const UnknownFailure('저장소를 사용할 수 없습니다.'),
+        UnknownFailure(appText(context, '저장소를 사용할 수 없습니다.')),
       );
       return;
     }
@@ -327,7 +335,7 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
       setState(() => _stage = _Stage.placing);
       await FailureUi.showDialog(
         context,
-        const UnknownFailure('주석을 적용하지 못했습니다.'),
+        UnknownFailure(appText(context, '주석을 적용하지 못했습니다.')),
       );
       return;
     }
@@ -367,7 +375,7 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('주석 추가')),
+      appBar: AppBar(title: Text(appText(context, '주석 추가'))),
       body: switch (_stage) {
         _Stage.loading => const Center(child: CircularProgressIndicator()),
         _Stage.placing => _buildPlacing(context),
@@ -434,10 +442,10 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
         ),
         // Q6(승인): 저장 후 재편집 불가 — 저장 버튼 직전 1줄 안내(확인 다이얼로그
         // 아님, UX 원칙 "확인 창 만들지 않는다").
-        const Padding(
+        Padding(
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Text(
-            '저장하면 주석이 문서에 합쳐져 수정할 수 없습니다.',
+            appText(context, '저장하면 주석이 문서에 합쳐져 수정할 수 없습니다.'),
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
         ),
@@ -447,28 +455,28 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
             spacing: 8,
             children: [
               _ToolButton(
-                label: '형광펜',
+                label: appText(context, '형광펜'),
                 selected: _tool == _Tool.highlight,
                 onPressed: _addHighlight,
               ),
               _ToolButton(
-                label: '텍스트',
+                label: appText(context, '텍스트'),
                 selected: _tool == _Tool.text,
                 onPressed: _addText,
               ),
               _ToolButton(
-                label: '선택·삭제',
+                label: appText(context, '선택·삭제'),
                 selected: _tool == _Tool.select,
                 onPressed: () => setState(() => _tool = _Tool.select),
               ),
               TextButton(
                 onPressed: _undoStack.isEmpty ? null : _undo,
-                child: const Text('되돌리기'),
+                child: Text(appText(context, '되돌리기')),
               ),
               if (_selectedId != null)
                 TextButton(
                   onPressed: _deleteSelected,
-                  child: const Text('삭제'),
+                  child: Text(appText(context, '삭제')),
                 ),
             ],
           ),
@@ -480,7 +488,7 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
               const Spacer(),
               FilledButton(
                 onPressed: _marks.isEmpty ? null : _save,
-                child: const Text('저장'),
+                child: Text(appText(context, '저장')),
               ),
             ],
           ),
@@ -497,7 +505,7 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('저장 중…', style: Theme.of(context).textTheme.titleLarge),
+            Text(appText(context, '저장 중…'), style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
             LinearProgressIndicator(value: fraction == 0 ? null : fraction),
             const SizedBox(height: 8),
@@ -509,7 +517,7 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
                   const SizedBox(width: 16),
                   TextButton(
                     onPressed: _cancelling ? null : _cancel,
-                    child: Text(_cancelling ? '취소 중…' : '취소'),
+                    child: Text(_cancelling ? appText(context, '취소 중…') : '취소'),
                   ),
                 ],
               ],

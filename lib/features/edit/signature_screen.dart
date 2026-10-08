@@ -24,6 +24,7 @@
 /// [showSignatureScreen]을 통해서만 연다.
 library;
 
+import '../../app/app_locale.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -37,6 +38,7 @@ import '../../app/providers.dart';
 import '../../core/app_error.dart';
 import '../../core/cancel_token.dart';
 import '../../core/progress.dart';
+import '../../core/save_screen_helpers.dart';
 import '../../data/repository/document_repository.dart';
 import '../../pdf/pdf_renderer.dart';
 import '../../pdf/stamp_builder.dart';
@@ -91,10 +93,16 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   PdfProgress? _progress;
   CancelToken? _cancelToken;
   bool _cancelling = false;
+  // build마다 다시 재는 대신 initState에서 한 번만 판정한다(§4 재감사 L-2).
+  late final bool _showCancelButton;
 
   @override
   void initState() {
     super.initState();
+    _showCancelButton = shouldShowCancelButton(
+      pageCount: widget.args.pageCount,
+      pdfPath: widget.args.pdfPath,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
@@ -167,10 +175,6 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
     });
   }
 
-  bool get _showCancelButton {
-    final baseline = File(widget.args.pdfPath).lengthSync();
-    return widget.args.pageCount >= 50 || baseline >= 20 * 1024 * 1024;
-  }
 
   Future<void> _save() async {
     final geometry = _geometry;
@@ -256,7 +260,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('서명 추가')),
+      appBar: AppBar(title: Text(appText(context, '서명 추가'))),
       body: switch (_stage) {
         _Stage.loading => const Center(child: CircularProgressIndicator()),
         _Stage.drawing => _DrawingView(onDone: _onDrawingDone),
@@ -280,7 +284,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: pageBytes == null
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(child: CircularProgressIndicator())
                 : StampPlacement(
                     pageAspectRatio: size.aspectRatio,
                     pageChild: Image.memory(pageBytes, fit: BoxFit.contain),
@@ -295,9 +299,9 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: Row(
             children: [
-              TextButton(onPressed: _redraw, child: const Text('다시 그리기')),
+              TextButton(onPressed: _redraw, child: Text(appText(context, '다시 그리기'))),
               const Spacer(),
-              FilledButton(onPressed: _save, child: const Text('저장')),
+              FilledButton(onPressed: _save, child: Text(appText(context, '저장'))),
             ],
           ),
         ),
@@ -313,7 +317,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('저장 중…', style: Theme.of(context).textTheme.titleLarge),
+            Text(appText(context, '저장 중…'), style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
             LinearProgressIndicator(value: fraction == 0 ? null : fraction),
             const SizedBox(height: 8),
@@ -325,7 +329,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
                   const SizedBox(width: 16),
                   TextButton(
                     onPressed: _cancelling ? null : _cancel,
-                    child: Text(_cancelling ? '취소 중…' : '취소'),
+                    child: Text(appText(context, _cancelling ? '취소 중…' : '취소')),
                   ),
                 ],
               ],
@@ -346,7 +350,7 @@ class _LegalNotice extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Text(
-        '이 서명은 법적 효력이 없으며 단순 표시용입니다.',
+        appText(context, '이 서명은 법적 효력이 없으며 단순 표시용입니다.'),
         style: Theme.of(
           context,
         ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
@@ -438,16 +442,16 @@ class _DrawingViewState extends State<_DrawingView> {
             children: [
               TextButton(
                 onPressed: _strokes.isEmpty ? null : _undo,
-                child: const Text('되돌리기'),
+                child: Text(appText(context, '되돌리기')),
               ),
               TextButton(
                 onPressed: _strokes.isEmpty ? null : _clear,
-                child: const Text('전체 지우기'),
+                child: Text(appText(context, '전체 지우기')),
               ),
               const Spacer(),
               FilledButton(
                 onPressed: _strokes.isEmpty || _capturing ? null : _done,
-                child: const Text('완료'),
+                child: Text(appText(context, '완료')),
               ),
             ],
           ),

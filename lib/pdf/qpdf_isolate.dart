@@ -645,7 +645,7 @@ void _extractIsolateMain(_ExtractRequest req) {
   // M-1: 이 진입점 안의 어떤 예외(FormatException 등)도 isolate를 죽이지 않고 실패 결과로
   // 환원한다 -- 호출부의 `receivePort.first` 대기가 영원히 끝나지 않는 것을 막는다.
   try {
-    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final library = _openQpdf(req.libraryPath);
     final bindings = QpdfBindings(library);
     final result = _extractSync(
       bindings: bindings,
@@ -852,7 +852,7 @@ class _ReplaceRequest {
 void _replaceIsolateMain(_ReplaceRequest req) {
   // M-1: 아래 참고.
   try {
-    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final library = _openQpdf(req.libraryPath);
     final bindings = QpdfBindings(library);
     final result = _replaceSync(
       bindings: bindings,
@@ -907,11 +907,19 @@ Future<QpdfJobResult> runImageReplaceJob({
   }
 }
 
+/// [_defaultLibraryPath]가 돌려주는 "이 프로세스에 링크된 심볼" 센티널 (iOS 정적 링크).
+const _processLibrary = '<process>';
+
+ffi.DynamicLibrary _openQpdf(String path) =>
+    path == _processLibrary ? ffi.DynamicLibrary.process() : ffi.DynamicLibrary.open(path);
+
 /// Android에서는 `.so`가 `System.loadLibrary`가 찾는 표준 위치(APK jniLibs → 앱 네이티브 라이브러리
 /// 디렉터리)에 있으므로 이름만으로 연다. 다른 플랫폼(호스트 테스트)은 항상 [libraryPathOverride]를
 /// 명시적으로 넘겨야 한다 -- 이 함수는 그 경우 예외를 던진다(무음으로 잘못된 라이브러리를 찾지 않는다).
 String _defaultLibraryPath() {
   if (Platform.isAndroid) return 'libqpdf.so';
+  // iOS는 동적 로딩이 금지돼 qpdf를 앱 바이너리에 정적 링크한다(-force_load, `tool/build_qpdf_ios.sh`).
+  if (Platform.isIOS) return _processLibrary;
   if (Platform.isWindows) {
     // 번들 루트(exe 옆). 상대경로로 열면 프로세스 CWD에 좌우되므로 절대경로로만 연다
     // — "무음으로 잘못된 라이브러리를 찾지 않는다"는 이 함수의 기존 계약 그대로다.
@@ -1019,7 +1027,7 @@ Future<QpdfJobResult> _executeJob({
 void _jobIsolateMain(_JobRequest req) {
   // M-1: 아래 참고.
   try {
-    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final library = _openQpdf(req.libraryPath);
     final bindings = QpdfBindings(library);
     final result = _runJobSync(bindings: bindings, jobJson: req.jobSpecJson, progressPort: req.progressPort);
     req.sendPort.send(result);
@@ -1134,7 +1142,7 @@ void _inspectIsolateMain(_InspectRequest req) {
   // M-1: 이 진입점 안의 어떤 예외도 isolate를 죽이지 않고 실패 결과로 환원한다 -- 호출부의
   // `receivePort.first` 대기가 영원히 끝나지 않는 것을 막는다.
   try {
-    final library = ffi.DynamicLibrary.open(req.libraryPath);
+    final library = _openQpdf(req.libraryPath);
     final bindings = QpdfBindings(library);
     final result = _inspectSync(bindings: bindings, pdfPath: req.pdfPath, password: req.password);
     req.sendPort.send(result);

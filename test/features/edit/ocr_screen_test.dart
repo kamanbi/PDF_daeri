@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:pdf_daeri/app/app_locale.dart';
 import 'package:pdf_daeri/app/providers.dart';
 import 'package:pdf_daeri/billing/entitlement.dart';
 import 'package:pdf_daeri/core/app_error.dart';
@@ -174,6 +175,9 @@ void main() {
           ocrSourceProvider.overrideWithValue(() => _FakeOcrSource(ocrResults)),
         ],
         child: MaterialApp(
+          locale: const Locale('ko'),
+          supportedLocales: const [Locale('ko'), Locale('en')],
+          localizationsDelegates: appLocalizationDelegates,
           home: Builder(
             builder: (context) => Scaffold(
               body: Center(
@@ -200,6 +204,12 @@ void main() {
     // 여러 차례 짧게 나눠 펌프한다 — `addPostFrameCallback`으로 시작하는 첫
     // 비동기 체인이 한 프레임 안에서 다 처리되지 않는다.
     for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    // 이미지 크기 읽기·렌더가 isolate/실제 I/O를 거치므로 안내 대화상자(또는 화면 종료)가
+    // 나타날 때까지 실제 시간을 조금씩 흘린다(고정 대기는 환경에 따라 모자란다).
+    for (var i = 0; i < 50 && find.byType(AlertDialog).evaluate().isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
       await tester.pump(const Duration(milliseconds: 20));
     }
   }
@@ -238,6 +248,9 @@ void main() {
           ocrSourceProvider.overrideWithValue(() => ocrSource),
         ],
         child: MaterialApp(
+          locale: const Locale('ko'),
+          supportedLocales: const [Locale('ko'), Locale('en')],
+          localizationsDelegates: appLocalizationDelegates,
           home: Builder(
             builder: (context) => Scaffold(
               body: Center(
@@ -272,9 +285,10 @@ void main() {
     // `KoreanFont.bytes()`가 실제 asset I/O를 거치므로(annotate 테스트와 동일
     // 이유) 실제 딜레이로 나머지 체인(폰트 로딩 → 스탬프 빌드 → 저장)이 끝날
     // 때까지 기다린다.
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
+    for (var i = 0; i < 50 && repo.stampCallCount == 0; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(milliseconds: 20));
+    }
     for (var i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 20));
     }
@@ -325,6 +339,9 @@ void main() {
             }),
           ],
           child: MaterialApp(
+            locale: const Locale('ko'),
+            supportedLocales: const [Locale('ko'), Locale('en')],
+            localizationsDelegates: appLocalizationDelegates,
             home: Builder(
               builder: (context) => Scaffold(
                 body: Center(
@@ -421,6 +438,9 @@ void main() {
           ocrEntitlementProvider.overrideWithValue(const AsyncData(false)),
         ],
         child: MaterialApp(
+          locale: const Locale('ko'),
+          supportedLocales: const [Locale('ko'), Locale('en')],
+          localizationsDelegates: appLocalizationDelegates,
           home: OcrScreen(
             args: OcrArgs(
               pdfPath: '${tempRoot.path}/source.pdf',
@@ -452,6 +472,9 @@ void main() {
           ),
         ],
         child: MaterialApp(
+          locale: const Locale('ko'),
+          supportedLocales: const [Locale('ko'), Locale('en')],
+          localizationsDelegates: appLocalizationDelegates,
           home: OcrScreen(
             args: OcrArgs(
               pdfPath: '${tempRoot.path}/source.pdf',

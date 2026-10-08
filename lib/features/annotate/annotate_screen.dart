@@ -246,34 +246,11 @@ class _AnnotateScreenState extends ConsumerState<AnnotateScreen> {
     );
   }
 
-  Future<String?> _promptText() async {
-    final controller = TextEditingController();
-    try {
-      return await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(appText(context, '텍스트 추가')),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 3,
-            decoration: InputDecoration(hintText: appText(context, '내용을 입력하세요')),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(appText(context, '취소')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(controller.text),
-              child: Text(appText(context, '확인')),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      controller.dispose();
-    }
+  Future<String?> _promptText() {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => const _TextPromptDialog(),
+    );
   }
 
 
@@ -601,5 +578,46 @@ class _ToolButton extends StatelessWidget {
     return selected
         ? FilledButton(onPressed: onPressed, child: Text(label))
         : OutlinedButton(onPressed: onPressed, child: Text(label));
+  }
+}
+
+/// 컨트롤러를 대화상자 State가 소유한다 — 닫히는 애니메이션이 끝난 뒤에 해제된다.
+class _TextPromptDialog extends StatefulWidget {
+  const _TextPromptDialog();
+
+  @override
+  State<_TextPromptDialog> createState() => _TextPromptDialogState();
+}
+
+class _TextPromptDialogState extends State<_TextPromptDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(appText(context, '텍스트 추가')),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 3,
+        decoration: InputDecoration(hintText: appText(context, '내용을 입력하세요')),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(appText(context, '취소')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: Text(appText(context, '확인')),
+        ),
+      ],
+    );
   }
 }

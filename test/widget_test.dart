@@ -161,6 +161,7 @@ void main() {
         child: const MaterialApp(
           locale: Locale('ko'),
           supportedLocales: [Locale('ko'), Locale('en')],
+          localizationsDelegates: appLocalizationDelegates,
           home: ScanScreen(),
         ),
       ),
@@ -188,6 +189,7 @@ void main() {
         child: MaterialApp(
           locale: const Locale('ko'),
           supportedLocales: const [Locale('ko'), Locale('en')],
+          localizationsDelegates: appLocalizationDelegates,
           home: Consumer(
             builder: (context, ref, _) => Scaffold(
               body: Center(

@@ -134,3 +134,7 @@ replay_pid*.log
 /device-*.png
 .gradle-isolated/
 .gradle-mlkit/
+
+# iOS qpdf 정적 라이브러리(CI에서 tool/build_qpdf_ios.sh로 생성)
+/ios/qpdf/
+/.qpdf_build_tmp/

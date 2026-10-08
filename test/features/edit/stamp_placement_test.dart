@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_daeri/app/app_locale.dart';
 
 import 'package:pdf_daeri/features/edit/stamp_placement.dart';
 import 'package:pdf_daeri/pdf/stamp_builder.dart' show StampRect;
@@ -27,6 +28,9 @@ void main() {
   group('StampPlacement', () {
     Widget harness(StampRect rect, ValueChanged<StampRect> onChanged) {
       return MaterialApp(
+        locale: const Locale('ko'),
+        supportedLocales: const [Locale('ko'), Locale('en')],
+        localizationsDelegates: appLocalizationDelegates,
         home: Scaffold(
           body: SizedBox(
             width: 300,

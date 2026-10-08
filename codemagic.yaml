@@ -17,6 +17,8 @@ workflows:
         script: flutter analyze --no-fatal-infos
       - name: 단위 테스트
         script: flutter test
+      - name: qpdf iOS 정적 라이브러리 빌드
+        script: bash tool/build_qpdf_ios.sh
       - name: iOS 컴파일 (서명 없음)
         script: flutter build ios --release --no-codesign
     artifacts:

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:pdf_daeri/app/app_locale.dart';
 import 'package:pdf_daeri/app/providers.dart';
 import 'package:pdf_daeri/core/app_error.dart';
 import 'package:pdf_daeri/core/cancel_token.dart';
@@ -231,6 +232,9 @@ void main() {
           pdfRendererProvider.overrideWithValue(_FakeRenderer()),
         ],
         child: MaterialApp(
+          locale: const Locale('ko'),
+          supportedLocales: const [Locale('ko'), Locale('en')],
+          localizationsDelegates: appLocalizationDelegates,
           home: Builder(
             builder: (context) => Scaffold(
               body: Center(

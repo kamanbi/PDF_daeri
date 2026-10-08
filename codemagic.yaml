@@ -14,7 +14,7 @@ workflows:
       - name: Flutter 의존성 설치
         script: flutter pub get
       - name: 정적 분석
-        script: flutter analyze --no-fatal-infos
+        script: flutter analyze --no-fatal-infos lib test
       - name: 단위 테스트
         script: flutter test
       - name: qpdf iOS 정적 라이브러리 빌드

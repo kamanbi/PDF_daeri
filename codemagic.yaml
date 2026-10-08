@@ -17,6 +17,19 @@ workflows:
         script: bash tool/build_qpdf_ios.sh
       - name: iOS 컴파일 (서명 없음)
         script: flutter build ios --release --no-codesign
+      - name: 최종 바이너리 qpdf 심볼 검사
+        script: |
+          # DynamicLibrary.process()로 찾는 심볼이 strip되지 않고 앱 실행 파일에 남아 있어야 한다.
+          # (pipefail 환경에서 nm | grep -q는 조기 종료로 실패하므로 here-string으로 검사)
+          BIN="build/ios/iphoneos/Runner.app/Runner"
+          SYMS="$(nm -gU "$BIN" 2>/dev/null || true)"
+          MISSING=""
+          for s in qpdf_init qpdf_cleanup qpdf_init_write qpdf_get_num_pages qpdf_get_page_n \
+                   qpdf_oh_get_type_code qpdf_oh_get_stream_data qpdf_is_encrypted; do
+            grep -Eq " T _${s}\$" <<<"$SYMS" || MISSING="$MISSING $s"
+          done
+          if [ -n "$MISSING" ]; then echo "앱 바이너리에서 누락/제거된 qpdf 심볼:$MISSING"; exit 1; fi
+          echo "OK: 앱 바이너리에 qpdf C API 심볼 보존됨"
       - name: 정적 분석
         script: flutter analyze --no-fatal-infos lib test
         # CI의 최신 Flutter가 로컬에 없는 린트 경고를 추가로 낸다 — 기록만 하고 빌드는 막지 않는다.

@@ -19,6 +19,13 @@
 실제로 구현됐던 노출 지점인데 이 표에 누락돼 있었다(전체 앱 보안·규칙 감사에서 확인) — 표를
 실제 코드(`banner_host.dart`의 `BannerSlot`)에 맞춰 갱신한다. 새로 추가된 지점이 아니다.
 
+[2026-10-09 추가] **iOS에도 같은 노출 지점**(위 표)에 같은 정책으로 광고를 넣는다. iOS는 ATT(추적 동의)
+팝업을 쓰지 않으므로 광고는 비맞춤형으로 제공되고(IDFA 미사용), 앱 개인정보 매니페스트
+(`ios/Runner/PrivacyInfo.xcprivacy`)도 `NSPrivacyTracking = false`로 선언한다. 맞춤 광고를 쓰려면 ATT
+도입(새 패키지 필요)과 매니페스트·App Store 개인정보 답변 갱신이 함께 필요하다. 광고 단위 ID는
+`ADMOB_IOS_BANNER_UNIT_ID`/`ADMOB_IOS_INTERSTITIAL_UNIT_ID`, 앱 ID는 `ADMOB_IOS_APP_ID`로 Codemagic 변수 그룹에서
+주입한다(저장소에 두지 않음).
+
 - 저장 또는 공유 **완료 직후 전면광고 1회**, 하루 최대 3회
 - `ads_removed` 활성 구독 시 배너·전면 **모두 제거**
 - 상품: "광고 제거" 연간 자동 갱신 구독만 제공(월 상품 없음, 상품 ID `ads_removed`, 연 4,990원). Google Play / App Store에서 관리·취소 지원

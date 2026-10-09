@@ -49,6 +49,13 @@
 	</array>
 	<key>GADApplicationIdentifier</key>
 	<string>$(ADMOB_IOS_APP_ID)</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

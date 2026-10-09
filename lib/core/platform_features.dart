@@ -7,7 +7,7 @@ library;
 import 'dart:io';
 
 abstract final class AppFeatures {
-  static final bool ads = Platform.isAndroid; // google_mobile_ads
+  static final bool ads = Platform.isAndroid || Platform.isIOS; // google_mobile_ads
   static final bool billing = Platform.isAndroid; // in_app_purchase
   static final bool storeUpdate = Platform.isAndroid; // PlayUpdateService, in_app_review
   static final bool scan = Platform.isAndroid || Platform.isIOS; // Android: Google Play 서비스 / iOS: VisionKit

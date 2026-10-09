@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 이 앱은 사용자를 추적하지 않는다: ATT 팝업을 쓰지 않고(IDFA 미사용) 광고는 비맞춤형으로만 제공된다. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<!-- 광고 SDK(Google Mobile Ads)가 수집하는 데이터는 SDK 자체 매니페스트와 App Store Connect의 개인정보 답변으로 선언한다. -->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- 저장 전에 남은 저장공간을 확인한다(AppDelegate.swift getFreeSpaceBytes) — E174.1: 파일 쓰기 가능 여부 확인. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

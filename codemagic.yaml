@@ -80,15 +80,21 @@ workflows:
         # google_mobile_ads가 시작 때 Info.plist의 GADApplicationIdentifier를 검증하고 없으면 앱을 종료시킨다
         # (빌드 #4 TestFlight 시작 충돌의 원인). ID는 저장소에 두지 않고 변수 그룹에서 받는다.
         script: |
-          if [ -z "${ADMOB_IOS_APP_ID:-}" ]; then echo "ADMOB_IOS_APP_ID 미설정(Codemagic 변수 그룹 pdf_daeri_ios)"; exit 1; fi
+          for v in ADMOB_IOS_APP_ID ADMOB_IOS_BANNER_UNIT_ID ADMOB_IOS_INTERSTITIAL_UNIT_ID; do
+            if [ -z "${!v:-}" ]; then echo "$v 미설정(Codemagic 변수 그룹 pdf_daeri_ios)"; exit 1; fi
+          done
           for f in ios/Flutter/Release.xcconfig ios/Flutter/Debug.xcconfig; do
             printf '\nADMOB_IOS_APP_ID = %s\n' "$ADMOB_IOS_APP_ID" >> "$f"
           done
           echo "OK: AdMob iOS 앱 ID 주입됨"
       - name: IPA 빌드
         # 빌드 번호는 Codemagic 카운터($BUILD_NUMBER, TestFlight는 업로드마다 증가해야 한다).
-        # iOS는 광고·결제가 아직 꺼져 있어(AppFeatures) 광고 ID dart-define이 필요 없다 — 켤 때 추가한다.
-        script: flutter build ipa --release --build-number=$BUILD_NUMBER --export-options-plist=/Users/builder/export_options.plist
+        # iOS 광고 단위 ID는 변수 그룹에서 dart-define으로 주입한다(릴리스는 비어 있으면 광고 미표시·구성 오류 처리). 결제는 아직 꺼져 있다.
+        script: |
+          flutter build ipa --release --build-number=$BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --dart-define=ADMOB_IOS_BANNER_UNIT_ID="$ADMOB_IOS_BANNER_UNIT_ID" \
+            --dart-define=ADMOB_IOS_INTERSTITIAL_UNIT_ID="$ADMOB_IOS_INTERSTITIAL_UNIT_ID"
       - name: 최종 앱 AdMob ID 검사
         # Info.plist에 실제 AdMob 앱 ID가 들어갔는지(비어 있거나 `$(...)` 그대로이거나 Google 샘플 ID가 아닌지) 확인.
         script: |

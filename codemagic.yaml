@@ -76,10 +76,29 @@ workflows:
         script: keychain add-certificates
       - name: Xcode 프로젝트에 서명 프로파일 적용
         script: xcode-project use-profiles
+      - name: AdMob iOS 앱 ID 주입
+        # google_mobile_ads가 시작 때 Info.plist의 GADApplicationIdentifier를 검증하고 없으면 앱을 종료시킨다
+        # (빌드 #4 TestFlight 시작 충돌의 원인). ID는 저장소에 두지 않고 변수 그룹에서 받는다.
+        script: |
+          if [ -z "${ADMOB_IOS_APP_ID:-}" ]; then echo "ADMOB_IOS_APP_ID 미설정(Codemagic 변수 그룹 pdf_daeri_ios)"; exit 1; fi
+          for f in ios/Flutter/Release.xcconfig ios/Flutter/Debug.xcconfig; do
+            printf '\nADMOB_IOS_APP_ID = %s\n' "$ADMOB_IOS_APP_ID" >> "$f"
+          done
+          echo "OK: AdMob iOS 앱 ID 주입됨"
       - name: IPA 빌드
         # 빌드 번호는 Codemagic 카운터($BUILD_NUMBER, TestFlight는 업로드마다 증가해야 한다).
         # iOS는 광고·결제가 아직 꺼져 있어(AppFeatures) 광고 ID dart-define이 필요 없다 — 켤 때 추가한다.
         script: flutter build ipa --release --build-number=$BUILD_NUMBER --export-options-plist=/Users/builder/export_options.plist
+      - name: 최종 앱 AdMob ID 검사
+        # Info.plist에 실제 AdMob 앱 ID가 들어갔는지(비어 있거나 `$(...)` 그대로이거나 Google 샘플 ID가 아닌지) 확인.
+        script: |
+          APP="$(ls -d build/ios/archive/Runner.xcarchive/Products/Applications/*.app | head -1)"
+          VAL="$(/usr/libexec/PlistBuddy -c 'Print :GADApplicationIdentifier' "$APP/Info.plist" 2>/dev/null || true)"
+          case "$VAL" in
+            ca-app-pub-3940256099942544*) echo "Google 샘플 AdMob 앱 ID가 들어 있습니다(실제 ID 필요)"; exit 1 ;;
+            ca-app-pub-*~*) echo "OK: Info.plist에 AdMob 앱 ID 형식 확인" ;;
+            *) echo "GADApplicationIdentifier가 비었거나 형식이 올바르지 않습니다"; exit 1 ;;
+          esac
       - name: 최종 바이너리 qpdf 심볼 검사
         script: |
           APP="$(ls -d build/ios/archive/Runner.xcarchive/Products/Applications/*.app | head -1)"

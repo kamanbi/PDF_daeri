@@ -55,10 +55,13 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      # 앱 설정 → Environment variables 탭에서 그룹 `pdf_daeri_ios`를 만들고 그 안에
+      # CERTIFICATE_PRIVATE_KEY(비밀)를 등록한다. 값은 F:\keys\PDF_daeri\ios\ios_distribution_private_key
+      # 파일 내용이며 저장소에 두지 않는다.
+      groups:
+        - pdf_daeri_ios
       vars:
         BUNDLE_ID: com.kamanbi.pdfdaeri
-      # CERTIFICATE_PRIVATE_KEY: Codemagic 전역 변수(Global variables and secrets)에 비밀 값으로 등록한다.
-      # 값은 F:\keys\PDF_daeri\ios\ios_distribution_private_key 파일 내용(저장소에 두지 않는다).
     scripts:
       - name: Flutter 의존성 설치
         script: flutter pub get

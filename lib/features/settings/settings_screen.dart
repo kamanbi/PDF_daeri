@@ -9,7 +9,11 @@ library;
 import 'dart:async';
 
 import 'package:flutter/foundation.dart'
-    show LicenseEntryWithLineBreaks, LicenseRegistry;
+    show
+        LicenseEntryWithLineBreaks,
+        LicenseRegistry,
+        TargetPlatform,
+        defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -65,6 +69,14 @@ const String kGooglePlayReviewUrl =
 
 const String kSubscriptionManageUrl =
     'https://play.google.com/store/account/subscriptions?sku=ads_removed&package=com.kamanbi.pdf_daeri';
+const String kAppStoreSubscriptionManageUrl =
+    'https://apps.apple.com/account/subscriptions';
+
+/// Apple 표준 사용권 계약(EULA). 자동 갱신 구독 앱은 앱 안에서 이용 약관 링크를 보여 줘야 한다(가이드라인 3.1.2).
+const String kAppleStandardEulaUrl =
+    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+
+bool get _isIosStore => defaultTargetPlatform == TargetPlatform.iOS;
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -438,7 +450,14 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
         const _SettingsDivider(),
         _SettingsRow(
           title: appText(context, '구독 관리'),
-          subtitle: Text(appText(context, 'Google Play에서 갱신 또는 취소할 수 있습니다')),
+          subtitle: Text(
+            appText(
+              context,
+              _isIosStore
+                  ? 'App Store에서 갱신 또는 취소할 수 있습니다'
+                  : 'Google Play에서 갱신 또는 취소할 수 있습니다',
+            ),
+          ),
           trailing: OutlinedButton(
             onPressed: _openSubscriptionManagement,
             child: Text(appText(context, '관리')),
@@ -450,14 +469,34 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
 
   Future<void> _openSubscriptionManagement() async {
     final opened = await launchUrl(
-      Uri.parse(kSubscriptionManageUrl),
+      Uri.parse(
+        _isIosStore ? kAppStoreSubscriptionManageUrl : kSubscriptionManageUrl,
+      ),
       mode: LaunchMode.externalApplication,
     );
     if (!mounted || opened) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(appText(context, 'Google Play 구독 관리 페이지를 열 수 없습니다')),
+        content: Text(
+          appText(
+            context,
+            _isIosStore
+                ? 'App Store 구독 관리 페이지를 열 수 없습니다'
+                : 'Google Play 구독 관리 페이지를 열 수 없습니다',
+          ),
+        ),
       ),
+    );
+  }
+
+  Future<void> _openTerms() async {
+    final opened = await launchUrl(
+      Uri.parse(kAppleStandardEulaUrl),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(appText(context, '이용 약관을 열 수 없습니다'))),
     );
   }
 
@@ -479,7 +518,14 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
         const _SettingsDivider(),
         _SettingsRow(
           title: appText(context, '구독 상태 갱신'),
-          subtitle: Text(appText(context, 'Google Play의 활성 구독을 다시 확인합니다')),
+          subtitle: Text(
+            appText(
+              context,
+              _isIosStore
+                  ? 'App Store의 활성 구독을 다시 확인합니다'
+                  : 'Google Play의 활성 구독을 다시 확인합니다',
+            ),
+          ),
           trailing: OutlinedButton(
             onPressed: (restoreEnabled && !_restoring) ? _restore : null,
             child: _restoring
@@ -491,6 +537,22 @@ class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
                 : Text(appText(context, '갱신')),
           ),
         ),
+        if (_isIosStore) ...[
+          const _SettingsDivider(),
+          _SettingsRow(
+            title: appText(context, '구독 안내'),
+            subtitle: Text(
+              appText(
+                context,
+                '구독은 App Store 계정으로 결제되며, 현재 기간이 끝나기 최소 24시간 전에 해지하지 않으면 자동으로 갱신됩니다. 구매 후 설정에서 관리하거나 해지할 수 있습니다.',
+              ),
+            ),
+            trailing: OutlinedButton(
+              onPressed: _openTerms,
+              child: Text(appText(context, '이용 약관')),
+            ),
+          ),
+        ],
       ],
     );
   }

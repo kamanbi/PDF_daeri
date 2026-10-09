@@ -1,4 +1,13 @@
 import { createSign } from 'node:crypto';
+import {
+  AppleApiError,
+  appleProductId,
+  classifyAppleFailure,
+  fetchAppleSubscription,
+  isActiveAppleSubscription,
+  readAppleCredentials,
+  readTransactionId,
+} from '../lib/apple_subscription.mjs';
 import { readBoundedJson } from '../lib/read_bounded_json.mjs';
 
 const androidPublisherScope = 'https://www.googleapis.com/auth/androidpublisher';
@@ -53,6 +62,8 @@ export default async (request) => {
       headers: jsonHeaders,
     });
   }
+  if (parsedBody.value?.platform === 'ios') return verifyApple(parsedBody.value);
+
   const verificationRequest = readVerificationRequest(parsedBody.value);
   if (verificationRequest === null) {
     return Response.json({ status: 'unavailable' }, { status: 400, headers: jsonHeaders });
@@ -77,6 +88,34 @@ export default async (request) => {
     return Response.json({ status: 'unavailable' }, { status: 503, headers: jsonHeaders });
   }
 };
+
+/** iOS: 앱이 보낸 거래 ID로 Apple App Store Server API를 조회한다(`netlify/lib/apple_subscription.mjs`). */
+async function verifyApple(body) {
+  const transactionId = readTransactionId(body.transactionId);
+  if (body.productId !== appleProductId || transactionId === null) {
+    return Response.json({ status: 'unavailable' }, { status: 400, headers: jsonHeaders });
+  }
+  try {
+    const subscription = await fetchAppleSubscription({
+      transactionId,
+      credentials: readAppleCredentials(),
+    });
+    return Response.json(
+      { status: isActiveAppleSubscription(subscription) ? 'active' : 'inactive' },
+      { headers: jsonHeaders },
+    );
+  } catch (error) {
+    if (classifyAppleFailure(error) === 'inactive') {
+      return Response.json({ status: 'inactive' }, { headers: jsonHeaders });
+    }
+    console.error('Apple subscription verification unavailable', {
+      errorType: error instanceof Error ? error.name : 'unknown',
+      httpStatus: error instanceof AppleApiError ? error.status : undefined,
+      errorCode: error instanceof AppleApiError ? error.errorCode : undefined,
+    });
+    return Response.json({ status: 'unavailable' }, { status: 503, headers: jsonHeaders });
+  }
+}
 
 function readVerificationRequest(body) {
   if (body?.productId !== productId || typeof body.purchaseToken !== 'string') return null;

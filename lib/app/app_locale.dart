@@ -126,6 +126,15 @@ const _english = <String, String>{
   'Google Play에서 갱신 또는 취소할 수 있습니다': 'Renew or cancel in Google Play',
   '관리': 'Manage',
   'Google Play 구독 관리 페이지를 열 수 없습니다': 'Could not open Google Play subscriptions',
+  'App Store에서 갱신 또는 취소할 수 있습니다': 'Renew or cancel in the App Store',
+  'App Store 구독 관리 페이지를 열 수 없습니다': 'Could not open App Store subscriptions',
+  'App Store의 활성 구독을 다시 확인합니다':
+      'Check your active App Store subscription again',
+  '구독 안내': 'Subscription info',
+  '구독은 App Store 계정으로 결제되며, 현재 기간이 끝나기 최소 24시간 전에 해지하지 않으면 자동으로 갱신됩니다. 구매 후 설정에서 관리하거나 해지할 수 있습니다.':
+      'Payment is charged to your App Store account. The subscription renews automatically unless canceled at least 24 hours before the end of the current period. You can manage or cancel it in your account settings after purchase.',
+  '이용 약관': 'Terms of Use',
+  '이용 약관을 열 수 없습니다': 'Could not open the Terms of Use',
   '구독 상태 갱신': 'Refresh subscription status',
   'Google Play의 활성 구독을 다시 확인합니다':
       'Check your active Google Play subscription again',

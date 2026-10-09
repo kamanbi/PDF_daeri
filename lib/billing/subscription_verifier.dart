@@ -10,18 +10,25 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 const String kAdsRemovedProductId = 'ads_removed';
 
 class SubscriptionVerificationRequest {
+  /// Android: Google Play 구매 토큰.
   const SubscriptionVerificationRequest({
     required this.productId,
-    required this.purchaseToken,
-  });
+    required String this.purchaseToken,
+  }) : transactionId = null;
+
+  /// iOS: App Store 거래 ID. 서버가 이 ID로 Apple App Store Server API를 조회한다.
+  const SubscriptionVerificationRequest.ios({
+    required this.productId,
+    required String this.transactionId,
+  }) : purchaseToken = null;
 
   final String productId;
-  final String purchaseToken;
+  final String? purchaseToken;
+  final String? transactionId;
 
-  Map<String, String> toJson() => {
-    'productId': productId,
-    'purchaseToken': purchaseToken,
-  };
+  Map<String, String> toJson() => transactionId != null
+      ? {'platform': 'ios', 'productId': productId, 'transactionId': transactionId!}
+      : {'productId': productId, 'purchaseToken': purchaseToken!};
 }
 
 class SubscriptionVerificationResponse {
@@ -36,6 +43,11 @@ class SubscriptionVerificationResponse {
 
 abstract interface class SubscriptionVerifier {
   Future<SubscriptionVerificationResult> verify(PurchaseDetails purchase);
+
+  /// iOS: 저장해 둔 거래 ID로 현재 구독 상태를 다시 확인한다(갱신·만료 반영).
+  Future<SubscriptionVerificationResult> verifyIosTransaction(
+    String transactionId,
+  );
 }
 
 /// 서버 검증의 결과를 실제 만료와 통신·서버 장애로 분리한다.
@@ -74,8 +86,11 @@ typedef SubscriptionVerificationTransport =
 /// Netlify 환경 변수에만 둔다. 네트워크·응답 실패는 새 권한을 주지 않으며,
 /// 기존 권한을 해제하지도 않는다.
 class RemoteSubscriptionVerifier implements SubscriptionVerifier {
-  RemoteSubscriptionVerifier({SubscriptionVerificationTransport? transport})
-    : _transport = transport ?? _postToVerifier;
+  RemoteSubscriptionVerifier({
+    SubscriptionVerificationTransport? transport,
+    bool Function()? isIos,
+  }) : _transport = transport ?? _postToVerifier,
+       _isIos = isIos ?? (() => Platform.isIOS);
 
   static final Uri _endpoint = Uri.https(
     'pdf-daeri.netlify.app',
@@ -83,6 +98,7 @@ class RemoteSubscriptionVerifier implements SubscriptionVerifier {
   );
 
   final SubscriptionVerificationTransport _transport;
+  final bool Function() _isIos;
 
   @override
   Future<SubscriptionVerificationResult> verify(
@@ -91,18 +107,40 @@ class RemoteSubscriptionVerifier implements SubscriptionVerifier {
     if (purchase.productID != kAdsRemovedProductId) {
       return SubscriptionVerificationResult.inactive;
     }
+    if (_isIos()) {
+      final transactionId = purchase.purchaseID?.trim() ?? '';
+      if (transactionId.isEmpty) return SubscriptionVerificationResult.inactive;
+      return verifyIosTransaction(transactionId);
+    }
     final purchaseToken = purchase.verificationData.serverVerificationData
         .trim();
     if (purchaseToken.isEmpty) return SubscriptionVerificationResult.inactive;
 
+    return _send(
+      SubscriptionVerificationRequest(
+        productId: purchase.productID,
+        purchaseToken: purchaseToken,
+      ),
+    );
+  }
+
+  @override
+  Future<SubscriptionVerificationResult> verifyIosTransaction(
+    String transactionId,
+  ) {
+    return _send(
+      SubscriptionVerificationRequest.ios(
+        productId: kAdsRemovedProductId,
+        transactionId: transactionId,
+      ),
+    );
+  }
+
+  Future<SubscriptionVerificationResult> _send(
+    SubscriptionVerificationRequest request,
+  ) async {
     try {
-      final response = await _transport(
-        SubscriptionVerificationRequest(
-          productId: purchase.productID,
-          purchaseToken: purchaseToken,
-        ),
-      );
-      return classifyResponse(response);
+      return classifyResponse(await _transport(request));
     } catch (_) {
       return SubscriptionVerificationResult.unavailable;
     }

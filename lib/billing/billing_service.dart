@@ -4,9 +4,9 @@
 /// **이 파일 밖에서 `InAppPurchase.instance`를 부르지 않는다.** 구매 스트림·
 /// 상품 조회·구매·복원이 전부 여기 모인다.
 ///
-/// 검증 수준: `PurchaseDetails`의 Google Play 구매 토큰을 서버에 전달하고,
-/// 서버가 Google Play Developer API로 활성 구독을 확인한 경우에만 광고 제거
-/// 권한을 반영한다. 서버 검증 실패는 권한을 부여하지 않는다.
+/// 검증 수준: Android는 Google Play 구매 토큰, iOS는 App Store 거래 ID를 서버에
+/// 전달하고, 서버가 각 스토어 API로 활성 구독을 확인한 경우에만 광고 제거 권한을
+/// 반영한다. 서버 검증 실패는 권한을 부여하지 않는다.
 library;
 
 import 'dart:async';
@@ -18,6 +18,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 
 import 'entitlement.dart';
+import 'ios_transaction_store.dart';
 import 'subscription_verifier.dart';
 
 /// 광고 제거 자동 갱신 구독 상품. Google Play Console에서 연간 기본 요금제를
@@ -30,19 +31,13 @@ const String kYearlyBasePlanId = 'yearly';
 /// 출시 전 등록된 `year` 기본 요금제를 연간 요금제로 계속 인식한다.
 const String kLegacyYearlyBasePlanId = 'year';
 
-/// Play가 반환한 구독 기본 요금제 하나. 같은 상품 ID라도 기본 요금제마다 오퍼 토큰과
-/// 가격이 다르므로 구매 시 이 객체를 함께 전달한다.
+/// 스토어가 반환한 구독 상품 하나. Android는 같은 상품 ID라도 기본 요금제마다 오퍼 토큰과
+/// 가격이 다르므로(GooglePlayProductDetails) 구매 시 이 객체를 함께 전달한다. iOS는 상품 ID 하나가 곧
+/// 연간 구독이다.
 class SubscriptionPlan {
   const SubscriptionPlan({required this.product});
 
-  final GooglePlayProductDetails product;
-
-  String get basePlanId {
-    final subscriptionIndex = product.subscriptionIndex;
-    final offers = product.productDetails.subscriptionOfferDetails;
-    if (subscriptionIndex == null || offers == null) return '';
-    return offers[subscriptionIndex].basePlanId;
-  }
+  final ProductDetails product;
 
   String get billingPeriod => '년';
 }
@@ -80,14 +75,18 @@ class BillingService {
     required Entitlement entitlement,
     InAppPurchase? inAppPurchase,
     SubscriptionVerifier? subscriptionVerifier,
+    IosTransactionStore? iosTransactionStore,
   }) : _entitlement = entitlement,
        _iap = inAppPurchase ?? InAppPurchase.instance,
        _subscriptionVerifier =
-           subscriptionVerifier ?? RemoteSubscriptionVerifier();
+           subscriptionVerifier ?? RemoteSubscriptionVerifier(),
+       _iosTransactions =
+           iosTransactionStore ?? SharedPreferencesIosTransactionStore();
 
   final Entitlement _entitlement;
   final InAppPurchase _iap;
   final SubscriptionVerifier _subscriptionVerifier;
+  final IosTransactionStore _iosTransactions;
 
   StreamSubscription<List<PurchaseDetails>>? _subscription;
   SubscriptionPlan? _yearlyPlan;
@@ -193,6 +192,15 @@ class BillingService {
   }
 
   SubscriptionPlan? _findYearlySubscriptionPlan(List<ProductDetails> products) {
+    if (Platform.isIOS) {
+      // StoreKit 상품 ID 하나가 연간 구독이다(App Store Connect의 구독 기간이 1년).
+      for (final product in products) {
+        if (product.id == kAdsRemovedProductId) {
+          return SubscriptionPlan(product: product);
+        }
+      }
+      return null;
+    }
     for (final product in products.whereType<GooglePlayProductDetails>()) {
       if (product.id != kAdsRemovedProductId) continue;
 
@@ -222,19 +230,24 @@ class BillingService {
   Future<void> buy(SubscriptionPlan plan) async {
     final product = plan.product;
     if (!_available || plan != _yearlyPlan) return;
-    if (Platform.isAndroid && product.offerToken == null) {
-      developer.log(
-        '구독 오퍼 토큰이 없어 결제를 시작하지 않음',
-        name: 'billing_service',
-        level: 800,
-      );
-      return;
-    }
-    try {
-      final purchaseParam = GooglePlayPurchaseParam(
+    final PurchaseParam purchaseParam;
+    if (product is GooglePlayProductDetails) {
+      if (product.offerToken == null) {
+        developer.log(
+          '구독 오퍼 토큰이 없어 결제를 시작하지 않음',
+          name: 'billing_service',
+          level: 800,
+        );
+        return;
+      }
+      purchaseParam = GooglePlayPurchaseParam(
         productDetails: product,
         offerToken: product.offerToken,
       );
+    } else {
+      purchaseParam = PurchaseParam(productDetails: product);
+    }
+    try {
       await _iap.buyNonConsumable(purchaseParam: purchaseParam);
     } catch (e, st) {
       developer.log(
@@ -252,6 +265,9 @@ class BillingService {
   Future<void> restorePurchases() async {
     if (!_available) return;
     await _syncSubscriptionEntitlement();
+    // iOS의 복원은 Apple ID 로그인 창을 띄울 수 있어 자동 호출하지 않는다 — 실행·복귀 때는 저장해 둔
+    // 거래 ID로 서버 확인만 하고(위), 사용자가 [구독 상태 갱신]을 눌렀을 때만 StoreKit 복원을 한다.
+    if (Platform.isIOS) return;
     await _iap.restorePurchases();
   }
 
@@ -260,11 +276,14 @@ class BillingService {
   Future<RestoreOutcome> restoreManually() async {
     if (!_available) return RestoreOutcome.nothingToRestore;
 
-    final activeSubscription = await _syncSubscriptionEntitlement();
-    if (activeSubscription != null) {
-      return activeSubscription
-          ? RestoreOutcome.restored
-          : RestoreOutcome.nothingToRestore;
+    // iOS는 저장된 거래만으로 "구독 없음"을 단정하지 않고 StoreKit 복원 이벤트를 관찰한다.
+    if (!Platform.isIOS) {
+      final activeSubscription = await _syncSubscriptionEntitlement();
+      if (activeSubscription != null) {
+        return activeSubscription
+            ? RestoreOutcome.restored
+            : RestoreOutcome.nothingToRestore;
+      }
     }
 
     final completer = Completer<void>();
@@ -297,6 +316,7 @@ class BillingService {
   /// 성공 시 활성 여부를 반환하고, Play 조회 실패 시 null을 반환한다. 실패 때
   /// 캐시를 덮어쓰지 않아 일시적인 스토어 연결 문제로 광고 제거가 사라지지 않는다.
   Future<bool?> _syncSubscriptionEntitlement() async {
+    if (Platform.isIOS) return _syncIosEntitlement();
     if (!Platform.isAndroid) return null;
     try {
       final androidAddition = _iap
@@ -346,6 +366,27 @@ class BillingService {
     }
   }
 
+  /// iOS: 서버가 이전에 활성으로 확인한 거래 ID를 다시 확인해 갱신·만료를 반영한다. 저장된 거래가
+  /// 없거나 서버를 쓸 수 없으면 캐시를 건드리지 않는다.
+  Future<bool?> _syncIosEntitlement() async {
+    final transactionId = await _iosTransactions.read();
+    if (transactionId == null) return null;
+    final result = await _subscriptionVerifier.verifyIosTransaction(
+      transactionId,
+    );
+    if (result == SubscriptionVerificationResult.unavailable) {
+      developer.log(
+        '구독 서버 검증 불가: 기존 광고 제거 상태를 보존합니다',
+        name: 'billing_service',
+        level: 900,
+      );
+      return null;
+    }
+    final active = result == SubscriptionVerificationResult.active;
+    await _entitlement.syncSubscriptionState(active);
+    return active;
+  }
+
   Future<void> _onPurchaseUpdate(List<PurchaseDetails> purchases) async {
     for (final purchase in purchases) {
       if (purchase.productID == kAdsRemovedProductId) {
@@ -356,6 +397,12 @@ class BillingService {
           case PurchaseStatus.restored:
             if (await _subscriptionVerifier.verify(purchase) ==
                 SubscriptionVerificationResult.active) {
+              final transactionId = purchase.purchaseID;
+              if (Platform.isIOS &&
+                  transactionId != null &&
+                  transactionId.isNotEmpty) {
+                await _iosTransactions.write(transactionId);
+              }
               await _entitlement.syncSubscriptionState(true);
               _emit(PurchaseUiState.purchased);
               _restoreProbe?.call();

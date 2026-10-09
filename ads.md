@@ -28,7 +28,7 @@
 
 - 저장 또는 공유 **완료 직후 전면광고 1회**, 하루 최대 3회
 - `ads_removed` 활성 구독 시 배너·전면 **모두 제거**
-- 상품: "광고 제거" 연간 자동 갱신 구독만 제공(월 상품 없음, 상품 ID `ads_removed`, 연 4,990원). Google Play / App Store에서 관리·취소 지원
+- 상품: "광고 제거" 연간 자동 갱신 구독만 제공(월 상품 없음, 상품 ID `ads_removed`, 연 4,990원). Google Play / App Store에서 관리·취소 지원. iOS는 StoreKit 구매 후 서버(`verify-subscription`의 Apple 분기)가 App Store Server API로 활성 여부를 확인하고, 앱은 확인된 거래 ID를 저장해 실행·복귀 때 같은 방식으로 갱신·만료를 반영한다
 - **기능 잠금 없음.** 무료 사용자와 결제 사용자의 기능은 동일
 
 ---

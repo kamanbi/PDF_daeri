@@ -47,6 +47,10 @@
 			</array>
 		</dict>
 	</array>
+	<!-- 수출 규정: App Store Connect 질문에 "표준 암호화 알고리즘(OS 암호화와 병행), 프랑스 배포 아님"으로 답한 것과 같은 선언(면제 대상).
+	     빌드마다 같은 질문이 반복되지 않게 한다. 프랑스 등 배포 국가를 넓히면 이 값을 다시 검토한다. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>GADApplicationIdentifier</key>
 	<string>$(ADMOB_IOS_APP_ID)</string>
 	<key>SKAdNetworkItems</key>

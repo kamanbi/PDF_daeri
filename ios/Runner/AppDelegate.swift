@@ -126,10 +126,10 @@ enum PlatformChannels {
       result(true)
 
     case "clearNativeCache":
-      result(clearInbox())
+      result(clearNativeCache())
 
     case "nativeCacheBytes":
-      result(directoryBytes(inboxDirectory()))
+      result(nativeCacheBytes())
 
     default:
       result(FlutterMethodNotImplemented)
@@ -214,10 +214,23 @@ enum PlatformChannels {
     return total
   }
 
-  private static func clearInbox() -> Int64 {
-    let dir = inboxDirectory()
-    let freed = directoryBytes(dir)
-    try? FileManager.default.removeItem(at: dir)
+  /// 스캐너가 임시 폴더에 남기는 JPEG(`mlkit_scan_*`) — Android `cacheDir`의 같은 이름 파일과 같은 역할.
+  private static func scanTempFiles() -> [URL] {
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+    let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    return files.filter { $0.lastPathComponent.hasPrefix("mlkit_scan_") }
+  }
+
+  private static func nativeCacheBytes() -> Int64 {
+    scanTempFiles().reduce(directoryBytes(inboxDirectory())) { total, url in
+      total + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+    }
+  }
+
+  private static func clearNativeCache() -> Int64 {
+    let freed = nativeCacheBytes()
+    try? FileManager.default.removeItem(at: inboxDirectory())
+    for url in scanTempFiles() { try? FileManager.default.removeItem(at: url) }
     return freed
   }
 

@@ -55,15 +55,23 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.kamanbi.pdfdaeri
+      vars:
+        BUNDLE_ID: com.kamanbi.pdfdaeri
+      # CERTIFICATE_PRIVATE_KEY: Codemagic 전역 변수(Global variables and secrets)에 비밀 값으로 등록한다.
+      # 값은 F:\keys\PDF_daeri\ios\ios_distribution_private_key 파일 내용(저장소에 두지 않는다).
     scripts:
       - name: Flutter 의존성 설치
         script: flutter pub get
       - name: qpdf iOS 정적 라이브러리 빌드
         script: bash tool/build_qpdf_ios.sh
-      - name: 서명 프로파일 적용
+      - name: 키체인 초기화
+        script: keychain initialize
+      - name: App Store Connect에서 서명 파일 가져오기(없으면 생성)
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create --certificate-key "$CERTIFICATE_PRIVATE_KEY"
+      - name: 인증서를 키체인에 추가
+        script: keychain add-certificates
+      - name: Xcode 프로젝트에 서명 프로파일 적용
         script: xcode-project use-profiles
       - name: IPA 빌드
         # 빌드 번호는 Codemagic 카운터($BUILD_NUMBER, TestFlight는 업로드마다 증가해야 한다).

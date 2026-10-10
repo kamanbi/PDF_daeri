@@ -1,4 +1,4 @@
-# Apple 앱 내 구입 키를 Netlify 환경 변수로 등록한다(서버 verify-subscription의 iOS 검증용).
+﻿# Apple 앱 내 구입 키를 Netlify 환경 변수로 등록한다(서버 verify-subscription의 iOS 검증용).
 # 비밀 값은 이 파일에 없다. F:\keys\PDF_daeri 에서 읽어 Netlify에 올릴 뿐이며 화면에 출력하지 않는다.
 # 실행: 저장소 루트(F:\PDF_daeri)에서  powershell -ExecutionPolicy Bypass -File tool\set_netlify_apple_iap_env.ps1
 $ErrorActionPreference = 'Stop'

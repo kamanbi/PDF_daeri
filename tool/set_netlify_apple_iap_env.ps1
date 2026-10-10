@@ -20,7 +20,8 @@ if (-not (Test-Path $netlify)) { throw "Netlify CLI를 찾지 못했습니다: $
 if (-not (Test-Path '.netlify\state.json')) { throw '.netlify\state.json 이 없습니다. 저장소 루트(F:\PDF_daeri)에서 실행하세요.' }
 
 function Set-Var($name, $value) {
-  & $netlify env:set $name $value --secret --force | Out-Null
+  # 비밀(--secret) 값은 개발 컨텍스트에 둘 수 없어 production 에 등록한다(서버 함수는 production 에서 읽는다).
+  & $netlify env:set $name $value --secret --force --context production | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "$name 등록 실패(netlify login 이 필요할 수 있습니다)." }
   Write-Host "등록됨: $name"
 }

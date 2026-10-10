@@ -103,6 +103,9 @@ export function isActiveAppleSubscription(response, nowMs = Date.now()) {
  */
 export async function fetchAppleSubscription({ transactionId, credentials, fetchImpl = fetch }) {
   const token = createAppleJwt(credentials);
+  // 운영 서버가 우리 인증을 받아들였는지(200 또는 404). 받아들이지 않았다면(401) "거래 없음"을 단정할 수 없다 —
+  // 운영 거래가 샌드박스에서 404로 보이는 것일 수 있어, 그대로 "만료"로 처리하면 실제 구독자의 광고 제거가 풀린다.
+  let productionAuthenticated = false;
   for (const host of [productionHost, sandboxHost]) {
     const response = await fetchImpl(
       `${host}/inApps/v1/subscriptions/${encodeURIComponent(transactionId)}`,
@@ -115,9 +118,15 @@ export async function fetchAppleSubscription({ transactionId, credentials, fetch
     } catch {
       // 본문을 읽을 수 없는 실패는 장애로 취급한다(만료로 보지 않는다).
     }
-    // 운영에서 거래를 못 찾거나(404) 인증을 거부하면(401: 아직 출시 전인 앱은 운영 서버가 키를 받지 않는다)
-    // 샌드박스를 시도한다. 샌드박스 결과가 오류면 그 오류를 올린다.
-    if ((response.status === 404 || response.status === 401) && host === productionHost) continue;
+    if (host === productionHost) {
+      productionAuthenticated = response.status === 404;
+      // 운영에서 거래를 못 찾거나(404) 인증을 거부하면(401: 출시 전 앱은 운영 서버가 키를 받지 않을 수 있다)
+      // 샌드박스를 시도한다(TestFlight·App Review 구매는 샌드박스 거래다).
+      if (response.status === 404 || response.status === 401) continue;
+    } else if (response.status === 404 && !productionAuthenticated) {
+      // 샌드박스에도 없는데 운영 인증도 확인되지 않았다 → "없음"이 아니라 판단 불가.
+      throw new AppleApiError(401, errorCode);
+    }
     throw new AppleApiError(response.status, errorCode);
   }
   throw new AppleApiError(404);

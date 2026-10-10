@@ -184,3 +184,25 @@ test('운영 401 + 샌드박스 401이면 인증 오류로 판단 불가다', as
     (error) => error instanceof AppleApiError && error.status === 401,
   );
 });
+
+test('운영 인증이 거부(401)된 상태에서 샌드박스도 404면 "없음"이 아니라 판단 불가다(구독자 보호)', async () => {
+  const fetchImpl = fakeFetch({
+    'api.storekit.itunes.apple.com': { status: 401, body: {} },
+    'api.storekit-sandbox.itunes.apple.com': { status: 404, body: { errorCode: 4040010 } },
+  });
+  await assert.rejects(
+    fetchAppleSubscription({ transactionId: '1', credentials: credentials(), fetchImpl }),
+    (error) => error instanceof AppleApiError && error.status === 401 && classifyAppleFailure(error) === 'unavailable',
+  );
+});
+
+test('운영 인증이 통과(404)한 뒤 샌드박스도 404면 정상적으로 "없음"(inactive)이다', async () => {
+  const fetchImpl = fakeFetch({
+    'api.storekit.itunes.apple.com': { status: 404, body: { errorCode: 4040010 } },
+    'api.storekit-sandbox.itunes.apple.com': { status: 404, body: { errorCode: 4040010 } },
+  });
+  await assert.rejects(
+    fetchAppleSubscription({ transactionId: '1', credentials: credentials(), fetchImpl }),
+    (error) => error instanceof AppleApiError && error.status === 404 && classifyAppleFailure(error) === 'inactive',
+  );
+});

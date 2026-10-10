@@ -56,8 +56,17 @@ export function readAppleCredentials(env = process.env) {
   if (!keyId || !issuerId || !rawKey) {
     throw new Error('APPLE_IAP_KEY_ID / APPLE_IAP_ISSUER_ID / APPLE_IAP_PRIVATE_KEY are not configured');
   }
-  // 환경 변수에 줄바꿈이 `\n` 두 글자로 들어오는 경우를 허용한다.
-  return { keyId, issuerId, privateKey: rawKey.replace(/\\n/g, '\n') };
+  return { keyId, issuerId, privateKey: normalizePrivateKey(rawKey) };
+}
+
+/**
+ * 개인 키는 base64 한 줄(권장 — `-----`로 시작하는 값은 CLI가 옵션으로 오해해 값을 오류에 그대로 찍는다)이거나
+ * PEM 원문(줄바꿈이 `\n` 두 글자로 들어온 경우 포함)일 수 있다.
+ */
+export function normalizePrivateKey(rawKey) {
+  const key = rawKey.trim();
+  if (key.startsWith('-----')) return key.replace(/\\n/g, '\n');
+  return Buffer.from(key, 'base64').toString('utf8');
 }
 
 export function decodeJwsPayload(jws) {

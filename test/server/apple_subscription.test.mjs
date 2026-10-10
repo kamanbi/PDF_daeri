@@ -9,6 +9,7 @@ import {
   decodeJwsPayload,
   fetchAppleSubscription,
   isActiveAppleSubscription,
+  normalizePrivateKey,
   readTransactionId,
 } from '../../netlify/lib/apple_subscription.mjs';
 
@@ -152,4 +153,13 @@ test('404·400만 비활성, 인증·한도·서버 오류와 네트워크 실�
   assert.equal(classifyAppleFailure(new AppleApiError(429)), 'unavailable');
   assert.equal(classifyAppleFailure(new AppleApiError(500)), 'unavailable');
   assert.equal(classifyAppleFailure(new Error('network')), 'unavailable');
+});
+
+test('개인 키는 base64 한 줄·PEM·\n 이스케이프 PEM 모두 같은 PEM으로 정규화한다', () => {
+  const pem = '-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----';
+  const asBase64 = Buffer.from(pem).toString('base64');
+  assert.equal(normalizePrivateKey(asBase64), pem);
+  assert.equal(normalizePrivateKey(pem), pem);
+  assert.equal(normalizePrivateKey(pem.replace(/\n/g, '\n')), pem);
+  assert.equal(asBase64.startsWith('-'), false);
 });

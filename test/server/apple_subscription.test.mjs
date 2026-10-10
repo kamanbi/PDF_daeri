@@ -128,7 +128,7 @@ test('운영에서 404면 샌드박스를 조회한다(TestFlight·심사 구매
   assert.equal(fetchImpl.calls.length, 2);
 });
 
-test('두 환경 모두 404면 404 오류, 401·5xx는 그대로 오류로 올린다', async () => {
+test('두 환경 모두 404면 404 오류, 5xx는 샌드박스 없이 바로 오류로 올린다', async () => {
   const both404 = fakeFetch({
     'api.storekit.itunes.apple.com': { status: 404, body: {} },
     'api.storekit-sandbox.itunes.apple.com': { status: 404, body: {} },
@@ -137,12 +137,12 @@ test('두 환경 모두 404면 404 오류, 401·5xx는 그대로 오류로 올�
     fetchAppleSubscription({ transactionId: '1', credentials: credentials(), fetchImpl: both404 }),
     (error) => error instanceof AppleApiError && error.status === 404,
   );
-  const unauthorized = fakeFetch({ 'api.storekit.itunes.apple.com': { status: 401, body: {} } });
+  const serverError = fakeFetch({ 'api.storekit.itunes.apple.com': { status: 500, body: {} } });
   await assert.rejects(
-    fetchAppleSubscription({ transactionId: '1', credentials: credentials(), fetchImpl: unauthorized }),
-    (error) => error instanceof AppleApiError && error.status === 401,
+    fetchAppleSubscription({ transactionId: '1', credentials: credentials(), fetchImpl: serverError }),
+    (error) => error instanceof AppleApiError && error.status === 500,
   );
-  assert.equal(unauthorized.calls.length, 1);
+  assert.equal(serverError.calls.length, 1);
 });
 
 test('404·400만 비활성, 인증·한도·서버 오류와 네트워크 실패는 판단 불가다', () => {
@@ -162,4 +162,25 @@ test('개인 키는 base64 한 줄·PEM·\n 이스케이프 PEM 모두 같은 PE
   assert.equal(normalizePrivateKey(pem), pem);
   assert.equal(normalizePrivateKey(pem.replace(/\n/g, '\n')), pem);
   assert.equal(asBase64.startsWith('-'), false);
+});
+
+test('운영이 인증을 거부(401)하면 샌드박스를 조회한다(출시 전 앱)', async () => {
+  const fetchImpl = fakeFetch({
+    'api.storekit.itunes.apple.com': { status: 401, body: {} },
+    'api.storekit-sandbox.itunes.apple.com': { status: 200, body: { data: ['sandbox'] } },
+  });
+  const result = await fetchAppleSubscription({ transactionId: '1', credentials: credentials(), fetchImpl });
+  assert.deepEqual(result, { data: ['sandbox'] });
+  assert.equal(fetchImpl.calls.length, 2);
+});
+
+test('운영 401 + 샌드박스 401이면 인증 오류로 판단 불가다', async () => {
+  const fetchImpl = fakeFetch({
+    'api.storekit.itunes.apple.com': { status: 401, body: {} },
+    'api.storekit-sandbox.itunes.apple.com': { status: 401, body: {} },
+  });
+  await assert.rejects(
+    fetchAppleSubscription({ transactionId: '1', credentials: credentials(), fetchImpl }),
+    (error) => error instanceof AppleApiError && error.status === 401,
+  );
 });

@@ -115,7 +115,9 @@ export async function fetchAppleSubscription({ transactionId, credentials, fetch
     } catch {
       // 본문을 읽을 수 없는 실패는 장애로 취급한다(만료로 보지 않는다).
     }
-    if (response.status === 404 && host === productionHost) continue;
+    // 운영에서 거래를 못 찾거나(404) 인증을 거부하면(401: 아직 출시 전인 앱은 운영 서버가 키를 받지 않는다)
+    // 샌드박스를 시도한다. 샌드박스 결과가 오류면 그 오류를 올린다.
+    if ((response.status === 404 || response.status === 401) && host === productionHost) continue;
     throw new AppleApiError(response.status, errorCode);
   }
   throw new AppleApiError(404);

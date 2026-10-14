@@ -172,6 +172,8 @@ const _english = <String, String>{
   '칭찬하기': 'Rate the app',
   'Google Play에서 별점과 리뷰를 남겨 주세요': 'Leave a rating and review on Google Play',
   'Google Play 리뷰 페이지를 열 수 없습니다': 'Could not open the Google Play review page',
+  'App Store에서 별점과 리뷰를 남겨 주세요': 'Leave a rating and review on the App Store',
+  'App Store 리뷰 페이지를 열 수 없습니다': 'Could not open the App Store review page',
   '설정': 'Settings',
   '언어': 'Language',
   '자동': 'Automatic',

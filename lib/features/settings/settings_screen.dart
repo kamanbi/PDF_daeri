@@ -67,6 +67,9 @@ const String kHomepageUrl = 'https://pdf-daeri.netlify.app/';
 const String kGooglePlayReviewUrl =
     'https://play.google.com/store/apps/details?id=com.kamanbi.pdf_daeri&showAllReviews=true';
 
+const String kAppStoreReviewUrl =
+    'https://apps.apple.com/app/id6820924309?action=write-review';
+
 const String kSubscriptionManageUrl =
     'https://play.google.com/store/account/subscriptions?sku=ads_removed&package=com.kamanbi.pdf_daeri';
 const String kAppStoreSubscriptionManageUrl =
@@ -953,9 +956,19 @@ class _AppReviewTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return _ExternalLinkTile(
       title: appText(context, '칭찬하기'),
-      subtitle: appText(context, 'Google Play에서 별점과 리뷰를 남겨 주세요'),
-      url: kGooglePlayReviewUrl,
-      failureMessage: appText(context, 'Google Play 리뷰 페이지를 열 수 없습니다'),
+      subtitle: appText(
+        context,
+        _isIosStore
+            ? 'App Store에서 별점과 리뷰를 남겨 주세요'
+            : 'Google Play에서 별점과 리뷰를 남겨 주세요',
+      ),
+      url: _isIosStore ? kAppStoreReviewUrl : kGooglePlayReviewUrl,
+      failureMessage: appText(
+        context,
+        _isIosStore
+            ? 'App Store 리뷰 페이지를 열 수 없습니다'
+            : 'Google Play 리뷰 페이지를 열 수 없습니다',
+      ),
     );
   }
 }

@@ -59,6 +59,7 @@ import java.io.FileNotFoundException
 class MainActivity : FlutterFragmentActivity() {
     companion object {
         private const val DOCUMENT_SCANNER_LOG_TAG = "PdfDaeriScanner"
+        private const val MAX_SCAN_PAGES = 30
         private const val IMMEDIATE_UPDATE_REQUEST_CODE = 4102
         private const val DOCUMENT_SCANNER_REQUEST_CODE = 4103
         private const val MAX_IMPORTED_PDF_BYTES = 100L * 1024L * 1024L
@@ -208,7 +209,7 @@ class MainActivity : FlutterFragmentActivity() {
             documentScannerChannel,
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "start" -> startDocumentScanner(result)
+                "start" -> startDocumentScanner(call.argument<Int>("pageLimit"), result)
                 else -> result.notImplemented()
             }
         }
@@ -261,7 +262,7 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
-    private fun startDocumentScanner(result: MethodChannel.Result) {
+    private fun startDocumentScanner(requestedPageLimit: Int?, result: MethodChannel.Result) {
         if (pendingDocumentScanResult != null) {
             Log.w(DOCUMENT_SCANNER_LOG_TAG, "Rejected a second scanner request while one is pending")
             result.error("IN_PROGRESS", "문서 스캔이 이미 진행 중입니다.", null)
@@ -270,7 +271,7 @@ class MainActivity : FlutterFragmentActivity() {
 
         val options = GmsDocumentScannerOptions.Builder()
             .setGalleryImportAllowed(false)
-            .setPageLimit(1)
+            .setPageLimit((requestedPageLimit ?: 1).coerceIn(1, MAX_SCAN_PAGES))
             .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
             .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
             .build()
@@ -311,32 +312,37 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
 
-        val scannedPage = GmsDocumentScanningResult
+        val scannedPages = GmsDocumentScanningResult
             .fromActivityResultIntent(intent)
             ?.pages
-            ?.firstOrNull()
-        if (scannedPage == null) {
+            ?.map { it.imageUri }
+            .orEmpty()
+        if (scannedPages.isEmpty()) {
             Log.w(DOCUMENT_SCANNER_LOG_TAG, "Scanner completed without a JPEG page")
             result.success(null)
             return
         }
-        Log.i(DOCUMENT_SCANNER_LOG_TAG, "Copying scanned JPEG to app cache")
-        copyScannedJpegToCache(scannedPage.imageUri, result)
+        Log.i(DOCUMENT_SCANNER_LOG_TAG, "Copying ${scannedPages.size} scanned JPEG page(s) to app cache")
+        copyScannedJpegsToCache(scannedPages, result)
     }
 
-    private fun copyScannedJpegToCache(uri: Uri, result: MethodChannel.Result) {
-        var destination: File? = null
+    private fun copyScannedJpegsToCache(uris: List<Uri>, result: MethodChannel.Result) {
+        val copied = mutableListOf<File>()
         try {
-            destination = File(cacheDir, "mlkit_scan_${System.currentTimeMillis()}.jpg")
-            contentResolver.openInputStream(uri)?.use { input ->
-                destination.outputStream().use { output -> input.copyTo(output) }
-            } ?: throw FileNotFoundException("스캔 결과 스트림을 열 수 없습니다.")
-            if (destination.length() == 0L) {
-                throw IllegalStateException("스캔 결과가 비어 있습니다.")
+            val stamp = System.currentTimeMillis()
+            uris.forEachIndexed { index, uri ->
+                val destination = File(cacheDir, "mlkit_scan_${stamp}_${index}.jpg")
+                copied.add(destination)
+                contentResolver.openInputStream(uri)?.use { input ->
+                    destination.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw FileNotFoundException("스캔 결과 스트림을 열 수 없습니다.")
+                if (destination.length() == 0L) {
+                    throw IllegalStateException("스캔 결과가 비어 있습니다.")
+                }
             }
-            result.success(destination.absolutePath)
+            result.success(copied.map { it.absolutePath })
         } catch (error: Exception) {
-            destination?.delete()
+            copied.forEach { it.delete() }
             Log.e(DOCUMENT_SCANNER_LOG_TAG, "Could not copy scanned JPEG", error)
             result.error("COPY_FAILED", error.message, null)
         }

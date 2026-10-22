@@ -40,6 +40,39 @@ void main() {
       expect(launcher.openCount, 1);
     });
 
+    testWidgets('여러 장을 스캔하면 스캔한 순서대로 모두 반환하고 페이지 제한을 전달한다', (tester) async {
+      final launcher = _FakeDocumentScanLauncher(
+        null,
+        paths: ['/cache/1.jpg', '/cache/2.jpg', '/cache/3.jpg'],
+      );
+      final source = GoogleDocumentScanSource(
+        launcher: launcher,
+        isSupported: () => true,
+      );
+      final context = await _buildContext(tester);
+
+      final result = await source.scan(context, pageLimit: 30);
+
+      expect((result as PdfOk<List<String>>).value, [
+        '/cache/1.jpg',
+        '/cache/2.jpg',
+        '/cache/3.jpg',
+      ]);
+      expect(launcher.lastPageLimit, 30);
+    });
+
+    testWidgets('스캔 결과가 비어 있으면 취소로 처리한다', (tester) async {
+      final source = GoogleDocumentScanSource(
+        launcher: _FakeDocumentScanLauncher(null, paths: const []),
+        isSupported: () => true,
+      );
+      final context = await _buildContext(tester);
+
+      final result = await source.scan(context);
+
+      expect((result as PdfErr<List<String>>).failure, isA<Cancelled>());
+    });
+
     testWidgets('ML Kit 준비 실패를 지원 불가로 바꾼다', (tester) async {
       final source = GoogleDocumentScanSource(
         launcher: _ThrowingDocumentScanLauncher(
@@ -82,15 +115,18 @@ Future<BuildContext> _buildContext(WidgetTester tester) async {
 }
 
 class _FakeDocumentScanLauncher implements DocumentScanLauncher {
-  _FakeDocumentScanLauncher(this.path);
+  _FakeDocumentScanLauncher(String? path, {List<String>? paths})
+    : paths = paths ?? (path == null ? null : [path]);
 
-  final String? path;
+  final List<String>? paths;
   int openCount = 0;
+  int? lastPageLimit;
 
   @override
-  Future<String?> open() async {
+  Future<List<String>?> open({required int pageLimit}) async {
     openCount += 1;
-    return path;
+    lastPageLimit = pageLimit;
+    return paths;
   }
 }
 
@@ -100,5 +136,5 @@ class _ThrowingDocumentScanLauncher implements DocumentScanLauncher {
   final Object error;
 
   @override
-  Future<String?> open() => Future.error(error);
+  Future<List<String>?> open({required int pageLimit}) => Future.error(error);
 }

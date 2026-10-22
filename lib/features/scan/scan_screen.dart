@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
 import '../../core/app_error.dart';
+import '../../data/repository/document_repository.dart';
+import 'photo_edit_screen.dart';
 import 'photo_to_pdf_screen.dart';
 import 'single_scan_save_screen.dart';
 
@@ -21,6 +23,10 @@ class ScanScreen extends ConsumerStatefulWidget {
 enum _ScanState { checking, scanning, unsupported, failed }
 
 class _ScanScreenState extends ConsumerState<ScanScreen> {
+  /// 한 번의 스캔에서 이어서 찍을 수 있는 최대 장수. 한 장이면 기존 빠른 저장 화면,
+  /// 여러 장이면 순서·회전·삭제를 거쳐 한 PDF로 만든다.
+  static const _pageLimit = 30;
+
   _ScanState _state = _ScanState.checking;
   String? _errorMessage;
 
@@ -72,12 +78,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     }
 
     setState(() => _state = _ScanState.scanning);
-    final result = await scanSource.scan(context);
+    final result = await scanSource.scan(context, pageLimit: _pageLimit);
     if (!mounted) return;
 
     switch (result) {
       case PdfOk<List<String>>():
-        _openSingleScanSave(result.value.single);
+        final pages = result.value;
+        if (pages.length == 1) {
+          _openSingleScanSave(pages.single);
+        } else {
+          _openMultiScanEdit(pages);
+        }
       case PdfErr<List<String>>():
         final failure = result.failure;
         if (failure is Cancelled) {
@@ -108,6 +119,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       MaterialPageRoute(
         builder: (_) => SingleScanSaveScreen(
           imagePath: imagePath,
+          suggestedTitle: _suggestedTitle('스캔'),
+        ),
+      ),
+    );
+  }
+
+  void _openMultiScanEdit(List<String> imagePaths) {
+    _busyHandedOff = true;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => PhotoEditScreen(
+          imagePaths: imagePaths,
+          origin: DocOrigin.scan,
           suggestedTitle: _suggestedTitle('스캔'),
         ),
       ),

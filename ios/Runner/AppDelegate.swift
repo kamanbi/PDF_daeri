@@ -53,7 +53,7 @@ enum PlatformChannels {
       }
     FlutterMethodChannel(name: "\(prefix)/document_scanner", binaryMessenger: messenger)
       .setMethodCallHandler { call, result in
-        if call.method == "start" { scanner.start(result) } else { result(FlutterMethodNotImplemented) }
+        if call.method == "start" { scanner.start(result, pageLimit: (call.arguments as? [String: Any])?["pageLimit"] as? Int ?? 1) } else { result(FlutterMethodNotImplemented) }
       }
     FlutterMethodChannel(name: "\(prefix)/intent", binaryMessenger: messenger)
       .setMethodCallHandler { call, result in
@@ -347,8 +347,9 @@ final class IntentStreamHandler: NSObject, FlutterStreamHandler {
 /// (스캔 화면이 한 장씩 받는다). 취소는 nil, 사용 불가는 UNAVAILABLE.
 final class DocumentScanner: NSObject, VNDocumentCameraViewControllerDelegate {
   private var pending: FlutterResult?
+  private var pageLimit = 1
 
-  func start(_ result: @escaping FlutterResult) {
+  func start(_ result: @escaping FlutterResult, pageLimit: Int) {
     guard pending == nil else {
       return result(FlutterError(code: "IN_PROGRESS", message: "문서 스캔이 이미 진행 중입니다.", details: nil))
     }
@@ -356,6 +357,7 @@ final class DocumentScanner: NSObject, VNDocumentCameraViewControllerDelegate {
       return result(FlutterError(code: "UNAVAILABLE", message: "이 기기에서는 문서 스캔을 사용할 수 없습니다.", details: nil))
     }
     pending = result
+    self.pageLimit = max(1, pageLimit)
     let controller = VNDocumentCameraViewController()
     controller.delegate = self
     presenter.present(controller, animated: true)
@@ -370,16 +372,24 @@ final class DocumentScanner: NSObject, VNDocumentCameraViewControllerDelegate {
   func documentCameraViewController(
     _ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan
   ) {
-    guard scan.pageCount > 0, let jpeg = scan.imageOfPage(at: 0).jpegData(compressionQuality: 0.95) else {
-      return finish(controller, nil)
+    guard scan.pageCount > 0 else { return finish(controller, nil) }
+    let stamp = Int(Date().timeIntervalSince1970 * 1000)
+    var paths: [String] = []
+    for index in 0..<min(scan.pageCount, pageLimit) {
+      guard let jpeg = scan.imageOfPage(at: index).jpegData(compressionQuality: 0.95) else {
+        paths.forEach { try? FileManager.default.removeItem(atPath: $0) }
+        return finish(controller, FlutterError(code: "COPY_FAILED", message: "스캔 결과를 가져오지 못했습니다.", details: nil))
+      }
+      let path = NSTemporaryDirectory() + "mlkit_scan_\(stamp)_\(index).jpg"
+      do {
+        try jpeg.write(to: URL(fileURLWithPath: path), options: .atomic)
+        paths.append(path)
+      } catch {
+        paths.forEach { try? FileManager.default.removeItem(atPath: $0) }
+        return finish(controller, FlutterError(code: "COPY_FAILED", message: "스캔 결과를 가져오지 못했습니다.", details: nil))
+      }
     }
-    let path = NSTemporaryDirectory() + "mlkit_scan_\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
-    do {
-      try jpeg.write(to: URL(fileURLWithPath: path), options: .atomic)
-      finish(controller, path)
-    } catch {
-      finish(controller, FlutterError(code: "COPY_FAILED", message: "스캔 결과를 가져오지 못했습니다.", details: nil))
-    }
+    finish(controller, paths)
   }
 
   func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {

@@ -1,7 +1,7 @@
 /// Google Play 서비스 문서 스캐너 진입점.
 ///
-/// 스캔 UI와 문서 보정은 ML Kit가 담당하고, 이 파일은 보정된 JPEG 한 장을 기존
-/// 저장 흐름으로 넘기는 얇은 경계층만 가진다.
+/// 스캔 UI와 문서 보정은 ML Kit(Android)·VisionKit(iOS)이 담당하고, 이 파일은 보정된 JPEG
+/// 여러 장을 기존 사진 편집·저장 흐름으로 넘기는 얇은 경계층만 가진다.
 library;
 
 import 'dart:developer' as developer;
@@ -16,7 +16,7 @@ import '../../core/platform_features.dart';
 abstract interface class ScanSource {
   Future<bool> isAvailable();
 
-  /// ML Kit에서 정리된 JPEG 경로 한 장을 반환한다.
+  /// 스캐너에서 정리된 JPEG 경로를 스캔한 순서대로 반환한다(최대 [pageLimit]장).
   Future<PdfResult<List<String>>> scan(
     BuildContext context, {
     int pageLimit = 1,
@@ -24,7 +24,7 @@ abstract interface class ScanSource {
 }
 
 abstract interface class DocumentScanLauncher {
-  Future<String?> open();
+  Future<List<String>?> open({required int pageLimit});
 }
 
 class MethodChannelDocumentScanLauncher implements DocumentScanLauncher {
@@ -35,7 +35,12 @@ class MethodChannelDocumentScanLauncher implements DocumentScanLauncher {
   final MethodChannel _channel;
 
   @override
-  Future<String?> open() => _channel.invokeMethod<String>('start');
+  Future<List<String>?> open({required int pageLimit}) async {
+    final paths = await _channel.invokeMethod<List<Object?>>('start', {
+      'pageLimit': pageLimit,
+    });
+    return paths?.whereType<String>().toList(growable: false);
+  }
 }
 
 class GoogleDocumentScanSource implements ScanSource {
@@ -62,10 +67,11 @@ class GoogleDocumentScanSource implements ScanSource {
     if (!context.mounted) return const PdfErr(Cancelled());
 
     try {
-      final imagePath = await _launcher.open();
-      if (imagePath == null || imagePath.isEmpty)
+      final imagePaths = await _launcher.open(pageLimit: pageLimit);
+      if (imagePaths == null || imagePaths.isEmpty) {
         return const PdfErr(Cancelled());
-      return PdfOk([imagePath]);
+      }
+      return PdfOk(imagePaths);
     } on PlatformException catch (error, stackTrace) {
       developer.log(
         'Google 문서 스캐너 실행 실패',

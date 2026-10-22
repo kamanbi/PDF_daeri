@@ -23,13 +23,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../ads/banner_host.dart';
 import '../../app/providers.dart';
 import '../../app/app_locale.dart';
-import '../../billing/billing_service.dart';
 import '../../billing/entitlement.dart';
 import '../../core/platform_features.dart';
 import '../../data/repository/recent_repository.dart';
 import '../../data/repository/settings_repository.dart';
 import '../../data/storage/workspace.dart';
 import '../../pdf/image_quality.dart';
+import '../premium/premium_screen.dart';
 
 /// 앱 부팅 시 1회 호출한다(`main.dart`). `LicenseRegistry.addLicense`에 등록된 항목은
 /// Flutter 표준 `showLicensePage`/`LicensePage`(이 화면이 여는 것과 동일 위젯, 그리고
@@ -111,7 +111,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   // 68 §6: AppFeatures.billing이 거짓이면 결제 관련 UI 블록
                   // 전체(광고 제거 구독/구독 관리/구독 상태 갱신)를 렌더하지 않는다.
                   if (AppFeatures.billing) ...const [
-                    _AdRemovalSection(),
+                    _PremiumTile(),
                     _SettingsDivider(),
                   ],
                   const _DefaultQualityTile(),
@@ -329,253 +329,25 @@ class _LicenseTile extends StatelessWidget {
   }
 }
 
-/// §6.2 [1] 광고 제거. `billing_service.dart`(구매/복원 흐름)·`entitlement.dart`
-/// (`adsRemovedProvider`, 신뢰의 최종 상태)를 그대로 소비한다 — 이 위젯은 상태를
-/// 만들지 않는다.
-class _AdRemovalSection extends ConsumerStatefulWidget {
-  const _AdRemovalSection();
+/// 프리미엄 구독 항목. 구매·관리는 [PremiumScreen] 한 곳에서 한다.
+class _PremiumTile extends ConsumerWidget {
+  const _PremiumTile();
 
   @override
-  ConsumerState<_AdRemovalSection> createState() => _AdRemovalSectionState();
-}
-
-class _AdRemovalSectionState extends ConsumerState<_AdRemovalSection> {
-  late final BillingService _billing;
-  late PurchaseUiState _uiState;
-  StreamSubscription<PurchaseUiState>? _sub;
-  bool _restoring = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _billing = ref.read(billingServiceProvider);
-    _uiState = _billing.state;
-    // §3.3: purchased/restored 이벤트에서 "광고가 제거되었습니다" 스낵바.
-    // 부팅 시 자동 복원(§3.6)처럼 이 화면이 열리기 전에 이미 반영된 상태는
-    // 여기서 다시 알리지 않는다 — 이 구독은 화면이 열려 있는 동안의 이벤트만 본다.
-    _sub = _billing.statusStream.listen((state) {
-      if (!mounted) return;
-      setState(() => _uiState = state);
-      if (state == PurchaseUiState.purchased) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(appText(context, '구독 혜택이 적용되었습니다'))),
-        );
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    unawaited(_sub?.cancel());
-    super.dispose();
-  }
-
-  Future<void> _restore() async {
-    setState(() => _restoring = true);
-    final outcome = await _billing.restoreManually();
-    if (!mounted) return;
-    setState(() => _restoring = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          appText(context, switch (outcome) {
-            RestoreOutcome.restored => '활성 구독을 확인했습니다',
-            RestoreOutcome.nothingToRestore => '활성 구독이 없습니다',
-            RestoreOutcome.verificationUnavailable =>
-              '구독 확인 서버에 연결하지 못했습니다. 기존 구독 혜택은 유지됩니다.',
-          }),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final adsRemoved = ref.watch(adsRemovedProvider).valueOrNull ?? false;
-
-    // 활성 구독이면 상태와 관리 진입점만 보여 준다.
-    if (adsRemoved) {
-      return _buildActiveSubscriptionRows();
-    }
-
-    switch (_uiState) {
-      case PurchaseUiState.loading:
-        return _SettingsRow(
-          title: appText(context, '광고 제거 + OCR'),
-          subtitle: Text(appText(context, '불러오는 중…')),
-        );
-      case PurchaseUiState.unavailable:
-        // §3.6: 구매·복원 항목을 비활성 + 안내 문구로 둔다. 항목 자체는 숨기지 않는다.
-        return _buildPurchaseRows(
-          yearlyPlan: null,
-          unavailableMessage: appText(context, '이 기기에서는 구독을 사용할 수 없습니다'),
-          buyEnabled: false,
-          restoreEnabled: false,
-        );
-      case PurchaseUiState.notFound:
-        return _buildPurchaseRows(
-          yearlyPlan: null,
-          unavailableMessage: appText(context, '지금 구독할 수 없습니다'),
-          buyEnabled: false,
-          restoreEnabled: true,
-        );
-      case PurchaseUiState.available:
-        return _buildPurchaseRows(
-          yearlyPlan: _billing.yearlyPlan,
-          unavailableMessage: appText(context, '현재 이용할 수 없습니다'),
-          buyEnabled: true,
-          restoreEnabled: true,
-        );
-      case PurchaseUiState.purchasePending:
-        // §6.2: 버튼 자리에 16dp 스피너, 재탭 차단.
-        return _SettingsRow(
-          title: appText(context, '광고 제거 + OCR'),
-          subtitle: Text(appText(context, '처리 중…')),
-          trailing: const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        );
-      case PurchaseUiState.purchased:
-        return _buildActiveSubscriptionRows();
-    }
-  }
-
-  Widget _buildActiveSubscriptionRows() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _SettingsRow(
-          title: appText(context, '광고 제거 + OCR'),
-          subtitle: Text(appText(context, '구독 중 · 광고 없이 OCR PDF를 만들 수 있습니다')),
-        ),
-        const _SettingsDivider(),
-        _SettingsRow(
-          title: appText(context, '구독 관리'),
-          subtitle: Text(
-            appText(
-              context,
-              _isIosStore
-                  ? 'App Store에서 갱신 또는 취소할 수 있습니다'
-                  : 'Google Play에서 갱신 또는 취소할 수 있습니다',
-            ),
-          ),
-          trailing: OutlinedButton(
-            onPressed: _openSubscriptionManagement,
-            child: Text(appText(context, '관리')),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _openSubscriptionManagement() async {
-    final opened = await launchUrl(
-      Uri.parse(
-        _isIosStore ? kAppStoreSubscriptionManageUrl : kSubscriptionManageUrl,
-      ),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!mounted || opened) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          appText(
-            context,
-            _isIosStore
-                ? 'App Store 구독 관리 페이지를 열 수 없습니다'
-                : 'Google Play 구독 관리 페이지를 열 수 없습니다',
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openTerms() async {
-    final opened = await launchUrl(
-      Uri.parse(kAppleStandardEulaUrl),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!mounted || opened) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(appText(context, '이용 약관을 열 수 없습니다'))),
-    );
-  }
-
-  Widget _buildPurchaseRows({
-    required SubscriptionPlan? yearlyPlan,
-    required String unavailableMessage,
-    required bool buyEnabled,
-    required bool restoreEnabled,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildPlanPurchaseRow(
-          title: appText(context, '연간 광고 제거 + OCR'),
-          plan: yearlyPlan,
-          unavailableMessage: unavailableMessage,
-          buyEnabled: buyEnabled,
-        ),
-        const _SettingsDivider(),
-        _SettingsRow(
-          title: appText(context, '구독 상태 갱신'),
-          subtitle: Text(
-            appText(
-              context,
-              _isIosStore
-                  ? 'App Store의 활성 구독을 다시 확인합니다'
-                  : 'Google Play의 활성 구독을 다시 확인합니다',
-            ),
-          ),
-          trailing: OutlinedButton(
-            onPressed: (restoreEnabled && !_restoring) ? _restore : null,
-            child: _restoring
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(appText(context, '갱신')),
-          ),
-        ),
-        if (_isIosStore) ...[
-          const _SettingsDivider(),
-          _SettingsRow(
-            title: appText(context, '구독 안내'),
-            subtitle: Text(
-              appText(
-                context,
-                '구독은 App Store 계정으로 결제되며, 현재 기간이 끝나기 최소 24시간 전에 해지하지 않으면 자동으로 갱신됩니다. 구매 후 설정에서 관리하거나 해지할 수 있습니다.',
-              ),
-            ),
-            trailing: OutlinedButton(
-              onPressed: _openTerms,
-              child: Text(appText(context, '이용 약관')),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildPlanPurchaseRow({
-    required String title,
-    required SubscriptionPlan? plan,
-    required String unavailableMessage,
-    required bool buyEnabled,
-  }) {
-    final subtitle = plan == null
-        ? unavailableMessage
-        : '${plan.product.price} / ${appText(context, plan.billingPeriod)} · ${appText(context, '자동 갱신')}';
     return _SettingsRow(
-      title: title,
-      subtitle: Text(subtitle),
-      trailing: FilledButton(
-        onPressed: buyEnabled && plan != null ? () => _billing.buy(plan) : null,
-        child: Text(appText(context, '구독')),
+      title: appText(context, '프리미엄'),
+      subtitle: Text(
+        appText(
+          context,
+          adsRemoved
+              ? '구독 중 · 광고 없이 OCR PDF를 만들 수 있습니다'
+              : '광고 제거 + OCR PDF · 연간 구독',
+        ),
       ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => showPremiumScreen(context),
     );
   }
 }

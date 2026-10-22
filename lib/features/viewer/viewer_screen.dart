@@ -28,7 +28,7 @@ import 'package:flutter/services.dart'
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../ads/banner_host.dart';
-import '../../billing/billing_service.dart';
+import '../premium/premium_screen.dart';
 import '../../billing/entitlement.dart';
 import '../../app/providers.dart';
 import '../../app/app_locale.dart';
@@ -378,27 +378,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       return;
     }
     if (entitlement.valueOrNull != true) {
-      final subscribe = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(appText(dialogContext, '텍스트 인식 구독')),
-          content: Text(appText(dialogContext, 'OCR로 글자를 검색·선택·복사하고 광고도 제거할 수 있습니다.')),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(appText(dialogContext, '취소'))),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(appText(dialogContext, '구독하기'))),
-          ],
-        ),
-      );
-      if (!mounted || subscribe != true) return;
-      final billing = ref.read(billingServiceProvider);
-      final plan = billing.yearlyPlan;
-      if (billing.state != PurchaseUiState.available || plan == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(appText(context, '지금은 연간 구독 상품을 불러올 수 없습니다.'))),
-        );
-        return;
-      }
-      await billing.buy(plan);
+      await showPremiumScreen(context);
       return;
     }
     final result = await showOcrScreen(

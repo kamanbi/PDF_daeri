@@ -173,6 +173,20 @@ const _english = <String, String>{
   'Google Play에서 별점과 리뷰를 남겨 주세요': 'Leave a rating and review on Google Play',
   'Google Play 리뷰 페이지를 열 수 없습니다': 'Could not open the Google Play review page',
   'App Store에서 별점과 리뷰를 남겨 주세요': 'Leave a rating and review on the App Store',
+  '프리미엄': 'Premium',
+  'PDF 대리 프리미엄': 'PDF Daeri Premium',
+  '광고 없이 쓰고, 스캔한 문서의 글자까지 인식합니다':
+      'Use the app ad-free and recognize text in scanned documents',
+  '광고 제거': 'Ad removal',
+  '앱 어디에서도 광고가 표시되지 않습니다': 'No ads anywhere in the app',
+  'OCR PDF 만들기': 'Create OCR PDFs',
+  '스캔·사진 문서의 글자를 인식해 검색·선택·복사할 수 있습니다':
+      'Recognize text in scans and photos so you can search, select and copy it',
+  '연간 구독': 'Annual subscription',
+  '구독 중입니다': 'You are subscribed',
+  '광고 제거 + OCR PDF · 연간 구독': 'Ad removal + OCR PDF · Annual subscription',
+  '구독은 Google Play 계정으로 결제되며, 현재 기간이 끝나기 최소 24시간 전에 해지하지 않으면 자동으로 갱신됩니다. Google Play에서 언제든 관리하거나 해지할 수 있습니다.':
+      'Payment is charged to your Google Play account. The subscription renews automatically unless canceled at least 24 hours before the end of the current period. You can manage or cancel it in Google Play at any time.',
   'App Store 리뷰 페이지를 열 수 없습니다': 'Could not open the App Store review page',
   '설정': 'Settings',
   '언어': 'Language',

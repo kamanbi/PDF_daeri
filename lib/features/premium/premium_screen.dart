@@ -10,6 +10,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -30,6 +31,8 @@ Future<void> showPremiumScreen(BuildContext context) {
 }
 
 bool get _isIosStore => defaultTargetPlatform == TargetPlatform.iOS;
+
+const _billingChannel = MethodChannel('com.kamanbi.pdf_daeri/billing');
 
 class PremiumScreen extends ConsumerStatefulWidget {
   const PremiumScreen({super.key});
@@ -82,6 +85,28 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           }),
         ),
       ),
+    );
+  }
+
+  /// iOS는 Apple의 구독 관리 시트를 먼저 띄운다(TestFlight 테스트 구독도 여기서 취소할 수 있다).
+  /// 시트를 띄우지 못하면 구독 관리 웹 링크로 대신한다.
+  Future<void> _manageSubscription() async {
+    if (_isIosStore) {
+      try {
+        final shown = await _billingChannel.invokeMethod<bool>(
+          'showManageSubscriptions',
+        );
+        if (shown == true) return;
+      } catch (_) {
+        // 채널 오류는 아래 웹 링크로 대신한다.
+      }
+      if (!mounted) return;
+    }
+    await _open(
+      _isIosStore ? kAppStoreSubscriptionManageUrl : kSubscriptionManageUrl,
+      _isIosStore
+          ? 'App Store 구독 관리 페이지를 열 수 없습니다'
+          : 'Google Play 구독 관리 페이지를 열 수 없습니다',
     );
   }
 
@@ -209,14 +234,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: () => _open(
-                  _isIosStore
-                      ? kAppStoreSubscriptionManageUrl
-                      : kSubscriptionManageUrl,
-                  _isIosStore
-                      ? 'App Store 구독 관리 페이지를 열 수 없습니다'
-                      : 'Google Play 구독 관리 페이지를 열 수 없습니다',
-                ),
+                onPressed: _manageSubscription,
                 child: Text(appText(context, '구독 관리')),
               ),
             ),

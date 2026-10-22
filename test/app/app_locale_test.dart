@@ -51,6 +51,25 @@ void main() {
     );
   });
 
+  test('iOS 3-letter storefront country KOR is treated as Korea', () {
+    expect(
+      resolveAppLocale(
+        choice: LanguageChoice.automatic,
+        playCountry: 'KOR',
+        deviceLocale: const Locale('en', 'US'),
+      ).languageCode,
+      'ko',
+    );
+    expect(
+      resolveAppLocale(
+        choice: LanguageChoice.automatic,
+        playCountry: 'USA',
+        deviceLocale: const Locale('ko', 'KR'),
+      ).languageCode,
+      'en',
+    );
+  });
+
   test('device locale is used when Play country is unavailable', () {
     expect(
       resolveAppLocale(

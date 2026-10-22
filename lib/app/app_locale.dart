@@ -63,7 +63,9 @@ Locale resolveAppLocale({
   if (choice == LanguageChoice.korean) return const Locale('ko');
   if (choice == LanguageChoice.english) return const Locale('en');
   if (playCountry != null && playCountry.isNotEmpty) {
-    return Locale(playCountry.toUpperCase() == 'KR' ? 'ko' : 'en');
+    // Google Play는 2글자(KR), iOS StoreKit은 3글자(KOR) 국가 코드를 준다.
+    final country = playCountry.toUpperCase();
+    return Locale(country == 'KR' || country == 'KOR' ? 'ko' : 'en');
   }
   return Locale(
     deviceLocale.countryCode?.toUpperCase() == 'KR' ||

@@ -1,5 +1,6 @@
 import Flutter
 import Photos
+import StoreKit
 import UIKit
 import VisionKit
 
@@ -46,6 +47,10 @@ enum PlatformChannels {
         default: result(FlutterMethodNotImplemented)
         }
       }
+    FlutterMethodChannel(name: "\(prefix)/billing", binaryMessenger: messenger)
+      .setMethodCallHandler { call, result in
+        if call.method == "showManageSubscriptions" { showManageSubscriptions(result) } else { result(FlutterMethodNotImplemented) }
+      }
     FlutterMethodChannel(name: "\(prefix)/document_scanner", binaryMessenger: messenger)
       .setMethodCallHandler { call, result in
         if call.method == "start" { scanner.start(result) } else { result(FlutterMethodNotImplemented) }
@@ -62,6 +67,26 @@ enum PlatformChannels {
       }
     FlutterEventChannel(name: "\(prefix)/intent/stream", binaryMessenger: messenger)
       .setStreamHandler(intentStream)
+  }
+
+  // MARK: billing
+
+  /// Apple의 구독 관리 시트를 앱 위에 띄운다. TestFlight 테스트 구독도 이 시트에서 관리·취소할 수 있다.
+  /// 시트를 띄우지 못하면 false를 돌려주고, 호출한 쪽이 웹 링크로 대신한다.
+  static func showManageSubscriptions(_ result: @escaping FlutterResult) {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else {
+      result(false)
+      return
+    }
+    Task { @MainActor in
+      do {
+        try await AppStore.showManageSubscriptions(in: scene)
+        result(true)
+      } catch {
+        result(false)
+      }
+    }
   }
 
   // MARK: intent

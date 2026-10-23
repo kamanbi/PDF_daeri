@@ -255,7 +255,12 @@ class PdfxRenderer implements PdfRenderer {
   }) async {
     switch (page) {
       case ImagePageRef():
-        return _renderImageFileToPng(page.imagePath, targetWidthPx: targetWidthPx, crop: page.crop);
+        final result = await _renderImageFileToPng(page.imagePath, targetWidthPx: targetWidthPx, crop: page.crop);
+        // 저장 경로는 회전을 PDF에 적용한다 -- 그리드 썸네일도 같은 결과를 보여 준다.
+        if (result is PdfOk<Uint8List> && page.rotation != 0) {
+          return _rotatePng(result.value, page.rotation);
+        }
+        return result;
       case PdfPageRef():
         try {
           final doc = await _open(page.sourcePath);
@@ -366,6 +371,46 @@ class PdfxRenderer implements PdfRenderer {
       }
     } catch (e) {
       return PdfErr(SourceCorrupted('$imagePath: $e'));
+    }
+  }
+
+  /// [png]를 시계방향으로 [rotation]도(90의 배수) 돌린다. 화면 표시용 썸네일 전용이다.
+  Future<PdfResult<Uint8List>> _rotatePng(Uint8List png, int rotation) async {
+    final steps = (rotation ~/ 90) % 4;
+    if (steps == 0) return PdfOk(png);
+    try {
+      final codec = await ui.instantiateImageCodec(png);
+      try {
+        final frame = await codec.getNextFrame();
+        final source = frame.image;
+        try {
+          final swap = steps.isOdd;
+          final width = swap ? source.height : source.width;
+          final height = swap ? source.width : source.height;
+          final recorder = ui.PictureRecorder();
+          final canvas = ui.Canvas(recorder);
+          canvas.translate(width / 2, height / 2);
+          canvas.rotate(steps * 1.5707963267948966);
+          canvas.translate(-source.width / 2, -source.height / 2);
+          canvas.drawImage(source, ui.Offset.zero, ui.Paint());
+          final picture = recorder.endRecording();
+          final rotated = await picture.toImage(width, height);
+          try {
+            final byteData = await rotated.toByteData(format: ui.ImageByteFormat.png);
+            if (byteData == null) return PdfErr(const UnknownFailure('png encode failed'));
+            return PdfOk(byteData.buffer.asUint8List());
+          } finally {
+            rotated.dispose();
+            picture.dispose();
+          }
+        } finally {
+          source.dispose();
+        }
+      } finally {
+        codec.dispose();
+      }
+    } catch (e) {
+      return PdfErr(UnknownFailure('rotate failed: $e'));
     }
   }
 

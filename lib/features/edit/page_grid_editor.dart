@@ -190,6 +190,8 @@ class _PageGridEditorState extends ConsumerState<PageGridEditor> {
       builder: (context, candidateData, rejectedData) {
         return LongPressDraggable<int>(
           data: page.id,
+          // 기본 0.5초가 길게 느껴져 끌기가 안 되는 것처럼 보였다 -- 0.1초만 눌러도 시작한다.
+          delay: const Duration(milliseconds: 100),
           feedback: Material(
             elevation: 4,
             child: SizedBox(width: 100, height: 130, child: cell),

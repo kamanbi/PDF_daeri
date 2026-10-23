@@ -123,7 +123,8 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final adsRemoved = ref.watch(adsRemovedProvider).valueOrNull ?? false;
+    // 광고 제거와 OCR은 같은 검증된 구독이 허용한다 -- 같은 값을 `ocrEntitlementProvider`로 읽는다.
+    final subscribed = ref.watch(ocrEntitlementProvider).valueOrNull ?? false;
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -170,7 +171,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               ),
             ),
             const SizedBox(height: 28),
-            if (adsRemoved)
+            if (subscribed)
               _buildActive(context)
             else
               _buildPurchase(context),

@@ -3,6 +3,8 @@
 library;
 
 import '../../app/app_locale.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -78,32 +80,53 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     }
 
     setState(() => _state = _ScanState.scanning);
-    final result = await scanSource.scan(context, pageLimit: _pageLimit);
-    if (!mounted) return;
+    // iOS(VisionKit)는 스캐너 안에서 여러 장을 이어서 찍고 한 번에 돌려준다. Android(ML Kit)는
+    // 한 번에 한 장씩 돌려주므로, 사용자가 스캐너를 닫을 때까지 자동으로 다시 열어 이어서 찍게 한다.
+    final continuous = defaultTargetPlatform == TargetPlatform.android;
+    final pages = <String>[];
+    while (true) {
+      final result = await scanSource.scan(
+        context,
+        pageLimit: continuous ? 1 : _pageLimit,
+      );
+      if (!mounted) return;
 
-    switch (result) {
-      case PdfOk<List<String>>():
-        final pages = result.value;
-        if (pages.length == 1) {
-          _openSingleScanSave(pages.single);
-        } else {
-          _openMultiScanEdit(pages);
-        }
-      case PdfErr<List<String>>():
-        final failure = result.failure;
-        if (failure is Cancelled) {
-          // 사용자가 스캔 없이 뒤로 나감 — 정상 취소, 홈으로 복귀.
-          Navigator.of(context).pop();
+      switch (result) {
+        case PdfOk<List<String>>():
+          pages.addAll(result.value);
+          if (continuous && pages.length < _pageLimit) continue;
+          _finishWithPages(pages);
           return;
-        }
-        if (failure is EngineUnsupported) {
-          setState(() => _state = _ScanState.unsupported);
+        case PdfErr<List<String>>():
+          final failure = result.failure;
+          if (pages.isNotEmpty) {
+            // 이미 찍은 장이 있으면 닫기·오류 모두 "그만 찍기"로 보고 지금까지 것을 넘긴다.
+            _finishWithPages(pages);
+            return;
+          }
+          if (failure is Cancelled) {
+            // 사용자가 스캔 없이 뒤로 나감 — 정상 취소, 홈으로 복귀.
+            Navigator.of(context).pop();
+            return;
+          }
+          if (failure is EngineUnsupported) {
+            setState(() => _state = _ScanState.unsupported);
+            return;
+          }
+          setState(() {
+            _state = _ScanState.failed;
+            _errorMessage = _describeFailure(failure);
+          });
           return;
-        }
-        setState(() {
-          _state = _ScanState.failed;
-          _errorMessage = _describeFailure(failure);
-        });
+      }
+    }
+  }
+
+  void _finishWithPages(List<String> pages) {
+    if (pages.length == 1) {
+      _openSingleScanSave(pages.single);
+    } else {
+      _openMultiScanEdit(pages);
     }
   }
 

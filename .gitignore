@@ -138,3 +138,6 @@ replay_pid*.log
 # iOS qpdf 정적 라이브러리(CI에서 tool/build_qpdf_ios.sh로 생성)
 /ios/qpdf/
 /.qpdf_build_tmp/
+
+# 앱스토어 심사용 영상·스크린샷(개인 식별 정보 포함 가능) — 저장소와 사이트에 올리지 않는다
+assets/ios assets/

@@ -1,5 +1,5 @@
 [build]
-  command = "node -e \"require('fs').cpSync('assets', 'website/assets', { recursive: true })\""
+  command = "node -e \"require('fs').cpSync('assets', 'website/assets', { recursive: true, filter: (src) => !src.includes('ios assets') })\""
   publish = "website"
 
 [functions]
